@@ -13,6 +13,6 @@ class Patient < ApplicationRecord
   scope :active, -> { where(active: true) }
 
   def address
-    [address_line1, address_line2, city, state, postal_code].compact_blank.join(", ")
+    [ address_line1, address_line2, city, state, postal_code ].compact_blank.join(", ")
   end
 end

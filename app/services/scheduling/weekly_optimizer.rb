@@ -54,7 +54,7 @@ module Scheduling
         end
       end
 
-      [plan.sort_by { |slot| slot[:starts_at] }, soft_constraint_count]
+      [ plan.sort_by { |slot| slot[:starts_at] }, soft_constraint_count ]
     end
 
     def find_best_slot(patient:, blocked_ranges:, current_plan:)
@@ -83,7 +83,7 @@ module Scheduling
       if candidates.empty?
         fallback_slot(patient:, blocked_ranges:, current_plan:)
       else
-        candidates.min_by { |candidate| [candidate[:date], candidate[:starts_at]] }
+        candidates.min_by { |candidate| [ candidate[:date], candidate[:starts_at] ] }
       end
     end
 
@@ -116,22 +116,20 @@ module Scheduling
     end
 
     def fallback_windows_for(_date)
-      [Scheduling::TimeWindow.new(DAY_START_MINUTE, DAY_END_MINUTE)]
+      [ Scheduling::TimeWindow.new(DAY_START_MINUTE, DAY_END_MINUTE) ]
     end
 
     def create_visits!(schedule, visit_plan, travel_matrix)
       grouped = visit_plan.group_by { |slot| slot[:starts_at].to_date }
 
       grouped.each_value do |slots|
-        sorted = slots.sort_by { |slot| [slot[:patient].latitude || 999, slot[:patient].longitude || 999, slot[:starts_at]] }
+        sorted = slots.sort_by do |slot|
+          [ slot[:patient].latitude || 999, slot[:patient].longitude || 999, slot[:starts_at] ]
+        end
         previous_patient_id = nil
 
         sorted.each_with_index do |slot, index|
-          drive_minutes = if previous_patient_id.nil?
-                            0
-                          else
-                            travel_matrix.dig(previous_patient_id, slot[:patient].id) || 0
-                          end
+          drive_minutes = previous_patient_id.nil? ? 0 : (travel_matrix.dig(previous_patient_id, slot[:patient].id) || 0)
 
           schedule.visits.create!(
             patient: slot[:patient],

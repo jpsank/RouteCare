@@ -40,14 +40,15 @@ class Api::V1::VisitsController < Api::V1::BaseController
     day_visits = visit.weekly_schedule.visits.for_day(visit.starts_at.to_date)
     previous = nil
     day_visits.each_with_index do |day_visit, index|
-      drive_time = if previous
-                     Integrations::RoutingClient.new.travel_minutes(
-                       origin: { lat: previous.patient.latitude, lng: previous.patient.longitude },
-                       destination: { lat: day_visit.patient.latitude, lng: day_visit.patient.longitude }
-                     )
-                   else
-                     0
-                   end
+      drive_time =
+        if previous
+          Integrations::RoutingClient.new.travel_minutes(
+            origin: { lat: previous.patient.latitude, lng: previous.patient.longitude },
+            destination: { lat: day_visit.patient.latitude, lng: day_visit.patient.longitude }
+          )
+        else
+          0
+        end
 
       day_visit.update!(
         position_in_day: index,

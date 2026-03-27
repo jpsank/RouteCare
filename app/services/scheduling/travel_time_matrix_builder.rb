@@ -10,14 +10,15 @@ module Scheduling
         matrix[origin.id] = {}
 
         patients.each do |destination|
-          matrix[origin.id][destination.id] = if origin.id == destination.id
-                                                0
-                                              else
-                                                routing_client.travel_minutes(
-                                                  origin: point_for(origin),
-                                                  destination: point_for(destination)
-                                                )
-                                              end
+          matrix[origin.id][destination.id] =
+            if origin.id == destination.id
+              0
+            else
+              routing_client.travel_minutes(
+                origin: point_for(origin),
+                destination: point_for(destination)
+              )
+            end
         end
       end
     end
