@@ -1,0 +1,29 @@
+class PatientSerializer
+  class << self
+    def as_json(patient)
+      {
+        id: patient.id,
+        full_name: patient.full_name,
+        phone: patient.phone,
+        email: patient.email,
+        address: patient.address,
+        required_visits_per_week: patient.required_visits_per_week,
+        visit_duration_minutes: patient.visit_duration_minutes,
+        active: patient.active,
+        notes: patient.notes,
+        latitude: patient.latitude,
+        longitude: patient.longitude,
+        availability_windows: patient.patient_availability_windows
+          .order(:day_of_week, :start_minute)
+          .map do |window|
+            {
+              id: window.id,
+              day_of_week: window.day_of_week,
+              start_minute: window.start_minute,
+              end_minute: window.end_minute
+            }
+          end
+      }
+    end
+  end
+end

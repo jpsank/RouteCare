@@ -1,0 +1,160 @@
+.routecare-app {
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  color: #111827;
+  background: #f8fafc;
+  min-height: 100vh;
+}
+
+.routecare-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.routecare-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.routecare-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.routecare-subtitle {
+  margin: 0.25rem 0 0;
+  color: #475569;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.metric-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.9rem;
+}
+
+.metric-label {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.metric-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-top: 0.2rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 1024px) {
+  .grid {
+    grid-template-columns: 1.5fr 1fr;
+  }
+}
+
+.card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 0.8rem;
+  font-size: 1.1rem;
+}
+
+.day-column {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.6rem;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.visit {
+  border: 1px solid #dbeafe;
+  border-left: 4px solid #3b82f6;
+  border-radius: 0.5rem;
+  background: #f8fbff;
+  padding: 0.55rem;
+  margin-bottom: 0.45rem;
+}
+
+.visit.pending_patient_confirmation {
+  border-left-color: #f59e0b;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.visit.confirmed {
+  border-left-color: #10b981;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.visit.declined {
+  border-left-color: #ef4444;
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
+.visit.unscheduled {
+  border-left-color: #6b7280;
+  border-color: #d1d5db;
+  background: #f9fafb;
+}
+
+.visit-title {
+  font-weight: 600;
+}
+
+.visit-meta {
+  color: #475569;
+  font-size: 0.88rem;
+}
+
+.controls {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+}
+
+button {
+  border: 1px solid #cbd5e1;
+  background: white;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+button.primary {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: white;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #b91c1c;
+}
