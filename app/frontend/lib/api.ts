@@ -3,14 +3,20 @@ import type { Alert, CalendarBlock, Message, Patient, Visit, Schedule as WeeklyS
 type JsonObject = Record<string, unknown>;
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+  const headers = new Headers(options.headers);
+  headers.set("Accept", "application/json");
+  if (!(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (csrfToken) {
+    headers.set("X-CSRF-Token", csrfToken);
+  }
+
   const response = await fetch(path, {
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...options.headers,
-    },
-    credentials: "same-origin",
     ...options,
+    headers,
+    credentials: "same-origin",
   });
 
   if (!response.ok) {
@@ -139,8 +145,18 @@ export async function updatePatient(patientId: number, patient: Partial<CreatePa
 }
 
 export const api = {
-  getSchedule: (weekStartOn?: string) =>
-    request<{ schedule: WeeklySchedule }>(`/api/v1/schedule${weekStartOn ? `?week_start_on=${encodeURIComponent(weekStartOn)}` : ""}`),
+  getSchedule: async (weekStartOn?: string) => {
+    try {
+      return await request<{ schedule: WeeklySchedule }>(
+        `/api/v1/schedule${weekStartOn ? `?week_start_on=${encodeURIComponent(weekStartOn)}` : ""}`,
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === "Schedule not found") {
+        return { schedule: null };
+      }
+      throw error;
+    }
+  },
   optimizeSchedule: (weekStartOn?: string) =>
     request<{ schedule: WeeklySchedule; generated: boolean }>("/api/v1/schedule/optimize", {
       method: "POST",
