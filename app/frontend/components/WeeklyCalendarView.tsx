@@ -11,6 +11,19 @@ function fmt(date: string): string {
   return new Date(date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function statusClass(status: string): string {
+  switch (status) {
+    case "confirmed":
+      return "status-success";
+    case "declined":
+      return "status-danger";
+    case "unscheduled":
+      return "status-muted";
+    default:
+      return "status-warning";
+  }
+}
+
 export function WeeklyCalendarView({ schedule, loading, onOptimize, onApprove }: Props) {
   if (!schedule) {
     return (
@@ -34,6 +47,9 @@ export function WeeklyCalendarView({ schedule, loading, onOptimize, onApprove }:
   return (
     <section className="card">
       <h2>Weekly Calendar</h2>
+      <p className="section-subtitle">
+        Visits are sequenced to reduce drive time while respecting patient availability and blocked calendar time.
+      </p>
       <div className="controls">
         <button className="primary" onClick={onOptimize} disabled={loading}>
           {loading ? "Optimizing..." : "Re-optimize Week"}
@@ -53,7 +69,8 @@ export function WeeklyCalendarView({ schedule, loading, onOptimize, onApprove }:
                   {visit.patient_name} | {fmt(visit.starts_at)} - {fmt(visit.ends_at)}
                 </div>
                 <div className="visit-meta">
-                  Drive from previous: {visit.drive_from_previous_minutes} min
+                  <span className={`pill ${statusClass(visit.status)}`}>{visit.status.replaceAll("_", " ")}</span>
+                  <span>Drive from previous: {visit.drive_from_previous_minutes} min</span>
                 </div>
               </article>
             ))}

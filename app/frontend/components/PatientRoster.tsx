@@ -1,7 +1,7 @@
 import type { Patient } from "../types";
 
 type Props = {
-  patients: Patient[];
+  patients: ReadonlyArray<Patient>;
   onCreate: (patient: Partial<Patient>) => Promise<void>;
   onRefresh: () => Promise<void>;
 };
@@ -23,21 +23,34 @@ export function PatientRoster({ patients, onCreate, onRefresh }: Props) {
 
   return (
     <section className="card">
-      <h2>Patient Roster</h2>
+      <div className="section-header">
+        <div>
+          <h2>Patient Roster</h2>
+          <p className="section-subtitle">Maintain patient profiles and visit frequency preferences.</p>
+        </div>
+      </div>
       <div className="controls">
-        <button onClick={createQuickPatient}>Add Quick Patient</button>
+        <button className="primary" onClick={createQuickPatient}>
+          Add Quick Patient
+        </button>
         <button onClick={onRefresh}>Refresh Roster</button>
       </div>
-      {patients.length === 0 ? <p>No active patients yet.</p> : null}
+      {patients.length === 0 ? <p className="muted">No active patients yet.</p> : null}
       <div className="patient-grid">
         {patients.map((patient) => (
-          <article key={patient.id} className="visit-card">
-            <h3>{patient.full_name}</h3>
-            <p>{patient.address}</p>
-            <p>{patient.phone}</p>
-            <p>
-              {patient.required_visits_per_week}x/week · {patient.visit_duration_minutes} min
-            </p>
+          <article key={patient.id} className="patient-card">
+            <div className="patient-card-top">
+              <h3>{patient.full_name}</h3>
+              <span className={`badge ${patient.active ? "badge-confirmed" : "badge-declined"}`}>
+                {patient.active ? "Active" : "Inactive"}
+              </span>
+            </div>
+            <p className="muted">{patient.address}</p>
+            <p className="muted">{patient.phone}</p>
+            <div className="patient-meta">
+              <span>{patient.required_visits_per_week}x/week</span>
+              <span>{patient.visit_duration_minutes} min visits</span>
+            </div>
           </article>
         ))}
       </div>

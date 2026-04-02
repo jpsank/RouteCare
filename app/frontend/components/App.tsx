@@ -44,6 +44,18 @@ export function App() {
   }, [refreshData]);
 
   const visits = useMemo(() => schedule?.visits ?? [], [schedule]);
+  const pendingCount = useMemo(
+    () => visits.filter((visit) => visit.status === "pending_patient_confirmation").length,
+    [visits],
+  );
+  const confirmedCount = useMemo(
+    () => visits.filter((visit) => visit.status === "confirmed").length,
+    [visits],
+  );
+  const openAlertsCount = useMemo(
+    () => alerts.filter((alert) => alert.status === "open").length,
+    [alerts],
+  );
   const selectedRouteDate =
     visits.length > 0
       ? visits[0].starts_at.slice(0, 10)
@@ -138,35 +150,59 @@ export function App() {
   };
 
   return (
-    <div className="layout">
-      <header className="topbar">
-        <div>
-          <h1>RouteCare</h1>
-          <p className="subtitle">Route-optimized field scheduling for home-visit clinicians</p>
-        </div>
-        <div className="actions">
-          <button onClick={refreshData} disabled={loading}>
-            Refresh
-          </button>
-        </div>
-      </header>
+    <div className="routecare-app">
+      <div className="routecare-shell">
+        <header className="routecare-header">
+          <div>
+            <p className="eyebrow">RouteCare</p>
+            <h1 className="routecare-title">Field Scheduling Command Center</h1>
+            <p className="routecare-subtitle">
+              Route-optimized home-visit scheduling for PT, OT, and home health clinicians.
+            </p>
+          </div>
+          <div className="actions">
+            <button className="primary-btn" onClick={refreshData} disabled={loading}>
+              {loading ? "Refreshing..." : "Refresh Data"}
+            </button>
+          </div>
+        </header>
 
-      <nav className="tabs">
-        {([
-          ["schedule", "Weekly Calendar"],
-          ["route", "Daily Route"],
-          ["patients", "Patient Roster"],
-          ["messages", "Patient Messages"],
-          ["alerts", "Alerts"],
-        ] as Array<[Tab, string]>).map(([tab, label]) => (
-          <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
-            {label}
-          </button>
-        ))}
-      </nav>
+        <section className="metrics-row">
+          <article className="metric-card">
+            <p className="metric-label">Total Weekly Visits</p>
+            <p className="metric-value">{visits.length}</p>
+          </article>
+          <article className="metric-card">
+            <p className="metric-label">Pending Confirmations</p>
+            <p className="metric-value">{pendingCount}</p>
+          </article>
+          <article className="metric-card">
+            <p className="metric-label">Confirmed Visits</p>
+            <p className="metric-value">{confirmedCount}</p>
+          </article>
+          <article className="metric-card">
+            <p className="metric-label">Open Alerts</p>
+            <p className="metric-value">{openAlertsCount}</p>
+          </article>
+        </section>
 
-      {error && <div className="error">{error}</div>}
-      {renderMain()}
+        <nav className="tabs">
+          {([
+            ["schedule", "Weekly Calendar"],
+            ["route", "Daily Route"],
+            ["patients", "Patient Roster"],
+            ["messages", "Patient Messages"],
+            ["alerts", "Alerts"],
+          ] as Array<[Tab, string]>).map(([tab, label]) => (
+            <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        {error && <div className="error-banner">{error}</div>}
+        <main>{renderMain()}</main>
+      </div>
     </div>
   );
 }

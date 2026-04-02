@@ -26,39 +26,58 @@ export function MessagingPanel({ visits, messages, onSend }: Props) {
 
   return (
     <section className="card">
-      <div className="section-header">
-        <h3>Patient Communication</h3>
-      </div>
+      <header className="section-header">
+        <div>
+          <h2 className="section-title">Patient Communication</h2>
+          <p className="section-subtitle">Send appointment proposals and review inbound responses.</p>
+        </div>
+      </header>
+
       <div className="message-form">
-        <select value={visitId} onChange={(event) => setVisitId(event.target.value)}>
-          <option value="">Select visit</option>
-          {visits.map((visit) => (
-            <option key={visit.id} value={visit.id}>
-              {visit.patient_name} - {new Date(visit.starts_at).toLocaleString()}
-            </option>
-          ))}
-        </select>
-        <select value={channel} onChange={(event) => setChannel(event.target.value as "sms" | "email")}>
-          <option value="sms">SMS</option>
-          <option value="email">Email</option>
-        </select>
-        <textarea
-          placeholder="Optional custom message body (leave blank to use RouteCare template)"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-        />
-        <button type="button" onClick={sendMessage} disabled={loading || !visitId}>
-          {loading ? "Sending..." : "Send"}
+        <label className="field">
+          <span className="field-label">Visit</span>
+          <select value={visitId} onChange={(event) => setVisitId(event.target.value)}>
+            <option value="">Select visit</option>
+            {visits.map((visit) => (
+              <option key={visit.id} value={visit.id}>
+                {visit.patient_name} - {new Date(visit.starts_at).toLocaleString()}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field">
+          <span className="field-label">Channel</span>
+          <select value={channel} onChange={(event) => setChannel(event.target.value as "sms" | "email")}>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+          </select>
+        </label>
+
+        <label className="field field-full">
+          <span className="field-label">Message</span>
+          <textarea
+            placeholder="Optional custom message body (leave blank to use RouteCare template)"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            rows={4}
+          />
+        </label>
+
+        <button type="button" className="btn btn-primary" onClick={sendMessage} disabled={loading || !visitId}>
+          {loading ? "Sending..." : "Send Message"}
         </button>
       </div>
 
       <ul className="message-list">
         {messages.slice(0, 8).map((message) => (
-          <li key={message.id}>
-            <div>
-              <strong>{message.channel.toUpperCase()}</strong> · {message.direction} · {message.status}
+          <li key={message.id} className="message-item">
+            <div className="message-item-meta">
+              <strong>{message.channel.toUpperCase()}</strong>
+              <span>{message.direction}</span>
+              <span className={`badge badge-${message.status}`}>{message.status}</span>
             </div>
-            <p>{message.body}</p>
+            <p className="message-item-body">{message.body}</p>
           </li>
         ))}
       </ul>
