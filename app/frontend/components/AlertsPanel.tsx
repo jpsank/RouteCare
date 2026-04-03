@@ -4,6 +4,12 @@ type Props = {
   alerts: Alert[];
 };
 
+function formatDate(value?: string | null): string {
+  if (!value) return "No due date";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "No due date" : date.toLocaleString();
+}
+
 export function AlertsPanel({ alerts }: Props) {
   const sortedAlerts = [...alerts].sort((a, b) => {
     const severityScore = { high: 3, medium: 2, low: 1 };
@@ -31,6 +37,7 @@ export function AlertsPanel({ alerts }: Props) {
                 <span>{alert.category.replaceAll("_", " ")}</span>
                 <span>{alert.status}</span>
                 <span>Severity: {alert.severity}</span>
+                <span>Due: {formatDate(alert.due_at)}</span>
               </div>
             </li>
           ))}

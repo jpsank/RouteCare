@@ -7,33 +7,40 @@ type Props = {
 };
 
 export function PatientRoster({ patients, onCreate, onRefresh }: Props) {
+  const [creating, setCreating] = useState(false);
+
   async function createQuickPatient() {
-    await onCreate({
-      full_name: "New Patient",
-      phone: "555-0100",
-      address_line1: "123 Main St",
-      city: "Springfield",
-      state: "NY",
-      postal_code: "10001",
-      required_visits_per_week: 3,
-      visit_duration_minutes: 60
-    });
-    await onRefresh();
+    setCreating(true);
+    try {
+      await onCreate({
+        full_name: "New Patient",
+        phone: "555-0100",
+        address_line1: "123 Main St",
+        city: "Springfield",
+        state: "NY",
+        postal_code: "10001",
+        required_visits_per_week: 3,
+        visit_duration_minutes: 60
+      });
+      await onRefresh();
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
-    <section className="card">
+    <section className="routecare-card">
       <div className="section-header">
         <div>
-          <h2>Patient Roster</h2>
+          <h2 className="section-title">Patient Roster</h2>
           <p className="section-subtitle">Maintain patient profiles and visit frequency preferences.</p>
         </div>
       </div>
-      <div className="controls">
-        <button className="primary" onClick={createQuickPatient}>
-          Add Quick Patient
+      <div className="routecare-controls">
+        <button className="routecare-btn routecare-btn--primary" onClick={createQuickPatient} disabled={creating}>
+          {creating ? "Adding..." : "Add Quick Patient"}
         </button>
-        <button onClick={onRefresh}>Refresh Roster</button>
+        <button className="routecare-btn" onClick={onRefresh} disabled={creating}>Refresh Roster</button>
       </div>
       {patients.length === 0 ? <p className="muted">No active patients yet.</p> : null}
       <div className="patient-grid">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import type { Alert, Message, Patient, WeeklySchedule, Visit } from "../types";
+import type { Alert, Message, Patient, Schedule, Visit } from "../types";
 import { AlertsPanel } from "./AlertsPanel";
 import { DailyRouteView } from "./DailyRouteView";
 import { MessagingPanel } from "./MessagingPanel";
@@ -12,7 +12,7 @@ type Tab = "schedule" | "route" | "patients" | "messages" | "alerts";
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>("schedule");
   const [loading, setLoading] = useState(false);
-  const [schedule, setSchedule] = useState<WeeklySchedule | null>(null);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -150,59 +150,54 @@ export function App() {
   };
 
   return (
-    <div className="routecare-app">
-      <div className="routecare-shell">
-        <header className="routecare-header">
-          <div>
-            <p className="eyebrow">RouteCare</p>
-            <h1 className="routecare-title">Field Scheduling Command Center</h1>
-            <p className="routecare-subtitle">
-              Route-optimized home-visit scheduling for PT, OT, and home health clinicians.
-            </p>
-          </div>
-          <div className="actions">
-            <button className="primary-btn" onClick={refreshData} disabled={loading}>
-              {loading ? "Refreshing..." : "Refresh Data"}
-            </button>
-          </div>
-        </header>
+    <div className="layout">
+      <header className="topbar">
+        <div>
+          <h1>RouteCare</h1>
+          <p className="subtitle">Route-optimized field scheduling for home-visit clinicians</p>
+        </div>
+        <div className="actions">
+          <button onClick={refreshData} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+      </header>
 
-        <section className="metrics-row">
-          <article className="metric-card">
-            <p className="metric-label">Total Weekly Visits</p>
-            <p className="metric-value">{visits.length}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Pending Confirmations</p>
-            <p className="metric-value">{pendingCount}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Confirmed Visits</p>
-            <p className="metric-value">{confirmedCount}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Open Alerts</p>
-            <p className="metric-value">{openAlertsCount}</p>
-          </article>
-        </section>
+      <section className="dashboard-metrics">
+        <article className="metric">
+          <p className="metric-label">Total Weekly Visits</p>
+          <p className="metric-value">{visits.length}</p>
+        </article>
+        <article className="metric">
+          <p className="metric-label">Pending Confirmations</p>
+          <p className="metric-value">{pendingCount}</p>
+        </article>
+        <article className="metric">
+          <p className="metric-label">Confirmed Visits</p>
+          <p className="metric-value">{confirmedCount}</p>
+        </article>
+        <article className="metric">
+          <p className="metric-label">Open Alerts</p>
+          <p className="metric-value">{openAlertsCount}</p>
+        </article>
+      </section>
 
-        <nav className="tabs">
-          {([
-            ["schedule", "Weekly Calendar"],
-            ["route", "Daily Route"],
-            ["patients", "Patient Roster"],
-            ["messages", "Patient Messages"],
-            ["alerts", "Alerts"],
-          ] as Array<[Tab, string]>).map(([tab, label]) => (
-            <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
-              {label}
-            </button>
-          ))}
-        </nav>
+      <nav className="tabs">
+        {([
+          ["schedule", "Weekly Calendar"],
+          ["route", "Daily Route"],
+          ["patients", "Patient Roster"],
+          ["messages", "Patient Messages"],
+          ["alerts", "Alerts"],
+        ] as Array<[Tab, string]>).map(([tab, label]) => (
+          <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
+            {label}
+          </button>
+        ))}
+      </nav>
 
-        {error && <div className="error-banner">{error}</div>}
-        <main>{renderMain()}</main>
-      </div>
+      {error && <div className="error">{error}</div>}
+      <main>{renderMain()}</main>
     </div>
   );
 }

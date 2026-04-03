@@ -29,7 +29,7 @@ export function DailyRouteView({ visits, date }: Props) {
   const filteredGrouped = date ? grouped.filter((entry) => entry.date === date) : grouped;
 
   return (
-    <section className="surface-card">
+    <section className="card">
       <div className="section-head">
         <h2>Daily Route</h2>
         <span className="section-meta">Optimized stop order for field use</span>

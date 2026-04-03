@@ -11,6 +11,10 @@ function fmt(date: string): string {
   return new Date(date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function shortDay(value: string): string {
+  return new Date(value).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
 function statusClass(status: string): string {
   switch (status) {
     case "confirmed":
@@ -27,10 +31,10 @@ function statusClass(status: string): string {
 export function WeeklyCalendarView({ schedule, loading, onOptimize, onApprove }: Props) {
   if (!schedule) {
     return (
-      <section className="card">
+      <section className="surface-card">
         <h2>Weekly Calendar</h2>
-        <p>No schedule generated yet.</p>
-        <button className="primary" onClick={onOptimize} disabled={loading}>
+        <p className="section-subtitle">No schedule generated yet. Optimize this week to build an efficient route.</p>
+        <button className="btn btn-primary" onClick={onOptimize} disabled={loading}>
           {loading ? "Optimizing..." : "Generate Optimized Schedule"}
         </button>
       </section>
@@ -45,37 +49,57 @@ export function WeeklyCalendarView({ schedule, loading, onOptimize, onApprove }:
   }, {});
 
   return (
-    <section className="card">
-      <h2>Weekly Calendar</h2>
+    <section className="surface-card">
+      <div className="section-head">
+        <h2>Weekly Calendar</h2>
+        <span className={`pill ${statusClass(schedule.status)}`}>{schedule.status.replaceAll("_", " ")}</span>
+      </div>
       <p className="section-subtitle">
         Visits are sequenced to reduce drive time while respecting patient availability and blocked calendar time.
       </p>
+      <div className="schedule-metrics">
+        <article className="mini-metric">
+          <span>Optimized Drive</span>
+          <strong>{schedule.total_drive_minutes}m</strong>
+        </article>
+        <article className="mini-metric">
+          <span>Baseline Drive</span>
+          <strong>{schedule.baseline_drive_minutes}m</strong>
+        </article>
+        <article className="mini-metric">
+          <span>Saved</span>
+          <strong>{schedule.drive_minutes_saved}m</strong>
+        </article>
+      </div>
       <div className="controls">
-        <button className="primary" onClick={onOptimize} disabled={loading}>
+        <button className="btn btn-primary" onClick={onOptimize} disabled={loading}>
           {loading ? "Optimizing..." : "Re-optimize Week"}
         </button>
-        <button onClick={onApprove} disabled={loading || schedule.status === "clinician_approved"}>
+        <button className="btn" onClick={onApprove} disabled={loading || schedule.status === "clinician_approved"}>
           {schedule.status === "clinician_approved" ? "Approved" : "Approve Schedule"}
         </button>
       </div>
-      {Object.entries(grouped).map(([day, visits]) => (
-        <div className="day-column" key={day}>
-          <h3>{day}</h3>
-          {visits
-            .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
-            .map((visit) => (
-              <article key={visit.id} className={`visit ${visit.status}`}>
-                <div className="visit-title">
-                  {visit.patient_name} | {fmt(visit.starts_at)} - {fmt(visit.ends_at)}
-                </div>
-                <div className="visit-meta">
-                  <span className={`pill ${statusClass(visit.status)}`}>{visit.status.replaceAll("_", " ")}</span>
-                  <span>Drive from previous: {visit.drive_from_previous_minutes} min</span>
-                </div>
-              </article>
-            ))}
-        </div>
-      ))}
+      <div className="week-grid">
+        {Object.entries(grouped).map(([day, visits]) => (
+          <div className="day-column" key={day}>
+            <h3>{shortDay(day)}</h3>
+            {visits
+              .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+              .map((visit) => (
+                <article key={visit.id} className={`visit ${visit.status}`}>
+                  <div className="visit-title">{visit.patient_name}</div>
+                  <div className="visit-time">
+                    {fmt(visit.starts_at)} - {fmt(visit.ends_at)}
+                  </div>
+                  <div className="visit-meta">
+                    <span>Drive from previous: {visit.drive_from_previous_minutes} min</span>
+                    <span className={`status-pill ${statusClass(visit.status)}`}>{visit.status.replaceAll("_", " ")}</span>
+                  </div>
+                </article>
+              ))}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

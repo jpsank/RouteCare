@@ -7,6 +7,14 @@ type Props = {
   onSend: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<Message>;
 };
 
+function titleCase(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function MessagingPanel({ visits, messages, onSend }: Props) {
   const [visitId, setVisitId] = useState<string>("");
   const [body, setBody] = useState("");
@@ -70,12 +78,13 @@ export function MessagingPanel({ visits, messages, onSend }: Props) {
       </div>
 
       <ul className="message-list">
+        {messages.length === 0 ? <li className="message-empty">No messages sent yet.</li> : null}
         {messages.slice(0, 8).map((message) => (
           <li key={message.id} className="message-item">
             <div className="message-item-meta">
               <strong>{message.channel.toUpperCase()}</strong>
-              <span>{message.direction}</span>
-              <span className={`badge badge-${message.status}`}>{message.status}</span>
+              <span>{titleCase(message.direction)}</span>
+              <span className={`badge badge-${message.status}`}>{titleCase(message.status)}</span>
             </div>
             <p className="message-item-body">{message.body}</p>
           </li>

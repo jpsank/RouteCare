@@ -80,3 +80,10 @@ export type Alert = {
   read_at?: string | null;
   metadata: Record<string, unknown>;
 };
+
+export type DashboardApiState = {
+  schedule: Schedule | null;
+  patients: ReadonlyArray<Patient>;
+  messages: ReadonlyArray<Message>;
+  alerts: ReadonlyArray<Alert>;
+};
