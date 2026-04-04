@@ -56,8 +56,8 @@ export function EventEditorPanel({
   }, [isOpen, closeEditor]);
 
   const panelStyle = useMemo(() => {
-    const x = Math.max(16, Math.min((position?.x ?? window.innerWidth / 2) + 8, window.innerWidth - 420));
-    const y = Math.max(16, Math.min((position?.y ?? 120) + 8, window.innerHeight - 540));
+    const x = Math.max(12, Math.min((position?.x ?? window.innerWidth / 2) + 8, window.innerWidth - 380));
+    const y = Math.max(12, Math.min((position?.y ?? 120) + 8, window.innerHeight - 500));
     return { left: `${x}px`, top: `${y}px` };
   }, [position]);
 
@@ -78,7 +78,7 @@ export function EventEditorPanel({
               {editorMode === "add" ? "Add Patient" : selectedVisit?.patient_name ?? "Edit Event"}
             </h3>
           </div>
-          <button className="btn-ghost btn-xs" onClick={closeEditor}>Close</button>
+          <button className="btn-ghost btn-xs" onClick={closeEditor} aria-label="Close">&times;</button>
         </div>
 
         {selectedVisit && (

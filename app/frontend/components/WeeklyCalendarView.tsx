@@ -550,8 +550,8 @@ export function WeeklyCalendarView({
           ref={addEventRef}
           className="rc-popover"
           style={{
-            left: `${Math.max(16, Math.min((addEventPosition?.x ?? window.innerWidth / 2) + 8, window.innerWidth - 420))}px`,
-            top: `${Math.max(16, Math.min((addEventPosition?.y ?? 120) + 8, window.innerHeight - 540))}px`,
+            left: `${Math.max(12, Math.min((addEventPosition?.x ?? window.innerWidth / 2) + 8, window.innerWidth - 380))}px`,
+            top: `${Math.max(12, Math.min((addEventPosition?.y ?? 120) + 8, window.innerHeight - 500))}px`,
           }}
           role="dialog"
           aria-modal="false"
@@ -562,8 +562,9 @@ export function WeeklyCalendarView({
               <button
                 className="btn-ghost btn-xs"
                 onClick={() => { setAddEventOpen(false); setPendingSlot(null); }}
+                aria-label="Close"
               >
-                Close
+                &times;
               </button>
             </div>
             <div className="rc-field">
