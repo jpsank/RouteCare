@@ -1,5 +1,5 @@
 class ClinicianProfile < ApplicationRecord
-  DEFAULT_WORKING_DAY_WDAYS = [1, 2, 3, 4, 5].freeze
+  DEFAULT_WORKING_DAY_WDAYS = [ 1, 2, 3, 4, 5 ].freeze
   DEFAULT_WORKING_DAYS_MASK = DEFAULT_WORKING_DAY_WDAYS.sum { |wday| (1 << wday) }.freeze
 
   belongs_to :user

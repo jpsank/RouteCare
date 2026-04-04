@@ -126,7 +126,7 @@ class Api::V1::CalendarConnectionsController < Api::V1::BaseController
     start_value = params[:week_start_on].presence || Date.current.beginning_of_week(:monday).iso8601
     end_value = params[:week_end_on].presence || (Date.iso8601(start_value) + 7.days).iso8601
 
-    [Time.zone.parse(start_value).beginning_of_day, Time.zone.parse(end_value).end_of_day]
+    [ Time.zone.parse(start_value).beginning_of_day, Time.zone.parse(end_value).end_of_day ]
   rescue ArgumentError
     raise ArgumentError, "Invalid sync date range"
   end
