@@ -4,6 +4,7 @@ module Scheduling
     DEFAULT_DAY_END_MINUTE = 18 * 60
     SLOT_STEP_MINUTES = 15
     MAX_VISITS_PER_DAY = 5
+    TRANSIT_BUFFER_MINUTES = 5
 
     def initialize(user:, week_start_on:, start_point: nil)
       @user = user
@@ -258,7 +259,8 @@ module Scheduling
                     travel_matrix.dig(previous_patient_id, slot[:patient].id) || 0
                   end
 
-        earliest_start = current_minute + transit
+        raw_start = current_minute + transit + (previous_patient_id.nil? ? 0 : TRANSIT_BUFFER_MINUTES)
+        earliest_start = round_up_to_interval(raw_start)
         duration = slot[:patient].visit_duration_minutes
 
         if earliest_start + duration > day_end_minute
@@ -337,6 +339,11 @@ module Scheduling
 
     def weekly_days
       available_workday_offsets.map { |offset| week_start_on + offset.days }
+    end
+
+    def round_up_to_interval(minute)
+      remainder = minute % SLOT_STEP_MINUTES
+      remainder.zero? ? minute : minute + (SLOT_STEP_MINUTES - remainder)
     end
 
     def minute_to_hhmm(minute)
