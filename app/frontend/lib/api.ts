@@ -264,6 +264,7 @@ export const api = {
     clinician_profile: Partial<
       Pick<
         ClinicianProfile,
+        | "display_name"
         | "workday_start_minute"
         | "workday_end_minute"
         | "timezone"

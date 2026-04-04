@@ -41,6 +41,7 @@ type Props = {
   onUpdateWorkingHours: (workdayStartMinute: number, workdayEndMinute: number) => Promise<void>;
   onUpdateWorkingDays: (workingDays: number[]) => Promise<void>;
   onUpdateLunchSettings: (lunchStartMinute: number, lunchDurationMinutes: number, lunchWindowMinutes: number) => Promise<void>;
+  onUpdateDisplayName: (displayName: string) => Promise<void>;
   onSetHomeFromCurrentLocation: (latitude: number, longitude: number) => Promise<void>;
   onUpdateHomeLocation: (latitude: number, longitude: number) => Promise<void>;
   onCalendarRefresh: () => Promise<void>;
@@ -70,6 +71,7 @@ export function WeeklyCalendarView({
   onUpdateWorkingHours,
   onUpdateWorkingDays,
   onUpdateLunchSettings,
+  onUpdateDisplayName,
   onSetHomeFromCurrentLocation,
   onUpdateHomeLocation,
   onCalendarRefresh,
@@ -117,6 +119,8 @@ export function WeeklyCalendarView({
   const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [savingLunch, setSavingLunch] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState("");
+  const [savingDisplayName, setSavingDisplayName] = useState(false);
   const addEventRef = useRef<HTMLDivElement | null>(null);
   const popoverDragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const POPOVER_WIDTH = 380;
@@ -133,7 +137,12 @@ export function WeeklyCalendarView({
   useEffect(() => {
     setHomeLatitudeInput(clinicianProfile?.home_latitude != null ? String(clinicianProfile.home_latitude) : "");
     setHomeLongitudeInput(clinicianProfile?.home_longitude != null ? String(clinicianProfile.home_longitude) : "");
+    setDisplayNameInput(clinicianProfile?.display_name ?? "");
   }, [clinicianProfile?.home_latitude, clinicianProfile?.home_longitude]);
+
+  useEffect(() => {
+    setDisplayNameInput(clinicianProfile?.display_name ?? "");
+  }, [clinicianProfile?.display_name]);
 
   useEffect(() => {
     if (!addEventOpen) return;
@@ -194,6 +203,15 @@ export function WeeklyCalendarView({
       await onUpdateWorkingHours(nextStart, nextEnd);
     } finally {
       setSavingHours(false);
+    }
+  };
+
+  const saveDisplayName = async () => {
+    setSavingDisplayName(true);
+    try {
+      await onUpdateDisplayName(displayNameInput.trim());
+    } finally {
+      setSavingDisplayName(false);
     }
   };
 
@@ -491,6 +509,19 @@ export function WeeklyCalendarView({
       {showSettings && (
         <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
           <div className="flex flex-wrap items-end gap-3">
+            <div className="rc-field">
+              <span className="rc-label">Your name</span>
+              <input
+                className="w-48"
+                value={displayNameInput}
+                onChange={(e) => setDisplayNameInput(e.target.value)}
+                placeholder="Alex Smith"
+                maxLength={80}
+              />
+            </div>
+            <button className="btn-sm" onClick={saveDisplayName} disabled={loading || savingDisplayName}>
+              {savingDisplayName ? "Saving..." : "Save Name"}
+            </button>
             <div className="rc-field">
               <span className="rc-label">Day starts</span>
               <select

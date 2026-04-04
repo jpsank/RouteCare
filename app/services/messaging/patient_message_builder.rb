@@ -22,7 +22,7 @@ module Messaging
 
     def confirmation_text
       patient_first_name = visit.patient.full_name.split.first
-      clinician_name = visit.weekly_schedule.user.clinician_profile&.discipline || "your clinician"
+      clinician_name = clinician_name_for_intro
       friendly_start = visit.starts_at.strftime("%A %b %-d at %-I:%M %p")
 
       "Hi #{patient_first_name}, this is #{clinician_name}. "\
@@ -59,11 +59,17 @@ module Messaging
           kind: kind,
           channel: channel,
           patient_first_name: visit.patient.full_name.split.first,
+          clinician_display_name: visit.weekly_schedule.user.clinician_profile&.display_name,
           clinician_discipline: visit.weekly_schedule.user.clinician_profile&.discipline,
           scheduled_starts_at: visit.starts_at&.iso8601,
           proposed_starts_at: proposed_starts_at&.iso8601
         }
       )
+    end
+
+    def clinician_name_for_intro
+      profile = visit.weekly_schedule.user.clinician_profile
+      profile&.display_name.presence || profile&.discipline.presence || "your clinician"
     end
 
     private

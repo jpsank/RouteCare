@@ -20,6 +20,7 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
 
   def clinician_profile_params
     params.require(:clinician_profile).permit(
+      :display_name,
       :timezone,
       :workday_start_minute,
       :workday_end_minute,
@@ -36,6 +37,7 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
   def serialize_profile(profile)
     {
       id: profile.id,
+      display_name: profile.display_name,
       timezone: profile.timezone,
       discipline: profile.discipline,
       workday_start_minute: profile.workday_start_minute,

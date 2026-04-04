@@ -128,6 +128,7 @@ export type DashboardApiState = {
 
 export type ClinicianProfile = {
   id: number;
+  display_name?: string | null;
   timezone: string;
   discipline: string;
   workday_start_minute: number;

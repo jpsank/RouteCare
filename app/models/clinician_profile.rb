@@ -7,6 +7,7 @@ class ClinicianProfile < ApplicationRecord
 
   validates :discipline, presence: true
   validates :timezone, presence: true
+  validates :display_name, length: { maximum: 80 }, allow_blank: true
   validates :workday_start_minute, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 1439 }
   validates :workday_end_minute, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 1440 }
   validates :working_days_mask, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 127 }

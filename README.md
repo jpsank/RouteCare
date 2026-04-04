@@ -30,6 +30,7 @@ Implemented foundation:
 - Visit editing and quick rescheduling
 - Patient communication lifecycle:
   - outbound confirmation drafts, approval, queueing, and dispatch
+  - clinician display name support in generated outbound messages
   - inbound intent parsing (confirm/decline/reschedule)
   - lightweight availability extraction from reschedule replies
   - automated follow-up drafting when patients ask to reschedule
@@ -129,6 +130,26 @@ Natural-language messaging can use an OpenAI-compatible chat API when configured
 - `ROUTECARE_LLM_MODEL` (optional, default `gpt-4o-mini`)
 
 If these are not set (or the provider call fails), RouteCare falls back to deterministic local templates and rule-based parsing.
+
+### Messaging delivery configuration
+
+To send real outbound messages, configure SMS and/or SMTP:
+
+- SMS (Twilio)
+  - `ROUTECARE_TWILIO_ACCOUNT_SID`
+  - `ROUTECARE_TWILIO_AUTH_TOKEN`
+  - `ROUTECARE_TWILIO_FROM_NUMBER` (E.164 format, e.g. `+15551234567`)
+- Email (SMTP + mailer sender)
+  - `ROUTECARE_MAILER_FROM` (e.g. `care@yourdomain.com`)
+  - `ROUTECARE_SMTP_ADDRESS`
+  - `ROUTECARE_SMTP_PORT` (default `587`)
+  - `ROUTECARE_SMTP_USERNAME`
+  - `ROUTECARE_SMTP_PASSWORD`
+  - `ROUTECARE_SMTP_DOMAIN` (optional)
+  - `ROUTECARE_SMTP_AUTH` (default `plain`)
+  - `ROUTECARE_SMTP_STARTTLS` (default `true`)
+
+If delivery is not configured for a selected channel, queued messages will be marked `failed` with a provider error in message metadata.
 
 ## Security/HIPAA Notes
 

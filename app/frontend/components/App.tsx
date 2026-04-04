@@ -257,6 +257,22 @@ export function App() {
     }
   };
 
+  const updateDisplayName = async (displayName: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api.updateClinicianProfile({
+        display_name: displayName,
+      });
+      setClinicianProfile(response.clinician_profile);
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const sendMessage = async (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => {
     setLoading(true);
     setError(null);
@@ -319,6 +335,7 @@ export function App() {
           onUpdateWorkingHours={updateWorkingHours}
           onUpdateWorkingDays={updateWorkingDays}
           onUpdateLunchSettings={updateLunchSettings}
+          onUpdateDisplayName={updateDisplayName}
           onSetHomeFromCurrentLocation={setHomeFromCurrentLocation}
           onUpdateHomeLocation={updateHomeLocation}
           onCalendarRefresh={refreshData}
