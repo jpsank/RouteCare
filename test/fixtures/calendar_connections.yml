@@ -1,0 +1,21 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  user: one
+  provider: MyString
+  external_calendar_id: MyString
+  status: MyString
+  access_token: MyText
+  refresh_token: MyText
+  token_expires_at: 2026-03-27 22:08:29
+  metadata: 
+
+two:
+  user: two
+  provider: MyString
+  external_calendar_id: MyString
+  status: MyString
+  access_token: MyText
+  refresh_token: MyText
+  token_expires_at: 2026-03-27 22:08:29
+  metadata: 

@@ -1,0 +1,27 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  weekly_schedule: one
+  patient: one
+  starts_at: 2026-03-27 22:08:32
+  ends_at: 2026-03-27 22:08:32
+  duration_minutes: 1
+  status: MyString
+  position_in_day: 1
+  drive_from_previous_minutes: 1
+  clinician_override: false
+  soft_constraint_override: false
+  source: MyString
+
+two:
+  weekly_schedule: two
+  patient: two
+  starts_at: 2026-03-27 22:08:32
+  ends_at: 2026-03-27 22:08:32
+  duration_minutes: 1
+  status: MyString
+  position_in_day: 1
+  drive_from_previous_minutes: 1
+  clinician_override: false
+  soft_constraint_override: false
+  source: MyString

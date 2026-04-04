@@ -1,0 +1,35 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  clinician_profile: one
+  full_name: MyString
+  phone: MyString
+  email: MyString
+  address_line1: MyString
+  address_line2: MyString
+  city: MyString
+  state: MyString
+  postal_code: MyString
+  latitude: 9.99
+  longitude: 9.99
+  required_visits_per_week: 1
+  visit_duration_minutes: 1
+  active: false
+  notes: MyText
+
+two:
+  clinician_profile: two
+  full_name: MyString
+  phone: MyString
+  email: MyString
+  address_line1: MyString
+  address_line2: MyString
+  city: MyString
+  state: MyString
+  postal_code: MyString
+  latitude: 9.99
+  longitude: 9.99
+  required_visits_per_week: 1
+  visit_duration_minutes: 1
+  active: false
+  notes: MyText

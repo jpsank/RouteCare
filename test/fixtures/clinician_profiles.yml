@@ -1,0 +1,15 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  user: one
+  discipline: MyString
+  phone: MyString
+  timezone: MyString
+  auto_send_enabled: false
+
+two:
+  user: two
+  discipline: MyString
+  phone: MyString
+  timezone: MyString
+  auto_send_enabled: false

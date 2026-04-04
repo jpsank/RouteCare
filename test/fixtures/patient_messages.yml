@@ -1,0 +1,29 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  visit: one
+  patient: one
+  user: one
+  direction: MyString
+  channel: MyString
+  status: MyString
+  body: MyText
+  proposed_starts_at: 2026-03-27 22:08:32
+  proposed_ends_at: 2026-03-27 22:08:32
+  requires_approval: false
+  approved_at: 2026-03-27 22:08:32
+  metadata: 
+
+two:
+  visit: two
+  patient: two
+  user: two
+  direction: MyString
+  channel: MyString
+  status: MyString
+  body: MyText
+  proposed_starts_at: 2026-03-27 22:08:32
+  proposed_ends_at: 2026-03-27 22:08:32
+  requires_approval: false
+  approved_at: 2026-03-27 22:08:32
+  metadata: 
