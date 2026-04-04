@@ -239,14 +239,15 @@ module Scheduling
       current_point = start_point_for_day
 
       while remaining.any?
-        closest = if current_point.blank?
-                    remaining.first
-                  else
-                    remaining.min_by do |slot|
-                      patient_point = point_for(slot[:patient])
-                      point_distance(current_point, patient_point)
-                    end
-                  end
+        closest =
+          if current_point.blank?
+            remaining.first
+          else
+            remaining.min_by do |slot|
+              patient_point = point_for(slot[:patient])
+              point_distance(current_point, patient_point)
+            end
+          end
 
         ordered << closest
         remaining.delete(closest)
@@ -268,12 +269,13 @@ module Scheduling
       lunch_placement = nil
 
       ordered_slots.each do |slot|
-        transit = if previous_patient_id.nil?
-                    origin = start_point_for_day
-                    origin.present? ? travel_minutes_from_point(origin, slot[:patient]) : 0
-                  else
-                    travel_matrix.dig(previous_patient_id, slot[:patient].id) || 0
-                  end
+        transit =
+          if previous_patient_id.nil?
+            origin = start_point_for_day
+            origin.present? ? travel_minutes_from_point(origin, slot[:patient]) : 0
+          else
+            travel_matrix.dig(previous_patient_id, slot[:patient].id) || 0
+          end
 
         raw_start = current_minute + transit + (previous_patient_id.nil? ? 0 : TRANSIT_BUFFER_MINUTES)
         earliest_start = round_up_to_interval(raw_start)
