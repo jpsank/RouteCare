@@ -5,6 +5,19 @@ export type AvailabilityWindow = {
   end_minute: number;
 };
 
+export type CreatePatientPayload = {
+  full_name: string;
+  phone: string;
+  email?: string;
+  address_line1: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  required_visits_per_week: number;
+  visit_duration_minutes: number;
+  notes?: string;
+};
+
 export type Patient = {
   id: number;
   full_name: string;
@@ -44,7 +57,7 @@ export type Visit = {
   external_calendar_event_id?: string | null;
 };
 
-export type Schedule = {
+export type WeeklySchedule = {
   id: number;
   week_start_on: string;
   status: "draft" | "clinician_approved" | "partially_confirmed" | "finalized";
@@ -106,7 +119,7 @@ export type Alert = {
 };
 
 export type DashboardApiState = {
-  schedule: Schedule | null;
+  schedule: WeeklySchedule | null;
   patients: ReadonlyArray<Patient>;
   messages: ReadonlyArray<Message>;
   alerts: ReadonlyArray<Alert>;

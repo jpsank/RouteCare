@@ -20,10 +20,13 @@ export function AlertsPanel({ alerts }: Props) {
   });
 
   return (
-    <section className="panel-card">
+    <section className="routecare-panel">
       <div className="panel-header">
-        <h2 className="panel-title">Notifications & Alerts</h2>
-        <span className="pill">{alerts.length} open</span>
+        <div>
+          <h2 className="panel-title">Notifications & Alerts</h2>
+          <p className="panel-subtitle">Monitor reply actions, conflicts, and urgency-based follow-up items.</p>
+        </div>
+        <span className="pill pill--muted">{alerts.length} open</span>
       </div>
 
       {alerts.length === 0 && <p className="muted">No active alerts.</p>}

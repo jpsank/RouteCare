@@ -29,32 +29,34 @@ export function DailyRouteView({ visits, date }: Props) {
   const filteredGrouped = date ? grouped.filter((entry) => entry.date === date) : grouped;
 
   return (
-    <section className="card">
-      <div className="section-head">
-        <h2>Daily Route</h2>
-        <span className="section-meta">Optimized stop order for field use</span>
+    <section className="routecare-panel">
+      <div className="panel-header">
+        <div>
+          <h2 className="panel-title">Daily Route</h2>
+          <p className="panel-subtitle">Optimized stop order for field use throughout the day.</p>
+        </div>
       </div>
       {filteredGrouped.length === 0 && <p className="empty-state">No visits scheduled for this date.</p>}
       {filteredGrouped.map((day) => (
-        <div key={day.date} className="route-day">
-          <h3>{new Date(day.date).toDateString()}</h3>
-          <ol className="route-list">
+        <article key={day.date} className="route-day-card">
+          <h3 className="route-day-title">{new Date(day.date).toDateString()}</h3>
+          <ol className="route-stop-list">
             {day.visits.map((visit, idx) => (
-              <li key={visit.id} className="route-stop">
+              <li key={visit.id} className="route-stop-card">
                 <span className="route-index">{idx + 1}</span>
-                <div className="route-stop-body">
-                  <div className="route-stop-title">{visit.patient_name}</div>
-                  <div className="route-stop-meta">
+                <div className="route-stop-content">
+                  <p className="route-stop-title">{visit.patient_name}</p>
+                  <p className="route-stop-time">
                     {fmt(visit.starts_at)} - {fmt(visit.ends_at)}
-                  </div>
-                  <div className="route-stop-detail">
+                  </p>
+                  <p className="route-stop-detail">
                     Drive from previous: {visit.drive_from_previous_minutes}m
-                  </div>
+                  </p>
                 </div>
               </li>
             ))}
           </ol>
-        </div>
+        </article>
       ))}
     </section>
   );
