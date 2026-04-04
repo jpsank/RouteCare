@@ -49,6 +49,7 @@ export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute,
         week: "Week",
         month: "Month",
       }}
+      firstDay={1}
       dayHeaderFormat={{ weekday: "short", month: "numeric", day: "numeric", omitCommas: true }}
       slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
       events={events}
