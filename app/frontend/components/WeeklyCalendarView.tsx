@@ -33,6 +33,7 @@ type Props = {
   clinicianProfile: ClinicianProfile | null;
   onUpdateWorkingHours: (workdayStartMinute: number, workdayEndMinute: number) => Promise<void>;
   onUpdateWorkingDays: (workingDays: number[]) => Promise<void>;
+  onUpdateLunchSettings: (lunchStartMinute: number, lunchDurationMinutes: number, lunchWindowMinutes: number) => Promise<void>;
   onSetHomeFromCurrentLocation: (latitude: number, longitude: number) => Promise<void>;
   onUpdateHomeLocation: (latitude: number, longitude: number) => Promise<void>;
   onCalendarRefresh: () => Promise<void>;
@@ -61,6 +62,7 @@ export function WeeklyCalendarView({
   clinicianProfile,
   onUpdateWorkingHours,
   onUpdateWorkingDays,
+  onUpdateLunchSettings,
   onSetHomeFromCurrentLocation,
   onUpdateHomeLocation,
   onCalendarRefresh,
@@ -108,6 +110,7 @@ export function WeeklyCalendarView({
   const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
   const [pendingSlot, setPendingSlot] = useState<{ key: string; startIso: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [savingLunch, setSavingLunch] = useState(false);
   const addEventRef = useRef<HTMLDivElement | null>(null);
 
   const homeOrigin = useMemo(() => {
@@ -149,6 +152,31 @@ export function WeeklyCalendarView({
   const workdayStartMinute = clinicianProfile?.workday_start_minute ?? 8 * 60;
   const workdayEndMinute = clinicianProfile?.workday_end_minute ?? 18 * 60;
   const workingDays = clinicianProfile?.working_days?.length ? clinicianProfile.working_days : [1, 2, 3, 4, 5];
+  const lunchStartMinute = clinicianProfile?.lunch_start_minute ?? 720;
+  const lunchDurationMinutes = clinicianProfile?.lunch_duration_minutes ?? 30;
+  const lunchWindowMinutes = clinicianProfile?.lunch_window_minutes ?? 90;
+
+  const lunchTimeOptions = useMemo(
+    () =>
+      Array.from({ length: 13 }).map((_, i) => {
+        const minute = 660 + i * 15; // 11:00 AM to 2:00 PM in 15-min steps
+        const h = Math.floor(minute / 60);
+        const m = minute % 60;
+        const meridiem = h >= 12 ? "PM" : "AM";
+        const h12 = ((h + 11) % 12) + 1;
+        return { value: minute, label: `${h12}:${String(m).padStart(2, "0")} ${meridiem}` };
+      }),
+    [],
+  );
+
+  const updateLunch = async (startMin: number, duration: number, window: number) => {
+    setSavingLunch(true);
+    try {
+      await onUpdateLunchSettings(startMin, duration, window);
+    } finally {
+      setSavingLunch(false);
+    }
+  };
 
   const updateWorkdayRange = async (nextStart: number, nextEnd: number) => {
     if (nextEnd <= nextStart) return;
@@ -201,6 +229,46 @@ export function WeeklyCalendarView({
     saveGoogleCalendarSelection,
   } = useCalendarConnections({ calendarConnections, selectedDate, onCalendarRefresh });
 
+  const lunchEvents = useMemo(() => {
+    if (!schedule?.week_start_on) return [];
+    const lunchBreaks = (schedule.optimization_summary?.lunch_breaks ?? {}) as Record<
+      string,
+      { start_minute: number; end_minute: number }
+    >;
+    const weekStart = new Date(schedule.week_start_on + "T00:00:00");
+    const events: Array<{
+      id: string;
+      title: string;
+      start: string;
+      end: string;
+      display: "background";
+      className: string;
+    }> = [];
+
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(weekStart);
+      day.setDate(day.getDate() + d);
+      if (!workingDays.includes(day.getDay())) continue;
+      const iso = day.toISOString().slice(0, 10);
+      const lb = lunchBreaks[iso];
+      const startMin = lb?.start_minute ?? lunchStartMinute;
+      const endMin = lb?.end_minute ?? lunchStartMinute + lunchDurationMinutes;
+      const sH = Math.floor(startMin / 60);
+      const sM = startMin % 60;
+      const eH = Math.floor(endMin / 60);
+      const eM = endMin % 60;
+      events.push({
+        id: `lunch-${iso}`,
+        title: "Lunch",
+        start: `${iso}T${String(sH).padStart(2, "0")}:${String(sM).padStart(2, "0")}:00`,
+        end: `${iso}T${String(eH).padStart(2, "0")}:${String(eM).padStart(2, "0")}:00`,
+        display: "background" as const,
+        className: "calendar-event-lunch",
+      });
+    }
+    return events;
+  }, [schedule?.week_start_on, schedule?.optimization_summary, lunchStartMinute, lunchDurationMinutes, workingDays]);
+
   const calendarEvents = useMemo(
     () => [
       ...visits.map((visit) => {
@@ -225,6 +293,7 @@ export function WeeklyCalendarView({
         display: "background" as const,
         className: "calendar-event-blocked",
       })),
+      ...lunchEvents,
       ...(pendingSlot
         ? [
             {
@@ -238,7 +307,7 @@ export function WeeklyCalendarView({
           ]
         : []),
     ],
-    [calendarBlocks, pendingSlot, selectedVisitId, visits],
+    [calendarBlocks, lunchEvents, pendingSlot, selectedVisitId, visits],
   );
 
   const saveHomeFromCurrentLocation = async () => {
@@ -426,6 +495,49 @@ export function WeeklyCalendarView({
             <button className="btn-ghost btn-sm" onClick={onSeedDemoPatients} disabled={loading}>
               Demo Patients
             </button>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 pt-2.5">
+            <div className="rc-field">
+              <span className="rc-label">Lunch at</span>
+              <select
+                className="w-28"
+                value={lunchStartMinute}
+                onChange={(e) => updateLunch(Number(e.target.value), lunchDurationMinutes, lunchWindowMinutes)}
+                disabled={loading || savingLunch}
+              >
+                {lunchTimeOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="rc-field">
+              <span className="rc-label">Duration</span>
+              <select
+                className="w-20"
+                value={lunchDurationMinutes}
+                onChange={(e) => updateLunch(lunchStartMinute, Number(e.target.value), lunchWindowMinutes)}
+                disabled={loading || savingLunch}
+              >
+                {[15, 30, 45, 60].map((d) => (
+                  <option key={d} value={d}>{d} min</option>
+                ))}
+              </select>
+            </div>
+            <div className="rc-field">
+              <span className="rc-label">Flex window</span>
+              <select
+                className="w-20"
+                value={lunchWindowMinutes}
+                onChange={(e) => updateLunch(lunchStartMinute, lunchDurationMinutes, Number(e.target.value))}
+                disabled={loading || savingLunch}
+              >
+                {[0, 30, 60, 90, 120, 180].map((w) => (
+                  <option key={w} value={w}>{w === 0 ? "Fixed" : `±${w / 2}m`}</option>
+                ))}
+              </select>
+            </div>
+            {savingLunch && <span className="text-xs text-gray-400">Saving...</span>}
           </div>
 
           <CalendarConnectionsPanel

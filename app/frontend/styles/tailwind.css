@@ -435,6 +435,16 @@
   background: rgb(254 202 202 / 0.45) !important;
 }
 
+.fc .calendar-event-lunch {
+  background: repeating-linear-gradient(
+    135deg,
+    rgb(229 231 235 / 0.35),
+    rgb(229 231 235 / 0.35) 4px,
+    rgb(243 244 246 / 0.2) 4px,
+    rgb(243 244 246 / 0.2) 8px
+  ) !important;
+}
+
 .fc .calendar-slot-selected {
   background: rgb(99 102 241 / 0.12) !important;
 }

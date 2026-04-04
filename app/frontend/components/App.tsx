@@ -153,6 +153,28 @@ export function App() {
     }
   };
 
+  const updateLunchSettings = async (lunchStartMinute: number, lunchDurationMinutes: number, lunchWindowMinutes: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api.updateClinicianProfile({
+        lunch_start_minute: lunchStartMinute,
+        lunch_duration_minutes: lunchDurationMinutes,
+        lunch_window_minutes: lunchWindowMinutes,
+      });
+      setClinicianProfile(response.clinician_profile);
+      const optimized = await api.optimizeSchedule();
+      setSchedule(optimized.schedule);
+      const refreshedBlocks = await api.listCalendarBlocks();
+      setCalendarBlocks(refreshedBlocks.calendar_blocks);
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const updateWorkingDays = async (workingDays: number[]) => {
     setLoading(true);
     setError(null);
@@ -246,6 +268,7 @@ export function App() {
           clinicianProfile={clinicianProfile}
           onUpdateWorkingHours={updateWorkingHours}
           onUpdateWorkingDays={updateWorkingDays}
+          onUpdateLunchSettings={updateLunchSettings}
           onSetHomeFromCurrentLocation={setHomeFromCurrentLocation}
           onUpdateHomeLocation={updateHomeLocation}
           onCalendarRefresh={refreshData}

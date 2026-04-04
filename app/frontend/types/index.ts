@@ -135,4 +135,7 @@ export type ClinicianProfile = {
   home_longitude?: number | null;
   working_days_mask?: number;
   working_days?: number[];
+  lunch_start_minute: number;
+  lunch_duration_minutes: number;
+  lunch_window_minutes: number;
 };

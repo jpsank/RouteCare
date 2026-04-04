@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_04_170001) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_04_180001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -90,6 +90,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_170001) do
     t.decimal "home_longitude", precision: 10, scale: 6
     t.string "home_postal_code"
     t.string "home_state"
+    t.integer "lunch_duration_minutes", default: 30, null: false
+    t.integer "lunch_start_minute", default: 720, null: false
+    t.integer "lunch_window_minutes", default: 90, null: false
     t.string "phone"
     t.string "timezone", default: "America/New_York", null: false
     t.datetime "updated_at", null: false

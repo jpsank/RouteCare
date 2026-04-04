@@ -30,11 +30,21 @@ module Scheduling
         schedule.visits.delete_all
         create_visits!(schedule, visit_plan, travel_matrix)
         calculate_drive_metrics!(schedule)
+        lunch_data = @lunch_breaks || {}
+        lunch_cfg = lunch_break_config
+        if lunch_cfg
+          weekly_days.each do |date|
+            date_key = date.to_s
+            next if lunch_data.key?(date_key)
+            lunch_data[date_key] = { start_minute: lunch_cfg[:earliest_start], end_minute: lunch_cfg[:earliest_start] + lunch_cfg[:duration] }
+          end
+        end
         schedule.optimization_summary = {
           generated_at: Time.current,
           soft_constraint_overrides: soft_constraint_count,
           patient_count: visit_plan.map { |slot| slot[:patient].id }.uniq.size,
-          visit_count: schedule.visits.size
+          visit_count: schedule.visits.size,
+          lunch_breaks: lunch_data
         }
         schedule.save!
       end
@@ -184,10 +194,13 @@ module Scheduling
 
     def create_visits!(schedule, visit_plan, travel_matrix)
       grouped = visit_plan.group_by { |slot| slot[:date] }
+      @lunch_breaks = {}
 
       grouped.each_value do |slots|
         ordered_slots = nearest_neighbor_order(slots, travel_matrix)
-        retimed_slots = retime_slots(ordered_slots, travel_matrix)
+        retimed_slots, lunch_placement = retime_slots(ordered_slots, travel_matrix)
+
+        @lunch_breaks[slots.first[:date].to_s] = lunch_placement if lunch_placement
 
         current_point = start_point_for_day
         previous_patient_id = nil
@@ -244,12 +257,15 @@ module Scheduling
     end
 
     def retime_slots(ordered_slots, travel_matrix)
-      return ordered_slots if ordered_slots.empty?
+      return [ ordered_slots, nil ] if ordered_slots.empty?
 
       date = ordered_slots.first[:date]
       current_minute = day_start_minute
       previous_patient_id = nil
       retimed = []
+      lunch = lunch_break_config
+      lunch_taken = false
+      lunch_placement = nil
 
       ordered_slots.each do |slot|
         transit = if previous_patient_id.nil?
@@ -263,6 +279,17 @@ module Scheduling
         earliest_start = round_up_to_interval(raw_start)
         duration = slot[:patient].visit_duration_minutes
 
+        if lunch && !lunch_taken && earliest_start >= lunch[:earliest_start]
+          lunch_start = [ earliest_start, lunch[:earliest_start] ].max
+          lunch_start = [ lunch_start, lunch[:latest_start] ].min
+          lunch_end = lunch_start + lunch[:duration]
+          lunch_placement = { start_minute: lunch_start, end_minute: lunch_end }
+          if earliest_start < lunch_end
+            earliest_start = round_up_to_interval(lunch_end)
+          end
+          lunch_taken = true
+        end
+
         if earliest_start + duration > day_end_minute
           retimed << slot
         else
@@ -275,7 +302,22 @@ module Scheduling
         previous_patient_id = slot[:patient].id
       end
 
-      retimed
+      if lunch && !lunch_taken
+        lunch_placement = { start_minute: lunch[:earliest_start], end_minute: lunch[:earliest_start] + lunch[:duration] }
+      end
+
+      [ retimed, lunch_placement ]
+    end
+
+    def lunch_break_config
+      return nil if clinician_profile.blank?
+
+      lr = clinician_profile.lunch_range
+      {
+        earliest_start: lr[:earliest_start_minute],
+        latest_start:   lr[:latest_start_minute],
+        duration:        lr[:duration_minutes]
+      }
     end
 
     def next_closest_slot(remaining:, current_point:)

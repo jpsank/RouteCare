@@ -10,6 +10,9 @@ class ClinicianProfile < ApplicationRecord
   validates :workday_start_minute, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 1439 }
   validates :workday_end_minute, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 1440 }
   validates :working_days_mask, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 127 }
+  validates :lunch_start_minute, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 1439 }
+  validates :lunch_duration_minutes, numericality: { greater_than_or_equal_to: 15, less_than_or_equal_to: 60 }
+  validates :lunch_window_minutes, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 180 }
   validate :workday_end_after_start
 
   def home_point
@@ -31,6 +34,19 @@ class ClinicianProfile < ApplicationRecord
       else
         normalized.sum { |wday| (1 << wday) }
       end
+  end
+
+  # Returns {earliest_start_minute, latest_start_minute, duration_minutes}
+  # representing the flexible lunch window for the optimizer.
+  def lunch_range
+    half_window = lunch_window_minutes / 2
+    earliest = [ lunch_start_minute - half_window, workday_start_minute ].max
+    latest   = [ lunch_start_minute + half_window, workday_end_minute - lunch_duration_minutes ].min
+    {
+      earliest_start_minute: earliest,
+      latest_start_minute:   latest,
+      duration_minutes:      lunch_duration_minutes
+    }
   end
 
   private

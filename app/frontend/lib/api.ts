@@ -248,6 +248,9 @@ export const api = {
         | "home_latitude"
         | "home_longitude"
         | "working_days"
+        | "lunch_start_minute"
+        | "lunch_duration_minutes"
+        | "lunch_window_minutes"
       >
     >,
   ) =>

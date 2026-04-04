@@ -26,6 +26,9 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
       :home_latitude,
       :home_longitude,
       :working_days_mask,
+      :lunch_start_minute,
+      :lunch_duration_minutes,
+      :lunch_window_minutes,
       working_days: []
     )
   end
@@ -40,7 +43,10 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
       home_latitude: profile.home_latitude,
       home_longitude: profile.home_longitude,
       working_days_mask: profile.working_days_mask,
-      working_days: profile.working_day_wdays
+      working_days: profile.working_day_wdays,
+      lunch_start_minute: profile.lunch_start_minute,
+      lunch_duration_minutes: profile.lunch_duration_minutes,
+      lunch_window_minutes: profile.lunch_window_minutes
     }
   end
 end
