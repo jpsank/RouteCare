@@ -2,16 +2,16 @@
 
 one:
   user: one
-  auditable_type: MyString
-  auditable_id: 
-  action: MyString
-  ip_address: MyString
-  metadata: 
+  auditable_type: WeeklySchedule
+  auditable_id: 1
+  action: schedule_approved
+  ip_address: 127.0.0.1
+  metadata: {}
 
 two:
   user: two
-  auditable_type: MyString
-  auditable_id: 
-  action: MyString
-  ip_address: MyString
-  metadata: 
+  auditable_type: Visit
+  auditable_id: 1
+  action: visit_rescheduled
+  ip_address: 127.0.0.1
+  metadata: {}

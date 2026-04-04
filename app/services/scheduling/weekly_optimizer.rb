@@ -19,7 +19,7 @@ module Scheduling
       raise ArgumentError, "Clinician profile is required" unless clinician_profile
 
       schedule = user.weekly_schedules.find_or_initialize_by(week_start_on: week_start_on)
-      schedule.status = :draft
+      schedule.status = :optimized
 
       visit_plan, soft_constraint_count = build_visit_plan
       travel_matrix = Scheduling::TravelTimeMatrixBuilder.new(
@@ -27,6 +27,7 @@ module Scheduling
       ).call
 
       ActiveRecord::Base.transaction do
+        schedule.save! if schedule.new_record?
         schedule.visits.delete_all
         create_visits!(schedule, visit_plan, travel_matrix)
         calculate_drive_metrics!(schedule)

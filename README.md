@@ -55,7 +55,7 @@ db/
 
 ### 1) Prerequisites
 
-- Ruby 3.2+
+- Ruby 3.4+
 - Node 22+
 - PostgreSQL 16+
 
@@ -64,6 +64,7 @@ db/
 ```bash
 bundle install
 npm install
+gem install foreman
 ```
 
 ### 3) Database setup
@@ -80,6 +81,7 @@ bin/rails db:prepare
 bin/dev
 ```
 
+`bin/dev` uses `Procfile.dev` via Foreman to run both Rails and Vite.
 Rails runs on port `3000`, Vite dev server on `3036`.
 
 ## Key API Endpoints

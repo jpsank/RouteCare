@@ -1,9 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
-import { AlertsPanel } from "./AlertsPanel";
-import { MessagingPanel } from "./MessagingPanel";
-import { WeeklyCalendarView } from "./WeeklyCalendarView";
+
+const AlertsPanel = lazy(async () => {
+  const module = await import("./AlertsPanel");
+  return { default: module.AlertsPanel };
+});
+
+const MessagingPanel = lazy(async () => {
+  const module = await import("./MessagingPanel");
+  return { default: module.MessagingPanel };
+});
+
+const WeeklyCalendarView = lazy(async () => {
+  const module = await import("./WeeklyCalendarView");
+  return { default: module.WeeklyCalendarView };
+});
 
 type Tab = "schedule" | "messages" | "alerts";
 type PatientSavePayload = {
@@ -27,6 +39,14 @@ const TABS: Array<[Tab, string]> = [
   ["messages", "Messages"],
   ["alerts", "Alerts"],
 ];
+
+function PanelFallback() {
+  return (
+    <div className="rc-card">
+      <div className="text-sm text-gray-500">Loading...</div>
+    </div>
+  );
+}
 
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>("schedule");
@@ -304,7 +324,11 @@ export function App() {
         </header>
 
         {error && <div className="rc-error">{error}</div>}
-        <main>{renderMain()}</main>
+        <main>
+          <Suspense fallback={<PanelFallback />}>
+            {renderMain()}
+          </Suspense>
+        </main>
       </div>
     </div>
   );

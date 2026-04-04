@@ -2,20 +2,20 @@
 
 one:
   user: one
-  provider: MyString
-  external_calendar_id: MyString
-  status: MyString
-  access_token: MyText
-  refresh_token: MyText
+  provider: google
+  external_calendar_id: primary
+  status: active
+  access_token: token-one
+  refresh_token: refresh-one
   token_expires_at: 2026-03-27 22:08:29
-  metadata: 
+  metadata: {}
 
 two:
   user: two
-  provider: MyString
-  external_calendar_id: MyString
-  status: MyString
-  access_token: MyText
-  refresh_token: MyText
+  provider: outlook
+  external_calendar_id: calendar-2
+  status: disconnected
+  access_token: token-two
+  refresh_token: refresh-two
   token_expires_at: 2026-03-27 22:08:29
-  metadata: 
+  metadata: {}

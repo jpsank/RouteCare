@@ -2,14 +2,14 @@
 
 one:
   user: one
-  discipline: MyString
-  phone: MyString
-  timezone: MyString
+  discipline: Physical Therapist
+  phone: "5551001001"
+  timezone: America/New_York
   auto_send_enabled: false
 
 two:
   user: two
-  discipline: MyString
-  phone: MyString
-  timezone: MyString
+  discipline: Occupational Therapist
+  phone: "5551001002"
+  timezone: America/Chicago
   auto_send_enabled: false

@@ -1,0 +1,34 @@
+<div class="rc-app">
+  <div class="rc-shell">
+    <div class="mx-auto mt-10 max-w-md rc-card">
+      <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-indigo-600">RouteCare</p>
+      <h1 class="text-2xl font-bold tracking-tight text-gray-900">Welcome back</h1>
+      <p class="mt-2 text-sm text-gray-500">Sign in to manage schedules, routes, and patient outreach.</p>
+
+      <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "mt-5 space-y-3" }) do |f| %>
+        <div class="rc-field">
+          <%= f.label :email, class: "rc-label" %>
+          <%= f.email_field :email, autofocus: true, autocomplete: "email" %>
+        </div>
+
+        <div class="rc-field">
+          <%= f.label :password, class: "rc-label" %>
+          <%= f.password_field :password, autocomplete: "current-password" %>
+        </div>
+
+        <% if devise_mapping.rememberable? %>
+          <label class="inline-flex items-center gap-2 text-sm text-gray-600">
+            <%= f.check_box :remember_me %>
+            Remember me
+          </label>
+        <% end %>
+
+        <%= f.submit "Sign in", class: "btn-primary w-full justify-center" %>
+      <% end %>
+
+      <div class="mt-4 text-sm">
+        <%= render "devise/shared/links" %>
+      </div>
+    </div>
+  </div>
+</div>

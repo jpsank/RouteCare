@@ -2,34 +2,34 @@
 
 one:
   clinician_profile: one
-  full_name: MyString
-  phone: MyString
-  email: MyString
-  address_line1: MyString
-  address_line2: MyString
-  city: MyString
-  state: MyString
-  postal_code: MyString
-  latitude: 9.99
-  longitude: 9.99
-  required_visits_per_week: 1
-  visit_duration_minutes: 1
-  active: false
-  notes: MyText
+  full_name: Jane Doe
+  phone: "5554001001"
+  email: jane.doe@example.com
+  address_line1: 100 Main St
+  address_line2: Apt 1
+  city: Boston
+  state: MA
+  postal_code: "02110"
+  latitude: 42.358900
+  longitude: -71.058900
+  required_visits_per_week: 2
+  visit_duration_minutes: 45
+  active: true
+  notes: Prefers mornings
 
 two:
   clinician_profile: two
-  full_name: MyString
-  phone: MyString
-  email: MyString
-  address_line1: MyString
-  address_line2: MyString
-  city: MyString
-  state: MyString
-  postal_code: MyString
-  latitude: 9.99
-  longitude: 9.99
+  full_name: John Smith
+  phone: "5554001002"
+  email: john.smith@example.com
+  address_line1: 200 Oak Ave
+  address_line2: Suite 4
+  city: Chicago
+  state: IL
+  postal_code: "60601"
+  latitude: 41.878100
+  longitude: -87.629800
   required_visits_per_week: 1
-  visit_duration_minutes: 1
-  active: false
-  notes: MyText
+  visit_duration_minutes: 60
+  active: true
+  notes: Avoids late afternoons

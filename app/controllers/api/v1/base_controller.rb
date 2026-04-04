@@ -19,6 +19,24 @@ module Api
         render json: { error: message }, status: status
       end
 
+      def parsed_week_start(input)
+        return Time.use_zone(request_timezone) { Time.zone.today.beginning_of_week(:monday) } if input.blank?
+
+        Date.iso8601(input).beginning_of_week(:monday)
+      rescue ArgumentError
+        raise ActionController::BadRequest, "Invalid week_start_on"
+      end
+
+      def request_timezone
+        requested = params[:client_timezone]
+        return requested if requested.present? && ActiveSupport::TimeZone[requested].present?
+
+        profile_timezone = current_user&.clinician_profile&.timezone
+        return profile_timezone if profile_timezone.present? && ActiveSupport::TimeZone[profile_timezone].present?
+
+        Time.zone.name
+      end
+
       def current_clinician_profile
         current_user.clinician_profile || current_user.create_clinician_profile!(
           discipline: "Physical Therapist",

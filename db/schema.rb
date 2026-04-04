@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_04_180001) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_04_210000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -220,7 +220,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_180001) do
     t.index ["user_id", "week_start_on"], name: "index_weekly_schedules_on_user_id_and_week_start_on", unique: true
     t.index ["user_id"], name: "index_weekly_schedules_on_user_id"
     t.check_constraint "baseline_drive_minutes >= 0", name: "weekly_schedules_non_negative_baseline_drive"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'optimized'::character varying::text, 'approved'::character varying::text, 'archived'::character varying::text])", name: "weekly_schedules_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'optimized'::character varying, 'approved'::character varying, 'archived'::character varying]::text[])", name: "weekly_schedules_status_check"
     t.check_constraint "total_drive_minutes >= 0", name: "weekly_schedules_non_negative_total_drive"
   end
 

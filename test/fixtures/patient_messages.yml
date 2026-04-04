@@ -4,26 +4,26 @@ one:
   visit: one
   patient: one
   user: one
-  direction: MyString
-  channel: MyString
-  status: MyString
-  body: MyText
-  proposed_starts_at: 2026-03-27 22:08:32
-  proposed_ends_at: 2026-03-27 22:08:32
+  direction: outbound
+  channel: sms
+  status: sent
+  body: Confirm your appointment for tomorrow at 9:00 AM.
+  proposed_starts_at: 2026-03-27 09:00:00
+  proposed_ends_at: 2026-03-27 09:45:00
   requires_approval: false
-  approved_at: 2026-03-27 22:08:32
-  metadata: 
+  approved_at: 2026-03-27 08:30:00
+  metadata: {}
 
 two:
   visit: two
   patient: two
   user: two
-  direction: MyString
-  channel: MyString
-  status: MyString
-  body: MyText
-  proposed_starts_at: 2026-03-27 22:08:32
-  proposed_ends_at: 2026-03-27 22:08:32
+  direction: inbound
+  channel: sms
+  status: received
+  body: Please reschedule to later in the day.
+  proposed_starts_at: 2026-03-27 14:00:00
+  proposed_ends_at: 2026-03-27 15:00:00
   requires_approval: false
-  approved_at: 2026-03-27 22:08:32
-  metadata: 
+  approved_at: 2026-03-27 09:15:00
+  metadata: {}

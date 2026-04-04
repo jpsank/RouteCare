@@ -1,6 +1,11 @@
-import type { RefObject } from "react";
+import { Suspense, lazy } from "react";
 import type { CalendarBlock, Visit } from "../../types";
-import { fmt, formatDistance, formatDuration, patientColor, type RouteSnapshot } from "./utils";
+import { buildAppleMapsUrl, buildGoogleMapsUrl, fmt, patientColor, type Point } from "./utils";
+
+const RouteMapSection = lazy(async () => {
+  const module = await import("./RouteMapSection");
+  return { default: module.RouteMapSection };
+});
 
 type Props = {
   selectedDate: string;
@@ -8,12 +13,7 @@ type Props = {
   dayBlocks: CalendarBlock[];
   selectedVisitId: number | null;
   setSelectedVisitId: (id: number | null) => void;
-  googleMapsUrl: string;
-  appleMapsUrl: string;
-  mapContainerRef: RefObject<HTMLDivElement | null>;
-  routeLoading: boolean;
-  routeSnapshot: RouteSnapshot | null;
-  routeError: string | null;
+  homeOrigin?: Point | null;
 };
 
 function totalDriveMinutes(visits: Visit[]): number {
@@ -26,13 +26,21 @@ export function RoutePanel({
   dayBlocks,
   selectedVisitId,
   setSelectedVisitId,
-  googleMapsUrl,
-  appleMapsUrl,
-  mapContainerRef,
-  routeLoading,
-  routeSnapshot,
-  routeError,
+  homeOrigin,
 }: Props) {
+  const googleMapsUrl = buildGoogleMapsUrl(
+    dayVisits
+      .filter((visit) => visit.patient_latitude != null && visit.patient_longitude != null)
+      .map((visit) => ({ latitude: Number(visit.patient_latitude), longitude: Number(visit.patient_longitude) })),
+    homeOrigin || undefined,
+  );
+  const appleMapsUrl = buildAppleMapsUrl(
+    dayVisits
+      .filter((visit) => visit.patient_latitude != null && visit.patient_longitude != null)
+      .map((visit) => ({ latitude: Number(visit.patient_latitude), longitude: Number(visit.patient_longitude) })),
+    homeOrigin || undefined,
+  );
+
   const dateLabel = new Date(selectedDate + "T12:00:00").toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -127,17 +135,9 @@ export function RoutePanel({
 
       {dayVisits.length > 0 && (
         <>
-          <div ref={mapContainerRef} className="rc-map" />
-          {routeLoading && <p className="mt-1.5 text-[11px] text-gray-400">Loading route...</p>}
-          {routeSnapshot && (
-            <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-500">
-              <span className="font-medium text-gray-700">{formatDistance(routeSnapshot.distanceMeters)}</span>
-              <span>&middot;</span>
-              <span className="font-medium text-gray-700">{formatDuration(routeSnapshot.durationSeconds)}</span>
-              <span className="ml-auto text-gray-400">total route</span>
-            </div>
-          )}
-          {routeError && <div className="rc-error mt-2">{routeError}</div>}
+          <Suspense fallback={<div className="mt-2 text-[11px] text-gray-400">Loading map...</div>}>
+            <RouteMapSection dayVisits={dayVisits} selectedDate={selectedDate} homeOrigin={homeOrigin} />
+          </Suspense>
         </>
       )}
     </aside>

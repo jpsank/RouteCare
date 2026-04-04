@@ -1,2 +1,19 @@
-#!/usr/bin/env ruby
-exec "./bin/rails", "server", *ARGV
+#!/usr/bin/env sh
+
+if [ -f tmp/pids/server.pid ]; then
+  rm -f tmp/pids/server.pid
+fi
+
+if lsof -iTCP:3000 -sTCP:LISTEN -n -P >/dev/null 2>&1; then
+  echo "Port 3000 is already in use. Stop the existing server first."
+  echo "Try: lsof -ti :3000 | xargs kill"
+  exit 1
+fi
+
+if command -v foreman >/dev/null 2>&1; then
+  exec foreman start -f Procfile.dev "$@"
+fi
+
+echo "Foreman is required to run Rails and Vite together."
+echo "Install it with: gem install foreman"
+exit 1

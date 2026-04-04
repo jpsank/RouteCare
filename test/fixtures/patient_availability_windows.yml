@@ -3,11 +3,11 @@
 one:
   patient: one
   day_of_week: 1
-  start_minute: 1
-  end_minute: 1
+  start_minute: 540
+  end_minute: 600
 
 two:
   patient: two
-  day_of_week: 1
-  start_minute: 1
-  end_minute: 1
+  day_of_week: 2
+  start_minute: 600
+  end_minute: 660

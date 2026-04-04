@@ -1,4 +1,4 @@
-import mapboxgl from "mapbox-gl";
+import type mapboxgl from "mapbox-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Visit } from "../../../types";
 import {
@@ -15,6 +15,11 @@ const MAPBOX_FALLBACK_PUBLIC_TOKEN =
 
 function mapboxToken(): string {
   return (import.meta.env.VITE_MAPBOX_TOKEN as string | undefined) || MAPBOX_FALLBACK_PUBLIC_TOKEN;
+}
+
+async function loadMapbox(): Promise<typeof mapboxgl> {
+  const module = await import("mapbox-gl");
+  return module.default;
 }
 
 const ROUTE_SOURCE_ID = "daily-route";
@@ -141,72 +146,83 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin }: Args) {
   }, [routePlan, selectedDate, clearRenderedRoute]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const container = mapContainerRef.current;
     if (!container) return;
-    if (!mapRef.current) {
-      mapRef.current = new mapboxgl.Map({
-        container,
-        style: "mapbox://styles/mapbox/light-v11",
-        center: [-96, 37.8],
-        zoom: 3,
-        accessToken: mapboxToken(),
-      });
-      mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
-    }
-    if (!routeSnapshot) return;
 
-    const map = mapRef.current;
-    const draw = () => {
-      const geojson: GeoJSON.FeatureCollection = {
-        type: "FeatureCollection",
-        features: [{ type: "Feature", geometry: routeSnapshot.geometry, properties: {} }],
-      };
-      if (map.getSource(ROUTE_SOURCE_ID)) (map.getSource(ROUTE_SOURCE_ID) as mapboxgl.GeoJSONSource).setData(geojson);
-      else {
-        map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: geojson });
-        map.addLayer({
-          id: ROUTE_LAYER_ID,
-          type: "line",
-          source: ROUTE_SOURCE_ID,
-          paint: { "line-color": "#6366f1", "line-width": 3, "line-opacity": 0.7 },
+    void loadMapbox().then((mapbox) => {
+      if (cancelled) return;
+
+      if (!mapRef.current) {
+        mapRef.current = new mapbox.Map({
+          container,
+          style: "mapbox://styles/mapbox/light-v11",
+          center: [-96, 37.8],
+          zoom: 3,
+          accessToken: mapboxToken(),
         });
+        mapRef.current.addControl(new mapbox.NavigationControl({ showCompass: false }), "top-right");
       }
+      if (!routeSnapshot) return;
 
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current = [];
-      const allPoints = [routePlan?.origin, ...(routePlan?.stops || [])].filter(Boolean) as Array<Point | RouteStop>;
-      allPoints.forEach((point, idx) => {
-        const isHome = idx === 0 && homeOrigin != null;
-        const stop = point as RouteStop;
-
-        let el: HTMLElement;
-        let popupText: string;
-
-        if (isHome) {
-          el = createDotElement("#6b7280", "H");
-          popupText = "Home";
-        } else {
-          const pc = patientColor(stop.patientId);
-          el = createDotElement(pc.accent);
-          popupText = `${stop.patientName}\n${stop.patientAddress}\n${new Date(stop.startsAt).toLocaleTimeString([], {
-            hour: "numeric",
-            minute: "2-digit",
-          })} – ${new Date(stop.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+      const map = mapRef.current;
+      const draw = () => {
+        const geojson: GeoJSON.FeatureCollection = {
+          type: "FeatureCollection",
+          features: [{ type: "Feature", geometry: routeSnapshot.geometry, properties: {} }],
+        };
+        if (map.getSource(ROUTE_SOURCE_ID)) (map.getSource(ROUTE_SOURCE_ID) as mapboxgl.GeoJSONSource).setData(geojson);
+        else {
+          map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: geojson });
+          map.addLayer({
+            id: ROUTE_LAYER_ID,
+            type: "line",
+            source: ROUTE_SOURCE_ID,
+            paint: { "line-color": "#6366f1", "line-width": 3, "line-opacity": 0.7 },
+          });
         }
 
-        const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
-          .setLngLat([point.longitude, point.latitude])
-          .setPopup(new mapboxgl.Popup({ offset: 12, closeButton: false }).setText(popupText))
-          .addTo(map);
-        markersRef.current.push(marker);
-      });
+        markersRef.current.forEach((marker) => marker.remove());
+        markersRef.current = [];
+        const allPoints = [routePlan?.origin, ...(routePlan?.stops || [])].filter(Boolean) as Array<Point | RouteStop>;
+        allPoints.forEach((point, idx) => {
+          const isHome = idx === 0 && homeOrigin != null;
+          const stop = point as RouteStop;
 
-      const bounds = new mapboxgl.LngLatBounds();
-      allPoints.forEach((point) => bounds.extend([point.longitude, point.latitude]));
-      if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 40, maxZoom: 13 });
+          let el: HTMLElement;
+          let popupText: string;
+
+          if (isHome) {
+            el = createDotElement("#6b7280", "H");
+            popupText = "Home";
+          } else {
+            const pc = patientColor(stop.patientId);
+            el = createDotElement(pc.accent);
+            popupText = `${stop.patientName}\n${stop.patientAddress}\n${new Date(stop.startsAt).toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            })} – ${new Date(stop.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+          }
+
+          const marker = new mapbox.Marker({ element: el, anchor: "center" })
+            .setLngLat([point.longitude, point.latitude])
+            .setPopup(new mapbox.Popup({ offset: 12, closeButton: false }).setText(popupText))
+            .addTo(map);
+          markersRef.current.push(marker);
+        });
+
+        const bounds = new mapbox.LngLatBounds();
+        allPoints.forEach((point) => bounds.extend([point.longitude, point.latitude]));
+        if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 40, maxZoom: 13 });
+      };
+      if (map.isStyleLoaded()) draw();
+      else map.once("load", draw);
+    });
+
+    return () => {
+      cancelled = true;
     };
-    if (map.isStyleLoaded()) draw();
-    else map.once("load", draw);
   }, [routeSnapshot, routePlan, homeOrigin]);
 
   return {

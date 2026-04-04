@@ -16,7 +16,7 @@ FileUtils.chdir APP_ROOT do
   system("bundle check") || system!("bundle install")
 
   # Install JavaScript dependencies
-  system("yarn install --check-files")
+  system!("npm install")
 
   # puts "\n== Copying sample files =="
   # unless File.exist?("config/database.yml")
@@ -33,6 +33,12 @@ FileUtils.chdir APP_ROOT do
   unless ARGV.include?("--skip-server")
     puts "\n== Starting development server =="
     STDOUT.flush # flush the output before exec(2) so that it displays
+    unless system("command -v foreman >/dev/null 2>&1")
+      puts "Foreman is not installed; skipping automatic startup."
+      puts "Install it with: gem install foreman"
+      exit 0
+    end
+
     exec "bin/dev"
   end
 end

@@ -75,7 +75,7 @@ class Api::V1::PatientsController < Api::V1::BaseController
   end
 
   def replace_availability_windows(patient)
-    return if availability_windows_params.empty?
+    return unless params.key?(:availability_windows)
 
     patient.patient_availability_windows.destroy_all
     availability_windows_params.each do |window|

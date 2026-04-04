@@ -2,20 +2,20 @@
 
 one:
   user: one
-  category: MyString
-  severity: MyString
-  status: MyString
-  message: MyText
+  category: unconfirmed_visit
+  severity: medium
+  status: open
+  message: Visit remains unconfirmed within 48 hours.
   due_at: 2026-03-27 22:08:33
   read_at: 2026-03-27 22:08:33
-  metadata: 
+  metadata: {}
 
 two:
   user: two
-  category: MyString
-  severity: MyString
-  status: MyString
-  message: MyText
+  category: schedule_shift
+  severity: high
+  status: acknowledged
+  message: Visit moved by more than two hours.
   due_at: 2026-03-27 22:08:33
   read_at: 2026-03-27 22:08:33
-  metadata: 
+  metadata: {}

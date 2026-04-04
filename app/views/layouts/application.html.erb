@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title><%= content_for(:title) || "Workspace" %></title>
+    <title><%= content_for(:title) || "RouteCare" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Workspace">
+    <meta name="application-name" content="RouteCare">
     <meta name="mobile-web-app-capable" content="yes">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
@@ -18,8 +18,7 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon.png">
 
-    <%# Includes all stylesheet files in app/assets/stylesheets %>
-    <%= stylesheet_link_tag :app %>
+    <%= vite_stylesheet_tag "application.css" %>
     <%= vite_client_tag %>
     <%= vite_javascript_tag "application.tsx" %>
     <!--
@@ -35,6 +34,18 @@
   </head>
 
   <body>
+    <% flash.each do |type, message| %>
+      <% next if message.blank? %>
+      <% classes = case type.to_sym
+                   when :notice then "border-emerald-200 bg-emerald-50 text-emerald-800"
+                   when :alert then "border-red-200 bg-red-50 text-red-800"
+                   else "border-slate-200 bg-slate-50 text-slate-800"
+                   end %>
+      <div class="mx-auto mt-4 max-w-4xl rounded-lg border px-4 py-3 text-sm shadow-sm <%= classes %>">
+        <%= message %>
+      </div>
+    <% end %>
+
     <%= yield %>
   </body>
 </html>

@@ -1,13 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { api } from "../lib/api";
 import type { CalendarBlock, CalendarConnection, ClinicianProfile, Patient, WeeklySchedule, Visit } from "../types";
 import { CalendarConnectionsPanel } from "./calendar/CalendarConnectionsPanel";
 import { EventEditorPanel } from "./calendar/EventEditorPanel";
-import { RoutePanel } from "./calendar/RoutePanel";
-import { ScheduleCalendar } from "./calendar/ScheduleCalendar";
 import { useCalendarConnections } from "./calendar/hooks/useCalendarConnections";
 import { useEventEditor } from "./calendar/hooks/useEventEditor";
-import { useRouteMap } from "./calendar/hooks/useRouteMap";
 import {
   asDateKey,
   EMPTY_PATIENT_FORM,
@@ -19,6 +16,16 @@ import {
   type PatientForm,
   type PatientSavePayload,
 } from "./calendar/utils";
+
+const ScheduleCalendar = lazy(async () => {
+  const module = await import("./calendar/ScheduleCalendar");
+  return { default: module.ScheduleCalendar };
+});
+
+const RoutePanel = lazy(async () => {
+  const module = await import("./calendar/RoutePanel");
+  return { default: module.RoutePanel };
+});
 
 type Props = {
   schedule: WeeklySchedule | null;
@@ -202,15 +209,6 @@ export function WeeklyCalendarView({
     () => calendarBlocks.filter((block) => asDateKey(block.starts_at) === selectedDate),
     [calendarBlocks, selectedDate],
   );
-
-  const {
-    mapContainerRef,
-    routeLoading,
-    routeSnapshot,
-    routeError,
-    googleMapsUrl,
-    appleMapsUrl,
-  } = useRouteMap({ dayVisits, selectedDate, homeOrigin });
 
   const {
     connectingProvider,
@@ -640,36 +638,38 @@ export function WeeklyCalendarView({
               </span>
             </div>
           )}
-          <ScheduleCalendar
-            events={calendarEvents}
-            workdayStartMinute={workdayStartMinute}
-            workdayEndMinute={workdayEndMinute}
-            onDateClick={(dateKey, startStr, pointer) => {
-              setSelectedVisitId(null);
-              setEditorMode("none");
-              setEditorPosition(null);
-              if (addEventOpen) {
-                setAddEventOpen(false);
-                return;
-              }
-              openAddEventModal(dateKey, startStr, pointer);
-            }}
-            onEventClick={(eventId, startStr, pointer) => {
-              setSelectedDate(asDateKey(startStr));
-              setAddEventOpen(false);
-              const match = eventId.match(/^visit-(\d+)$/);
-              if (!match) return;
-              const visitId = Number(match[1]);
-              if (selectedVisitId === visitId && editorMode === "none") {
-                setEditorPosition(pointer);
-                setEditorMode("edit");
-              } else {
-                setSelectedVisitId(visitId);
+          <Suspense fallback={<div className="p-4 text-sm text-gray-500">Loading calendar...</div>}>
+            <ScheduleCalendar
+              events={calendarEvents}
+              workdayStartMinute={workdayStartMinute}
+              workdayEndMinute={workdayEndMinute}
+              onDateClick={(dateKey, startStr, pointer) => {
+                setSelectedVisitId(null);
                 setEditorMode("none");
                 setEditorPosition(null);
-              }
-            }}
-          />
+                if (addEventOpen) {
+                  setAddEventOpen(false);
+                  return;
+                }
+                openAddEventModal(dateKey, startStr, pointer);
+              }}
+              onEventClick={(eventId, startStr, pointer) => {
+                setSelectedDate(asDateKey(startStr));
+                setAddEventOpen(false);
+                const match = eventId.match(/^visit-(\d+)$/);
+                if (!match) return;
+                const visitId = Number(match[1]);
+                if (selectedVisitId === visitId && editorMode === "none") {
+                  setEditorPosition(pointer);
+                  setEditorMode("edit");
+                } else {
+                  setSelectedVisitId(visitId);
+                  setEditorMode("none");
+                  setEditorPosition(null);
+                }
+              }}
+            />
+          </Suspense>
         </div>
 
         <RoutePanel
@@ -678,12 +678,7 @@ export function WeeklyCalendarView({
           dayBlocks={dayBlocks}
           selectedVisitId={selectedVisitId}
           setSelectedVisitId={setSelectedVisitId}
-          googleMapsUrl={googleMapsUrl}
-          appleMapsUrl={appleMapsUrl}
-          mapContainerRef={mapContainerRef}
-          routeLoading={routeLoading}
-          routeSnapshot={routeSnapshot}
-          routeError={routeError}
+          homeOrigin={homeOrigin}
         />
       </div>
 

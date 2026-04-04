@@ -123,19 +123,13 @@ class Api::V1::CalendarConnectionsController < Api::V1::BaseController
   end
 
   def parse_range
-    start_value = params[:week_start_on].presence || Date.current.beginning_of_week(:monday).iso8601
+    start_value = params[:week_start_on].presence || Time.use_zone(request_timezone) { Time.zone.today.beginning_of_week(:monday).iso8601 }
     end_value = params[:week_end_on].presence || (Date.iso8601(start_value) + 7.days).iso8601
 
-    [ Time.zone.parse(start_value).beginning_of_day, Time.zone.parse(end_value).end_of_day ]
+    Time.use_zone(request_timezone) do
+      [ Time.zone.parse(start_value).beginning_of_day, Time.zone.parse(end_value).end_of_day ]
+    end
   rescue ArgumentError
     raise ArgumentError, "Invalid sync date range"
-  end
-
-  def parsed_week_start(input)
-    return Date.current.beginning_of_week(:monday) if input.blank?
-
-    Date.iso8601(input).beginning_of_week(:monday)
-  rescue ArgumentError
-    raise ActionController::BadRequest, "Invalid week_start_on"
   end
 end

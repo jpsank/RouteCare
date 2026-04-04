@@ -38,14 +38,6 @@ class Api::V1::CalendarFeedsController < Api::V1::BaseController
 
   private
 
-  def parsed_week_start(input)
-    return Date.current.beginning_of_week(:monday) if input.blank?
-
-    Date.iso8601(input).beginning_of_week(:monday)
-  rescue ArgumentError
-    raise ActionController::BadRequest, "Invalid week_start_on"
-  end
-
   def escape_ics(value)
     value.to_s.gsub("\\", "\\\\").gsub(";", "\\;").gsub(",", "\\,").gsub("\n", "\\n")
   end

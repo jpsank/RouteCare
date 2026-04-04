@@ -60,7 +60,7 @@ export type Visit = {
 export type WeeklySchedule = {
   id: number;
   week_start_on: string;
-  status: "draft" | "clinician_approved" | "partially_confirmed" | "finalized";
+  status: "draft" | "optimized" | "approved" | "archived";
   total_drive_minutes: number;
   baseline_drive_minutes: number;
   drive_minutes_saved: number;

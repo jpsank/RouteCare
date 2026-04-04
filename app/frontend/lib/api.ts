@@ -7,7 +7,7 @@ import type {
   Patient,
   ClinicianProfile,
   Visit,
-  Schedule as WeeklySchedule,
+  WeeklySchedule,
 } from "../types";
 
 type JsonObject = Record<string, unknown>;
@@ -42,6 +42,16 @@ function browserTimeZone(): string | undefined {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 }
 
+function scheduleQuery(weekStartOn?: string): string {
+  const params = new URLSearchParams();
+  if (weekStartOn) params.set("week_start_on", weekStartOn);
+
+  const timezone = browserTimeZone();
+  if (timezone) params.set("client_timezone", timezone);
+
+  return params.toString() ? `?${params.toString()}` : "";
+}
+
 export async function fetchPatients(): Promise<Patient[]> {
   const data = await request<{ patients: Patient[] }>("/api/v1/patients");
   return data.patients;
@@ -54,8 +64,7 @@ export async function fetchClinicianProfile(): Promise<ClinicianProfile> {
 
 export async function fetchSchedule(weekStartOn?: string): Promise<WeeklySchedule | null> {
   try {
-    const query = weekStartOn ? `?week_start_on=${encodeURIComponent(weekStartOn)}` : "";
-    const data = await request<{ schedule: WeeklySchedule }>(`/api/v1/schedule${query}`);
+    const data = await request<{ schedule: WeeklySchedule }>(`/api/v1/schedule${scheduleQuery(weekStartOn)}`);
     return data.schedule;
   } catch {
     return null;
@@ -94,7 +103,7 @@ export async function optimizeScheduleWithStart(
 export async function approveSchedule(weekStartOn?: string): Promise<WeeklySchedule> {
   const data = await request<{ schedule: WeeklySchedule }>("/api/v1/schedule/approve", {
     method: "POST",
-    body: JSON.stringify({ week_start_on: weekStartOn }),
+    body: JSON.stringify({ week_start_on: weekStartOn, client_timezone: browserTimeZone() }),
   });
   return data.schedule;
 }
@@ -197,9 +206,7 @@ export async function updatePatient(patientId: number, patient: Partial<CreatePa
 export const api = {
   getSchedule: async (weekStartOn?: string) => {
     try {
-      return await request<{ schedule: WeeklySchedule }>(
-        `/api/v1/schedule${weekStartOn ? `?week_start_on=${encodeURIComponent(weekStartOn)}` : ""}`,
-      );
+      return await request<{ schedule: WeeklySchedule }>(`/api/v1/schedule${scheduleQuery(weekStartOn)}`);
     } catch (error) {
       if (error instanceof Error && error.message === "Schedule not found") {
         return { schedule: null };
@@ -220,7 +227,7 @@ export const api = {
   approveSchedule: (weekStartOn?: string) =>
     request<{ schedule: WeeklySchedule }>("/api/v1/schedule/approve", {
       method: "POST",
-      body: JSON.stringify({ week_start_on: weekStartOn }),
+      body: JSON.stringify({ week_start_on: weekStartOn, client_timezone: browserTimeZone() }),
     }),
   listPatients: () => request<{ patients: Patient[] }>("/api/v1/patients"),
   createPatient: (patient: Partial<CreatePatientPayload>) =>
