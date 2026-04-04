@@ -12,7 +12,9 @@ import {
   asDateKey,
   EMPTY_PATIENT_FORM,
   localInputToIso,
+  patientColor,
   patientPayloadFromForm,
+  statusBorderColor,
   toLocalInputValue,
   type PatientForm,
   type PatientSavePayload,
@@ -201,13 +203,20 @@ export function WeeklyCalendarView({
 
   const calendarEvents = useMemo(
     () => [
-      ...visits.map((visit) => ({
-        id: `visit-${visit.id}`,
-        title: visit.patient_name,
-        start: visit.starts_at,
-        end: visit.ends_at,
-        className: `calendar-event visit-${visit.status}${selectedVisitId === visit.id ? " visit-selected" : ""}`,
-      })),
+      ...visits.map((visit) => {
+        const pc = patientColor(visit.patient_id);
+        const isSelected = selectedVisitId === visit.id;
+        return {
+          id: `visit-${visit.id}`,
+          title: visit.patient_name,
+          start: visit.starts_at,
+          end: visit.ends_at,
+          backgroundColor: pc.bg,
+          textColor: pc.text,
+          borderColor: statusBorderColor(visit.status),
+          className: `calendar-event visit-status-${visit.status}${isSelected ? " visit-selected" : ""}`,
+        };
+      }),
       ...calendarBlocks.map((block) => ({
         id: `block-${block.id}`,
         title: block.title || "Blocked",
@@ -313,17 +322,16 @@ export function WeeklyCalendarView({
 
   if (!schedule) {
     return (
-      <div className="rc-card">
-        <h2 className="rc-section-title">Calendar Planner</h2>
-        <p className="rc-section-subtitle">Generate your optimized weekly schedule.</p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button className="btn-primary" onClick={() => onOptimize()} disabled={loading}>
+      <div className="rc-empty">
+        <p className="mb-2 text-sm font-medium text-gray-700">No schedule yet</p>
+        <div className="flex flex-wrap justify-center gap-2">
+          <button className="btn-primary btn-sm" onClick={() => onOptimize()} disabled={loading}>
             {loading ? "Optimizing..." : "Generate Week"}
           </button>
-          <button onClick={saveHomeFromCurrentLocation} disabled={loading || savingHomeLocation}>
+          <button className="btn-sm" onClick={saveHomeFromCurrentLocation} disabled={loading || savingHomeLocation}>
             {savingHomeLocation ? "Saving..." : "Use Current Location"}
           </button>
-          <button className="btn-ghost" onClick={onSeedDemoPatients} disabled={loading}>
+          <button className="btn-ghost btn-sm" onClick={onSeedDemoPatients} disabled={loading}>
             Load Demo Patients
           </button>
         </div>
@@ -332,123 +340,139 @@ export function WeeklyCalendarView({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="rc-card">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-primary" onClick={() => onOptimize()} disabled={loading}>
-              {loading ? "Optimizing..." : "Re-optimize"}
-            </button>
-            <button onClick={saveHomeFromCurrentLocation} disabled={loading || savingHomeLocation}>
-              {savingHomeLocation ? "Saving..." : "Use Current Location"}
-            </button>
-            <button className="btn-ghost" onClick={onSeedDemoPatients} disabled={loading}>
-              Demo Patients
-            </button>
-            <button className="btn-ghost" onClick={() => setShowSettings(!showSettings)}>
-              {showSettings ? "Hide Settings" : "Settings"}
-            </button>
-          </div>
+    <div className="space-y-2">
+      {/* Compact toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="btn-primary btn-sm" onClick={() => onOptimize()} disabled={loading}>
+          {loading ? "Optimizing..." : "Re-optimize"}
+        </button>
 
-          <div className="flex items-center gap-1">
-            {DAY_LABELS.map(([wday, label]) => (
-              <button
-                key={`wd-${wday}`}
-                type="button"
-                className={`rc-day-btn ${workingDays.includes(wday) ? "active" : ""}`}
-                onClick={() => toggleWorkingDay(wday)}
-                disabled={loading || savingWorkingDays}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        <div className="flex items-center gap-0.5">
+          {DAY_LABELS.map(([wday, label]) => (
+            <button
+              key={`wd-${wday}`}
+              type="button"
+              className={`rc-day-btn ${workingDays.includes(wday) ? "active" : ""}`}
+              onClick={() => toggleWorkingDay(wday)}
+              disabled={loading || savingWorkingDays}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
-        {showSettings && (
-          <div className="mt-3 space-y-3 border-t border-gray-200 pt-3">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="rc-field">
-                <span className="rc-label">Day starts</span>
-                <select
-                  className="w-36"
-                  value={workdayStartMinute}
-                  onChange={(event) => updateWorkdayRange(Number(event.target.value), workdayEndMinute)}
-                  disabled={loading || savingHours}
-                >
-                  {hourOptions
-                    .filter((o) => o.minuteValue < workdayEndMinute)
-                    .map((o) => (
-                      <option key={`s-${o.minuteValue}`} value={o.minuteValue}>{o.label}</option>
-                    ))}
-                </select>
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">Day ends</span>
-                <select
-                  className="w-36"
-                  value={workdayEndMinute}
-                  onChange={(event) => updateWorkdayRange(workdayStartMinute, Number(event.target.value))}
-                  disabled={loading || savingHours}
-                >
-                  {hourOptions
-                    .filter((o) => o.minuteValue > workdayStartMinute)
-                    .map((o) => (
-                      <option key={`e-${o.minuteValue}`} value={o.minuteValue}>{o.label}</option>
-                    ))}
-                </select>
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">Home lat</span>
-                <input
-                  className="w-24"
-                  value={homeLatitudeInput}
-                  onChange={(e) => setHomeLatitudeInput(e.target.value)}
-                  placeholder="36.18"
-                />
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">Home lng</span>
-                <input
-                  className="w-24"
-                  value={homeLongitudeInput}
-                  onChange={(e) => setHomeLongitudeInput(e.target.value)}
-                  placeholder="-94.13"
-                />
-              </div>
-              <button className="btn-sm" onClick={saveHomeFromInputs} disabled={loading || savingHomeInput}>
-                {savingHomeInput ? "Saving..." : "Save Home"}
-              </button>
-            </div>
-
-            <CalendarConnectionsPanel
-              connectingProvider={connectingProvider}
-              setConnectingProvider={setConnectingProvider}
-              externalCalendarId={externalCalendarId}
-              setExternalCalendarId={setExternalCalendarId}
-              appleIcsUrl={appleIcsUrl}
-              setAppleIcsUrl={setAppleIcsUrl}
-              googleConnection={googleConnection}
-              googleCalendars={googleCalendars}
-              selectedGoogleCalendarId={selectedGoogleCalendarId}
-              setSelectedGoogleCalendarId={setSelectedGoogleCalendarId}
-              calendarConnections={calendarConnections}
-              calendarConfigMessage={calendarConfigMessage}
-              connectCalendar={connectCalendar}
-              loadGoogleCalendars={loadGoogleCalendars}
-              saveGoogleCalendarSelection={saveGoogleCalendarSelection}
-              syncConnection={syncConnection}
-              pushToConnection={pushToConnection}
-              calendarFeedUrl={api.calendarFeedUrl(schedule.week_start_on)}
-            />
-          </div>
-        )}
+        <button className="btn-ghost btn-xs" onClick={() => setShowSettings(!showSettings)}>
+          {showSettings ? "Hide Settings" : "Settings"}
+        </button>
       </div>
+
+      {showSettings && (
+        <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="rc-field">
+              <span className="rc-label">Day starts</span>
+              <select
+                className="w-32"
+                value={workdayStartMinute}
+                onChange={(event) => updateWorkdayRange(Number(event.target.value), workdayEndMinute)}
+                disabled={loading || savingHours}
+              >
+                {hourOptions
+                  .filter((o) => o.minuteValue < workdayEndMinute)
+                  .map((o) => (
+                    <option key={`s-${o.minuteValue}`} value={o.minuteValue}>{o.label}</option>
+                  ))}
+              </select>
+            </div>
+            <div className="rc-field">
+              <span className="rc-label">Day ends</span>
+              <select
+                className="w-32"
+                value={workdayEndMinute}
+                onChange={(event) => updateWorkdayRange(workdayStartMinute, Number(event.target.value))}
+                disabled={loading || savingHours}
+              >
+                {hourOptions
+                  .filter((o) => o.minuteValue > workdayStartMinute)
+                  .map((o) => (
+                    <option key={`e-${o.minuteValue}`} value={o.minuteValue}>{o.label}</option>
+                  ))}
+              </select>
+            </div>
+            <div className="rc-field">
+              <span className="rc-label">Home lat</span>
+              <input
+                className="w-20"
+                value={homeLatitudeInput}
+                onChange={(e) => setHomeLatitudeInput(e.target.value)}
+                placeholder="36.18"
+              />
+            </div>
+            <div className="rc-field">
+              <span className="rc-label">Home lng</span>
+              <input
+                className="w-20"
+                value={homeLongitudeInput}
+                onChange={(e) => setHomeLongitudeInput(e.target.value)}
+                placeholder="-94.13"
+              />
+            </div>
+            <button className="btn-sm" onClick={saveHomeFromInputs} disabled={loading || savingHomeInput}>
+              {savingHomeInput ? "Saving..." : "Save Home"}
+            </button>
+            <button className="btn-sm" onClick={saveHomeFromCurrentLocation} disabled={loading || savingHomeLocation}>
+              {savingHomeLocation ? "Saving..." : "Use Current Location"}
+            </button>
+            <button className="btn-ghost btn-sm" onClick={onSeedDemoPatients} disabled={loading}>
+              Demo Patients
+            </button>
+          </div>
+
+          <CalendarConnectionsPanel
+            connectingProvider={connectingProvider}
+            setConnectingProvider={setConnectingProvider}
+            externalCalendarId={externalCalendarId}
+            setExternalCalendarId={setExternalCalendarId}
+            appleIcsUrl={appleIcsUrl}
+            setAppleIcsUrl={setAppleIcsUrl}
+            googleConnection={googleConnection}
+            googleCalendars={googleCalendars}
+            selectedGoogleCalendarId={selectedGoogleCalendarId}
+            setSelectedGoogleCalendarId={setSelectedGoogleCalendarId}
+            calendarConnections={calendarConnections}
+            calendarConfigMessage={calendarConfigMessage}
+            connectCalendar={connectCalendar}
+            loadGoogleCalendars={loadGoogleCalendars}
+            saveGoogleCalendarSelection={saveGoogleCalendarSelection}
+            syncConnection={syncConnection}
+            pushToConnection={pushToConnection}
+            calendarFeedUrl={api.calendarFeedUrl(schedule.week_start_on)}
+          />
+        </div>
+      )}
 
       {/* Calendar + Route */}
       <div className="rc-calendar-layout">
         <div className="rc-calendar-wrapper">
+          {/* Patient legend — inside the calendar card */}
+          {visits.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-gray-100 px-3 py-1.5 text-[11px] text-gray-500">
+              {Array.from(new Map(visits.map((v) => [v.patient_id, v.patient_name]))).map(([pid, name]) => {
+                const pc = patientColor(pid);
+                return (
+                  <span key={pid} className="inline-flex items-center gap-1">
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: pc.accent }} />
+                    {name}
+                  </span>
+                );
+              })}
+              <span className="ml-auto inline-flex items-center gap-2.5 text-gray-400">
+                <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#16a34a" }} />OK</span>
+                <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#d97706" }} />Pending</span>
+                <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#dc2626" }} />Declined</span>
+              </span>
+            </div>
+          )}
           <ScheduleCalendar
             events={calendarEvents}
             workdayStartMinute={workdayStartMinute}
@@ -578,6 +602,10 @@ export function WeeklyCalendarView({
                 <div className="rc-field">
                   <span className="rc-label">Duration (min)</span>
                   <input type="number" min={15} step={15} value={newPatientForm.visit_duration_minutes} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, visit_duration_minutes: Number(e.target.value) || 60 }))} />
+                </div>
+                <div className="rc-field">
+                  <span className="rc-label">Visits / week</span>
+                  <input type="number" min={1} max={7} value={newPatientForm.required_visits_per_week} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, required_visits_per_week: Number(e.target.value) || 1 }))} />
                 </div>
                 <div className="rc-field">
                   <span className="rc-label">Address</span>

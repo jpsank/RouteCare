@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { Visit } from "../../types";
-import { statusOptions, type PatientForm } from "./utils";
+import { patientColor, statusOptions, type PatientForm } from "./utils";
 
 type Props = {
   editorMode: "none" | "add" | "edit";
@@ -66,10 +66,18 @@ export function EventEditorPanel({
   return (
     <div ref={panelRef} className="rc-popover" style={panelStyle} role="dialog" aria-modal="false">
       <div className="rc-popover-card space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-900">
-            {editorMode === "add" ? "Add Patient" : "Edit Event"}
-          </h3>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {selectedVisit && (
+              <span
+                className="inline-block h-3 w-3 rounded-full flex-none"
+                style={{ backgroundColor: patientColor(selectedVisit.patient_id).accent }}
+              />
+            )}
+            <h3 className="text-sm font-semibold text-gray-900">
+              {editorMode === "add" ? "Add Patient" : selectedVisit?.patient_name ?? "Edit Event"}
+            </h3>
+          </div>
           <button className="btn-ghost btn-xs" onClick={closeEditor}>Close</button>
         </div>
 
@@ -119,6 +127,10 @@ export function EventEditorPanel({
               <div className="rc-field">
                 <span className="rc-label">Duration (min)</span>
                 <input type="number" min={15} step={15} value={patientForm.visit_duration_minutes} onChange={(e) => setPatientForm((prev) => ({ ...prev, visit_duration_minutes: Number(e.target.value) || 60 }))} />
+              </div>
+              <div className="rc-field">
+                <span className="rc-label">Visits / week</span>
+                <input type="number" min={1} max={7} value={patientForm.required_visits_per_week} onChange={(e) => setPatientForm((prev) => ({ ...prev, required_visits_per_week: Number(e.target.value) || 1 }))} />
               </div>
               <div className="rc-field">
                 <span className="rc-label">Email</span>

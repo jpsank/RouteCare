@@ -186,6 +186,36 @@ export async function fetchRouteSnapshot(token: string, origin: Point, stops: Po
   };
 }
 
+const PATIENT_PALETTE = [
+  { bg: "#dbeafe", text: "#1e40af", accent: "#3b82f6" },
+  { bg: "#dcfce7", text: "#166534", accent: "#22c55e" },
+  { bg: "#fce7f3", text: "#9d174d", accent: "#ec4899" },
+  { bg: "#e0e7ff", text: "#3730a3", accent: "#6366f1" },
+  { bg: "#fef3c7", text: "#92400e", accent: "#f59e0b" },
+  { bg: "#ccfbf1", text: "#115e59", accent: "#14b8a6" },
+  { bg: "#fee2e2", text: "#991b1b", accent: "#ef4444" },
+  { bg: "#f3e8ff", text: "#6b21a8", accent: "#a855f7" },
+  { bg: "#ffedd5", text: "#9a3412", accent: "#f97316" },
+  { bg: "#e0f2fe", text: "#075985", accent: "#0ea5e9" },
+  { bg: "#fef9c3", text: "#854d0e", accent: "#eab308" },
+  { bg: "#ede9fe", text: "#5b21b6", accent: "#8b5cf6" },
+];
+
+export function patientColor(patientId: number): { bg: string; text: string; accent: string } {
+  return PATIENT_PALETTE[patientId % PATIENT_PALETTE.length];
+}
+
+const STATUS_BORDER: Record<string, string> = {
+  confirmed: "#16a34a",
+  pending_patient_confirmation: "#d97706",
+  declined: "#dc2626",
+  unscheduled: "#9ca3af",
+};
+
+export function statusBorderColor(status: string): string {
+  return STATUS_BORDER[status] ?? "#9ca3af";
+}
+
 export function statusOptions(): Array<{ label: string; value: Visit["status"] }> {
   return [
     { label: "Confirmed", value: "confirmed" },

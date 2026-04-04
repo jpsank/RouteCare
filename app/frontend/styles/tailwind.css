@@ -29,11 +29,11 @@
 @layer components {
   /* ── App shell ── */
   .rc-app {
-    @apply min-h-screen px-4 py-5 sm:px-6;
+    @apply min-h-screen px-3 py-3 sm:px-5;
   }
 
   .rc-shell {
-    @apply mx-auto max-w-[1400px];
+    @apply mx-auto max-w-[1440px];
   }
 
   /* ── Buttons ── */
@@ -67,7 +67,7 @@
 
   /* ── Cards ── */
   .rc-card {
-    @apply rounded-xl border border-gray-200 bg-white p-5 shadow-card;
+    @apply rounded-xl border border-gray-200 bg-white p-4 shadow-card;
   }
 
   .rc-panel {
@@ -107,7 +107,7 @@
 
   /* ── Calendar layout ── */
   .rc-calendar-layout {
-    @apply grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)];
+    @apply grid grid-cols-1 items-start gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)];
   }
 
   .rc-calendar-wrapper {
@@ -116,7 +116,7 @@
 
   /* ── Route sidebar ── */
   .rc-route-panel {
-    @apply rounded-xl border border-gray-200 bg-white p-4 shadow-card;
+    @apply rounded-xl border border-gray-200 bg-white p-3 shadow-card;
   }
 
   .rc-route-stop {
@@ -248,13 +248,13 @@
 /* Toolbar */
 .fc .fc-toolbar.fc-header-toolbar {
   margin-bottom: 0 !important;
-  padding: 10px 12px !important;
+  padding: 6px 10px !important;
   border-bottom: 1px solid #e5e7eb !important;
   background: #fafafa !important;
 }
 
 .fc .fc-toolbar-title {
-  font-size: 15px !important;
+  font-size: 14px !important;
   font-weight: 600 !important;
   color: #111827 !important;
 }
@@ -265,10 +265,10 @@
   background-color: #fff !important;
   border: 1px solid #d1d5db !important;
   color: #374151 !important;
-  font-size: 12px !important;
+  font-size: 11px !important;
   font-weight: 500 !important;
-  padding: 4px 10px !important;
-  border-radius: 6px !important;
+  padding: 3px 8px !important;
+  border-radius: 5px !important;
   box-shadow: none !important;
   text-transform: none !important;
 }
@@ -307,8 +307,8 @@
 }
 
 .fc .fc-col-header-cell-cushion {
-  padding: 8px 4px !important;
-  font-size: 12px !important;
+  padding: 5px 4px !important;
+  font-size: 11px !important;
   font-weight: 500 !important;
   color: #6b7280 !important;
   text-decoration: none !important;
@@ -330,7 +330,7 @@
 
 /* Time axis */
 .fc .fc-timegrid-slot {
-  height: 2.25rem !important;
+  height: 2rem !important;
 }
 
 .fc .fc-timegrid-slot-label-cushion {
@@ -374,9 +374,12 @@
   border-color: #e5e7eb !important;
 }
 
-/* Events */
+/* Events — per-patient bg/text colors come from inline event props;
+   FullCalendar sets border-color inline from borderColor prop. */
 .fc .fc-event {
-  border: 0 !important;
+  border-width: 0 !important;
+  border-left-width: 3px !important;
+  border-left-style: solid !important;
   border-radius: 5px !important;
   padding: 1px 6px !important;
   font-size: 12px !important;
@@ -386,33 +389,26 @@
 
 .fc .fc-event-time {
   font-size: 11px !important;
-  opacity: 0.85;
+  opacity: 0.7;
 }
 
 .fc .fc-event-title {
   font-size: 12px !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
 }
 
-/* Visit status colors */
-.fc .visit-confirmed {
-  background: #059669 !important;
-  color: #fff !important;
+/* Status accents — declined gets a strikethrough, pending gets reduced opacity */
+.fc .visit-status-declined {
+  opacity: 0.55 !important;
 }
-
-.fc .visit-pending_patient_confirmation {
-  background: #d97706 !important;
-  color: #fff !important;
+.fc .visit-status-declined .fc-event-title {
+  text-decoration: line-through !important;
 }
-
-.fc .visit-declined {
-  background: #dc2626 !important;
-  color: #fff !important;
+.fc .visit-status-pending_patient_confirmation {
+  opacity: 0.8 !important;
 }
-
-.fc .visit-unscheduled {
-  background: #6b7280 !important;
-  color: #fff !important;
+.fc .visit-status-unscheduled {
+  opacity: 0.5 !important;
 }
 
 /* Background events */

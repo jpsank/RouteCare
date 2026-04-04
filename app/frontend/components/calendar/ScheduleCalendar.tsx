@@ -3,13 +3,16 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import FullCalendar from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/timegrid";
 
-type CalendarEvent = {
+export type CalendarEvent = {
   id: string;
   title: string;
   start: string;
   end: string;
-  className: string;
+  className?: string;
   display?: "background";
+  backgroundColor?: string;
+  textColor?: string;
+  borderColor?: string;
 };
 
 type Props = {

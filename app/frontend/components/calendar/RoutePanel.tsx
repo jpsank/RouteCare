@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import type { CalendarBlock, Visit } from "../../types";
-import { fmt, formatDistance, formatDuration, type RouteSnapshot } from "./utils";
+import { fmt, formatDistance, formatDuration, patientColor, type RouteSnapshot } from "./utils";
 
 type Props = {
   selectedDate: string;
@@ -63,7 +63,10 @@ export function RoutePanel({
                 role="button"
                 tabIndex={0}
               >
-                <span className="rc-route-index">{idx + 1}</span>
+                <span
+                  className="rc-route-index"
+                  style={{ backgroundColor: patientColor(visit.patient_id).bg, color: patientColor(visit.patient_id).text }}
+                >{idx + 1}</span>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium text-gray-900">{visit.patient_name}</div>
                   <div className="text-xs text-gray-500">
