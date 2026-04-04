@@ -155,6 +155,21 @@ export async function sendVisitMessage(
   return data.message;
 }
 
+export async function approveMessage(id: number): Promise<Message> {
+  const data = await request<{ message: Message }>(`/api/v1/messages/${id}/approve`, {
+    method: "POST",
+  });
+  return data.message;
+}
+
+export async function selectMessageSuggestion(id: number, suggestionIndex: number): Promise<Message> {
+  const data = await request<{ message: Message }>(`/api/v1/messages/${id}/select_suggestion`, {
+    method: "POST",
+    body: JSON.stringify({ suggestion_index: suggestionIndex }),
+  });
+  return data.message;
+}
+
 export async function fetchCalendarBlocks(
   weekStartOn?: string,
   weekEndOn?: string,
@@ -277,6 +292,15 @@ export const api = {
           send_immediately: sendImmediately,
         },
       }),
+    }),
+  approveMessage: (id: number) =>
+    request<{ message: Message }>(`/api/v1/messages/${id}/approve`, {
+      method: "POST",
+    }),
+  selectMessageSuggestion: (id: number, suggestionIndex: number) =>
+    request<{ message: Message }>(`/api/v1/messages/${id}/select_suggestion`, {
+      method: "POST",
+      body: JSON.stringify({ suggestion_index: suggestionIndex }),
     }),
   listAlerts: () => request<{ alerts: Alert[] }>("/api/v1/alerts"),
   listCalendarBlocks: (weekStartOn?: string, weekEndOn?: string) => {

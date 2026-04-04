@@ -80,6 +80,7 @@ export type Message = {
   approved_at: string | null;
   proposed_starts_at: string | null;
   proposed_ends_at: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 };
 

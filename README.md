@@ -10,7 +10,7 @@ It solves three core workflow gaps:
 
 This repository is built with a TariffNinja-style stack: <!-- pragma: allowlist secret -->
 
-- Rails 8 + Ruby 3.2
+- Rails 8 + Ruby 3.4
 - PostgreSQL 16
 - Solid Queue / Solid Cache / Solid Cable
 - React + TypeScript frontend via Vite
@@ -29,8 +29,12 @@ Implemented foundation:
   - optimized vs baseline drive-time metrics
 - Visit editing and quick rescheduling
 - Patient communication lifecycle:
-  - outbound draft/approval/dispatch flow
+  - outbound confirmation drafts, approval, queueing, and dispatch
   - inbound intent parsing (confirm/decline/reschedule)
+  - lightweight availability extraction from reschedule replies
+  - automated follow-up drafting when patients ask to reschedule
+  - route-aware suggested reschedule slots based on the current weekly plan
+  - clinician-reviewed or auto-sent follow-up based on communication settings
 - Alerts pipeline:
   - unconfirmed visits within 48h
   - calendar conflict detection
@@ -98,6 +102,8 @@ Rails runs on port `3000`, Vite dev server on `3036`.
 - `POST /api/v1/visits/:id/reschedule`
 - `GET /api/v1/messages`
 - `POST /api/v1/messages`
+- `POST /api/v1/messages/:id/approve`
+- `POST /api/v1/messages/:id/select_suggestion`
 - `POST /api/v1/messages/inbound`
 - `GET /api/v1/calendar_blocks`
 - `POST /api/v1/calendar_blocks`
@@ -110,8 +116,19 @@ Service boundaries are already in place for:
 - Calendar: Google + Outlook (`app/services/integrations/calendar`)
 - Routing/geocoding (`app/services/integrations/routing_client.rb`, `geocoding_client.rb`)
 - Messaging dispatch (Twilio/email provider adapter entrypoint is `MessageDeliveryJob`)
+- LLM-assisted message drafting and reply interpretation (`app/services/integrations/llm_client.rb`)
 
 The current implementation includes safe local fallbacks/mocks for development and testing.
+
+### Optional LLM configuration
+
+Natural-language messaging can use an OpenAI-compatible chat API when configured:
+
+- `ROUTECARE_LLM_API_KEY`
+- `ROUTECARE_LLM_BASE_URL` (optional, default `https://api.openai.com/v1`)
+- `ROUTECARE_LLM_MODEL` (optional, default `gpt-4o-mini`)
+
+If these are not set (or the provider call fails), RouteCare falls back to deterministic local templates and rule-based parsing.
 
 ## Security/HIPAA Notes
 
@@ -131,8 +148,10 @@ Production hardening still required before live PHI workloads:
 
 ## Tests
 
-Run test suite:
+Run the main verification checks:
 
 ```bash
 bin/rails test
+bundle exec rubocop
+npm run build
 ```

@@ -272,6 +272,36 @@ export function App() {
     }
   };
 
+  const approveMessage = async (messageId: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.approveMessage(messageId);
+      setMessages((prev) => prev.map((message) => (message.id === messageId ? result.message : message)));
+      return result.message;
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectMessageSuggestion = async (messageId: number, suggestionIndex: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.selectMessageSuggestion(messageId, suggestionIndex);
+      setMessages((prev) => prev.map((message) => (message.id === messageId ? result.message : message)));
+      return result.message;
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const renderMain = () => {
     if (activeTab === "schedule") {
       return (
@@ -296,7 +326,15 @@ export function App() {
       );
     }
     if (activeTab === "messages") {
-      return <MessagingPanel visits={visits} messages={messages} onSend={sendMessage} />;
+      return (
+        <MessagingPanel
+          visits={visits}
+          messages={messages}
+          onSend={sendMessage}
+          onApprove={approveMessage}
+          onSelectSuggestion={selectMessageSuggestion}
+        />
+      );
     }
     return <AlertsPanel alerts={alerts} />;
   };

@@ -27,6 +27,10 @@ Rails.application.routes.draw do
       get "calendar_feed", to: "calendar_feeds#show", defaults: { format: :ics }
       resources :alerts, only: %i[index update]
       resources :messages, only: %i[index create] do
+        member do
+          post :approve
+          post :select_suggestion
+        end
         collection do
           post :create_inbound, path: "inbound"
         end
