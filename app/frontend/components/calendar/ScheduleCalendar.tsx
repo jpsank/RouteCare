@@ -50,7 +50,14 @@ export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute,
         month: "Month",
       }}
       firstDay={1}
-      dayHeaderFormat={{ weekday: "short", month: "numeric", day: "numeric", omitCommas: true }}
+      views={{
+        timeGridWeek: {
+          dayHeaderFormat: { weekday: "short", month: "numeric", day: "numeric", omitCommas: true },
+        },
+        dayGridMonth: {
+          dayHeaderFormat: { weekday: "short" },
+        },
+      }}
       slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
       events={events}
       editable={false}
