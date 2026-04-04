@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, Schedule, Visit } from "../types";
+import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
 import { AlertsPanel } from "./AlertsPanel";
 import { MessagingPanel } from "./MessagingPanel";
 import { WeeklyCalendarView } from "./WeeklyCalendarView";
@@ -22,10 +22,16 @@ type PatientSavePayload = {
   longitude?: number;
 };
 
+const TABS: Array<[Tab, string]> = [
+  ["schedule", "Calendar"],
+  ["messages", "Messages"],
+  ["alerts", "Alerts"],
+];
+
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>("schedule");
   const [loading, setLoading] = useState(false);
-  const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [schedule, setSchedule] = useState<WeeklySchedule | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -253,25 +259,24 @@ export function App() {
   };
 
   return (
-    <div className="routecare-app">
-      <div className="routecare-shell">
-        <header className="routecare-header rounded-2xl border border-slate-200 bg-white/85 p-5 shadow-soft backdrop-blur">
+    <div className="rc-app">
+      <div className="rc-shell">
+        <header className="mb-6 flex items-center justify-between">
           <div>
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-teal-700">Clinician Workspace</p>
-            <h1 className="routecare-title">RouteCare</h1>
-            <p className="routecare-subtitle">Route-optimized field scheduling for home-visit clinicians</p>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">RouteCare</h1>
+            <p className="mt-0.5 text-sm text-gray-500">Field scheduling for home-visit clinicians</p>
           </div>
         </header>
 
-        <nav className="tabs">
-          {([
-            ["schedule", "Weekly Calendar"],
-            ["messages", "Patient Messages"],
-            ["alerts", "Alerts"],
-          ] as Array<[Tab, string]>).map(([tab, label]) => (
+        <nav className="mb-5 flex gap-1 border-b border-gray-200">
+          {TABS.map(([tab, label]) => (
             <button
               key={tab}
-              className={activeTab === tab ? "active ring-2 ring-teal-100" : ""}
+              className={`rounded-none border-0 border-b-2 bg-transparent px-4 py-2 text-sm font-medium shadow-none hover:bg-transparent ${
+                activeTab === tab
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+              }`}
               onClick={() => setActiveTab(tab)}
             >
               {label}
@@ -279,8 +284,8 @@ export function App() {
           ))}
         </nav>
 
-        {error && <div className="error">{error}</div>}
-        <main className="grid gap-3">{renderMain()}</main>
+        {error && <div className="rc-error">{error}</div>}
+        <main>{renderMain()}</main>
       </div>
     </div>
   );

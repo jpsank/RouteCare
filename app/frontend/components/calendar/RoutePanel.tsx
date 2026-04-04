@@ -30,100 +30,86 @@ export function RoutePanel({
   routeError,
 }: Props) {
   return (
-    <aside className="calendar-day-route sticky top-4">
-      <div className="section-head">
-        <h3 className="text-base font-bold text-slate-900">{new Date(selectedDate).toDateString()}</h3>
-        <div className="route-links">
-          <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="map-icon-link" title="Open in Google Maps" aria-label="Open in Google Maps">
-            G
-          </a>
-          <a href={appleMapsUrl} target="_blank" rel="noreferrer" className="map-icon-link" title="Open in Apple Maps" aria-label="Open in Apple Maps">
-            A
-          </a>
+    <aside className="rc-route-panel sticky top-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900">
+          {new Date(selectedDate + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+        </h3>
+        <div className="flex gap-1">
+          <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="rc-map-link" title="Google Maps">G</a>
+          <a href={appleMapsUrl} target="_blank" rel="noreferrer" className="rc-map-link" title="Apple Maps">A</a>
         </div>
       </div>
 
       {dayVisits.length === 0 ? (
-        <p className="empty-state">No visits on this day.</p>
+        <div className="rc-empty">No visits scheduled</div>
       ) : (
-        <ol className="route-list">
+        <div className="space-y-1">
           {dayVisits.map((visit, idx) => (
-            <li key={visit.id}>
+            <div key={visit.id}>
               {(idx > 0 || (idx === 0 && (visit.drive_from_previous_minutes || 0) > 0)) && (
-                <div className="route-transit-meta">
-                  <span className="transit-chip">
-                    <span className="transit-icon" aria-hidden="true">
-                      🚗
-                    </span>
-                    <span>
-                      {idx === 0 ? "Drive from home" : "Drive from previous stop"}: {visit.drive_from_previous_minutes || 0} min
-                    </span>
+                <div className="ml-9 py-0.5">
+                  <span className="rc-transit">
+                    🚗 {idx === 0 ? "From home" : "Transit"}: {visit.drive_from_previous_minutes || 0} min
                   </span>
                 </div>
               )}
               <div
-                className={`route-stop ${selectedVisitId === visit.id ? "active bg-teal-50" : ""}`}
+                className={`rc-route-stop ${selectedVisitId === visit.id ? "active" : ""}`}
                 onClick={() => setSelectedVisitId(visit.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setSelectedVisitId(visit.id);
-                  }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedVisitId(visit.id); }
                 }}
                 role="button"
                 tabIndex={0}
               >
-                <span className="route-index">{idx + 1}</span>
-                <div className="route-stop-body">
-                  <div className="route-stop-title truncate">{visit.patient_name}</div>
-                  <div className="route-stop-meta">
-                    {fmt(visit.starts_at)} - {fmt(visit.ends_at)}
+                <span className="rc-route-index">{idx + 1}</span>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-gray-900">{visit.patient_name}</div>
+                  <div className="text-xs text-gray-500">
+                    {fmt(visit.starts_at)} – {fmt(visit.ends_at)}
                   </div>
-                  <div className="route-stop-detail">{visit.patient_address || "No address on file"}</div>
+                  <div className="truncate text-xs text-gray-400">{visit.patient_address || "No address"}</div>
                 </div>
               </div>
-            </li>
+            </div>
           ))}
-        </ol>
+        </div>
       )}
 
       {dayBlocks.length > 0 && (
-        <ul className="alerts-list mt-3">
+        <div className="mt-3 space-y-1">
           {dayBlocks.map((block) => (
-            <li key={block.id} className="alert-item severity-medium">
-              <p className="alert-message">{block.title || "Personal event"}</p>
-              <div className="alert-meta">
-                <span>
-                  {fmt(block.starts_at)} - {fmt(block.ends_at)}
-                </span>
-              </div>
-            </li>
+            <div key={block.id} className="rc-alert-item sev-medium">
+              <div className="text-sm font-medium text-gray-900">{block.title || "Personal event"}</div>
+              <div className="text-xs text-gray-500">{fmt(block.starts_at)} – {fmt(block.ends_at)}</div>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
 
       {dayVisits.length > 0 && (
         <>
-          <div ref={mapContainerRef} className="route-map" />
-          {routeLoading && <p className="section-meta">Loading turn-by-turn route...</p>}
+          <div ref={mapContainerRef} className="rc-map" />
+          {routeLoading && <p className="mt-2 text-xs text-gray-500">Loading route...</p>}
           {routeSnapshot && (
-            <div className="route-summary">
-              <strong className="text-sm font-bold text-slate-800">
-                {formatDistance(routeSnapshot.distanceMeters)} • {formatDuration(routeSnapshot.durationSeconds)}
-              </strong>
-              <ol className="direction-list">
-                {routeSnapshot.steps.slice(0, 8).map((step, idx) => (
-                  <li key={`${step.instruction}-${idx}`}>
-                    <span>{step.instruction}</span>
-                    <small>
-                      {formatDistance(step.distanceMeters)} • {formatDuration(step.durationSeconds)}
-                    </small>
+            <div className="rc-route-summary">
+              <div className="text-sm font-medium text-gray-800">
+                {formatDistance(routeSnapshot.distanceMeters)} &middot; {formatDuration(routeSnapshot.durationSeconds)}
+              </div>
+              <ol className="mt-2 list-none space-y-1 p-0">
+                {routeSnapshot.steps.slice(0, 6).map((step, idx) => (
+                  <li key={`${step.instruction}-${idx}`} className="text-xs text-gray-600">
+                    {step.instruction}
+                    <span className="ml-1 text-gray-400">
+                      ({formatDistance(step.distanceMeters)})
+                    </span>
                   </li>
                 ))}
               </ol>
             </div>
           )}
-          {routeError && <div className="error">{routeError}</div>}
+          {routeError && <div className="rc-error mt-2">{routeError}</div>}
         </>
       )}
     </aside>

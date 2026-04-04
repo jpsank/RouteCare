@@ -15,6 +15,13 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
+function badgeClass(status: string): string {
+  if (status === "confirmed" || status === "sent" || status === "received") return "rc-badge rc-badge-success";
+  if (status === "declined" || status === "failed") return "rc-badge rc-badge-danger";
+  if (status === "pending_approval") return "rc-badge rc-badge-warning";
+  return "rc-badge rc-badge-neutral";
+}
+
 export function MessagingPanel({ visits, messages, onSend }: Props) {
   const [visitId, setVisitId] = useState<string>("");
   const [body, setBody] = useState("");
@@ -33,63 +40,63 @@ export function MessagingPanel({ visits, messages, onSend }: Props) {
   }
 
   return (
-    <section className="card">
-      <header className="section-header">
-        <div>
-          <h2 className="section-title">Patient Communication</h2>
-          <p className="section-subtitle">Send appointment proposals and review inbound responses.</p>
-        </div>
-      </header>
+    <div className="rc-card space-y-4">
+      <div>
+        <h2 className="rc-section-title">Messages</h2>
+        <p className="rc-section-subtitle">Send appointment proposals and review responses.</p>
+      </div>
 
-      <div className="message-form rounded-xl border border-slate-200 bg-slate-50 p-3">
-        <label className="field">
-          <span className="field-label">Visit</span>
-          <select value={visitId} onChange={(event) => setVisitId(event.target.value)}>
-            <option value="">Select visit</option>
-            {visits.map((visit) => (
-              <option key={visit.id} value={visit.id}>
-                {visit.patient_name} - {new Date(visit.starts_at).toLocaleString()}
+      <div className="rc-form-grid rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <div className="rc-field">
+          <span className="rc-label">Visit</span>
+          <select value={visitId} onChange={(e) => setVisitId(e.target.value)}>
+            <option value="">Select visit...</option>
+            {visits.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.patient_name} - {new Date(v.starts_at).toLocaleString()}
               </option>
             ))}
           </select>
-        </label>
+        </div>
 
-        <label className="field">
-          <span className="field-label">Channel</span>
-          <select value={channel} onChange={(event) => setChannel(event.target.value as "sms" | "email")}>
+        <div className="rc-field">
+          <span className="rc-label">Channel</span>
+          <select value={channel} onChange={(e) => setChannel(e.target.value as "sms" | "email")}>
             <option value="sms">SMS</option>
             <option value="email">Email</option>
           </select>
-        </label>
+        </div>
 
-        <label className="field field-full">
-          <span className="field-label">Message</span>
+        <div className="rc-field sm:col-span-2">
+          <span className="rc-label">Message</span>
           <textarea
-            placeholder="Optional custom message body (leave blank to use RouteCare template)"
+            placeholder="Leave blank to use RouteCare template"
             value={body}
-            onChange={(event) => setBody(event.target.value)}
-            rows={4}
+            onChange={(e) => setBody(e.target.value)}
+            rows={3}
           />
-        </label>
+        </div>
 
-        <button type="button" className="btn-primary sm:col-span-2 sm:justify-self-start" onClick={sendMessage} disabled={loading || !visitId}>
-          {loading ? "Sending..." : "Send Message"}
-        </button>
+        <div className="sm:col-span-2">
+          <button className="btn-primary" onClick={sendMessage} disabled={loading || !visitId}>
+            {loading ? "Sending..." : "Send Message"}
+          </button>
+        </div>
       </div>
 
-      <ul className="message-list">
-        {messages.length === 0 ? <li className="message-empty">No messages sent yet.</li> : null}
-        {messages.slice(0, 8).map((message) => (
-          <li key={message.id} className="message-item">
-            <div className="message-item-meta">
-              <strong>{message.channel.toUpperCase()}</strong>
-              <span>{titleCase(message.direction)}</span>
-              <span className={`badge badge-${message.status}`}>{titleCase(message.status)}</span>
+      <div className="space-y-2">
+        {messages.length === 0 && <div className="rc-empty">No messages sent yet.</div>}
+        {messages.slice(0, 8).map((msg) => (
+          <div key={msg.id} className="rc-msg-item">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              <span className="font-semibold text-gray-700">{msg.channel.toUpperCase()}</span>
+              <span>{titleCase(msg.direction)}</span>
+              <span className={badgeClass(msg.status)}>{titleCase(msg.status)}</span>
             </div>
-            <p className="message-item-body">{message.body}</p>
-          </li>
+            {msg.body && <p className="mt-1 text-sm text-gray-700">{msg.body}</p>}
+          </div>
         ))}
-      </ul>
-    </section>
+      </div>
+    </div>
   );
 }
