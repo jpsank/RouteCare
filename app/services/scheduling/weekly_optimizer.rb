@@ -2,6 +2,8 @@ module Scheduling
   class WeeklyOptimizer
     DEFAULT_DAY_START_MINUTE = 8 * 60
     DEFAULT_DAY_END_MINUTE = 18 * 60
+    SLOT_STEP_MINUTES = 15
+    MAX_VISITS_PER_DAY = 5
 
     def initialize(user:, week_start_on:, start_point: nil)
       @user = user
@@ -45,6 +47,7 @@ module Scheduling
 
     def build_visit_plan
       blocked_ranges = Scheduling::CalendarConstraints.new(user:, week_start_on:).blocked_ranges_by_day
+      weekly_days.each { |date| blocked_ranges[date] ||= [] }
       plan = []
       soft_constraint_count = 0
 
@@ -72,8 +75,8 @@ module Scheduling
       existing_patient_days = existing_days_for_patient(patient, current_plan)
 
       weekly_days.each do |date|
-        # Prefer one visit per patient per day for better spacing.
         next if existing_patient_days.include?(date)
+        next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
 
         patient_windows_for_day = preferred_windows_for(patient, date)
         window_set = patient_windows_for_day.presence || fallback_windows_for(date)
@@ -97,8 +100,9 @@ module Scheduling
       end
 
       if candidates.empty?
-        # If conflicts make spacing impossible, relax and allow same-day repeats.
         weekly_days.each do |date|
+          next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
+
           patient_windows_for_day = preferred_windows_for(patient, date)
           window_set = patient_windows_for_day.presence || fallback_windows_for(date)
 
@@ -137,6 +141,8 @@ module Scheduling
 
     def fallback_slot(patient:, blocked_ranges:, current_plan:)
       weekly_days.each do |date|
+        next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
+
         start_minute = day_start_minute
         while start_minute + patient.visit_duration_minutes <= day_end_minute
           starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(start_minute)}")
@@ -150,7 +156,7 @@ module Scheduling
               soft_constraint_override: true
             }
           end
-          start_minute += 30
+          start_minute += SLOT_STEP_MINUTES
         end
       end
 
@@ -176,14 +182,16 @@ module Scheduling
     end
 
     def create_visits!(schedule, visit_plan, travel_matrix)
-      grouped = visit_plan.group_by { |slot| slot[:starts_at].to_date }
+      grouped = visit_plan.group_by { |slot| slot[:date] }
 
       grouped.each_value do |slots|
-        ordered_slots = slots.sort_by { |slot| slot[:starts_at] }
+        ordered_slots = nearest_neighbor_order(slots, travel_matrix)
+        retimed_slots = retime_slots(ordered_slots, travel_matrix)
+
         current_point = start_point_for_day
         previous_patient_id = nil
 
-        ordered_slots.each_with_index do |slot, index|
+        retimed_slots.each_with_index do |slot, index|
           drive_minutes =
             if previous_patient_id.nil?
               travel_minutes_from_point(current_point, slot[:patient])
@@ -207,6 +215,65 @@ module Scheduling
           current_point = point_for(slot[:patient])
         end
       end
+    end
+
+    def nearest_neighbor_order(slots, travel_matrix)
+      return slots if slots.size <= 1
+
+      remaining = slots.dup
+      ordered = []
+      current_point = start_point_for_day
+
+      while remaining.any?
+        closest = if current_point.blank?
+                    remaining.first
+                  else
+                    remaining.min_by do |slot|
+                      patient_point = point_for(slot[:patient])
+                      point_distance(current_point, patient_point)
+                    end
+                  end
+
+        ordered << closest
+        remaining.delete(closest)
+        current_point = point_for(closest[:patient])
+      end
+
+      ordered
+    end
+
+    def retime_slots(ordered_slots, travel_matrix)
+      return ordered_slots if ordered_slots.empty?
+
+      date = ordered_slots.first[:date]
+      current_minute = day_start_minute
+      previous_patient_id = nil
+      retimed = []
+
+      ordered_slots.each do |slot|
+        transit = if previous_patient_id.nil?
+                    origin = start_point_for_day
+                    origin.present? ? travel_minutes_from_point(origin, slot[:patient]) : 0
+                  else
+                    travel_matrix.dig(previous_patient_id, slot[:patient].id) || 0
+                  end
+
+        earliest_start = current_minute + transit
+        duration = slot[:patient].visit_duration_minutes
+
+        if earliest_start + duration > day_end_minute
+          retimed << slot
+        else
+          starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(earliest_start)}")
+          ends_at = starts_at + duration.minutes
+          retimed << slot.merge(starts_at: starts_at, ends_at: ends_at)
+          current_minute = earliest_start + duration
+        end
+
+        previous_patient_id = slot[:patient].id
+      end
+
+      retimed
     end
 
     def next_closest_slot(remaining:, current_point:)
@@ -299,6 +366,10 @@ module Scheduling
       (date - week_start_on).to_i
     end
 
+    def day_visit_count(current_plan, date)
+      current_plan.count { |slot| slot[:date] == date }
+    end
+
     def existing_days_for_patient(patient, current_plan)
       current_plan
         .select { |slot| slot[:patient].id == patient.id }
@@ -314,7 +385,7 @@ module Scheduling
       minute = window.start_minute
       while minute <= latest_start
         starts << minute
-        minute += 30
+        minute += SLOT_STEP_MINUTES
       end
       starts
     end
