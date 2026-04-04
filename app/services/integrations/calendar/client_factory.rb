@@ -3,7 +3,8 @@ module Integrations
     class ClientFactory
       PROVIDER_MAP = {
         "google" => GoogleCalendarClient,
-        "outlook" => OutlookCalendarClient
+        "outlook" => OutlookCalendarClient,
+        "apple" => AppleCalendarClient
       }.freeze
 
       def self.build(connection)

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_03_27_220836) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_04_170001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -75,7 +75,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_27_220836) do
     t.index ["user_id"], name: "index_calendar_connections_on_user_id"
     t.check_constraint "char_length(access_token) > 0", name: "calendar_connections_access_token_presence"
     t.check_constraint "char_length(refresh_token) > 0", name: "calendar_connections_refresh_token_presence"
-    t.check_constraint "provider::text = ANY (ARRAY['google'::character varying::text, 'outlook'::character varying::text])", name: "calendar_connections_provider_check"
+    t.check_constraint "provider::text = ANY (ARRAY['google'::character varying, 'outlook'::character varying, 'apple'::character varying]::text[])", name: "calendar_connections_provider_check"
     t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'disconnected'::character varying::text, 'expired'::character varying::text])", name: "calendar_connections_status_check"
   end
 
@@ -83,12 +83,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_27_220836) do
     t.boolean "auto_send_enabled", default: false, null: false
     t.datetime "created_at", null: false
     t.string "discipline", null: false
+    t.string "home_address_line1"
+    t.string "home_address_line2"
+    t.string "home_city"
+    t.decimal "home_latitude", precision: 10, scale: 6
+    t.decimal "home_longitude", precision: 10, scale: 6
+    t.string "home_postal_code"
+    t.string "home_state"
     t.string "phone"
     t.string "timezone", default: "America/New_York", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.integer "workday_end_minute", default: 1080, null: false
+    t.integer "workday_start_minute", default: 480, null: false
+    t.integer "working_days_mask", default: 62, null: false
     t.index ["phone"], name: "index_clinician_profiles_on_phone"
     t.index ["user_id"], name: "index_clinician_profiles_on_user_id"
+    t.check_constraint "workday_end_minute > workday_start_minute", name: "clinician_profiles_workday_end_after_start"
+    t.check_constraint "workday_end_minute >= 1 AND workday_end_minute <= 1440", name: "clinician_profiles_valid_workday_end"
+    t.check_constraint "workday_start_minute >= 0 AND workday_start_minute <= 1439", name: "clinician_profiles_valid_workday_start"
+    t.check_constraint "working_days_mask >= 1 AND working_days_mask <= 127", name: "clinician_profiles_valid_working_days_mask"
   end
 
   create_table "patient_availability_windows", force: :cascade do |t|

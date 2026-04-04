@@ -10,6 +10,11 @@ export type Patient = {
   full_name: string;
   phone: string;
   email?: string | null;
+  address_line1?: string;
+  address_line2?: string | null;
+  city?: string;
+  state?: string;
+  postal_code?: string;
   address: string;
   required_visits_per_week: number;
   visit_duration_minutes: number;
@@ -24,6 +29,9 @@ export type Visit = {
   id: number;
   patient_id: number;
   patient_name: string;
+  patient_address?: string;
+  patient_latitude?: number | null;
+  patient_longitude?: number | null;
   starts_at: string;
   ends_at: string;
   duration_minutes: number;
@@ -70,6 +78,22 @@ export type CalendarBlock = {
   ends_at: string;
 };
 
+export type CalendarConnection = {
+  id: number;
+  provider: "google" | "outlook" | "apple";
+  external_calendar_id: string;
+  status: "active" | "disconnected" | "expired";
+  token_expires_at?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CalendarOption = {
+  id: string;
+  summary: string;
+  primary: boolean;
+  access_role?: string;
+};
+
 export type Alert = {
   id: number;
   category: string;
@@ -86,4 +110,16 @@ export type DashboardApiState = {
   patients: ReadonlyArray<Patient>;
   messages: ReadonlyArray<Message>;
   alerts: ReadonlyArray<Alert>;
+};
+
+export type ClinicianProfile = {
+  id: number;
+  timezone: string;
+  discipline: string;
+  workday_start_minute: number;
+  workday_end_minute: number;
+  home_latitude?: number | null;
+  home_longitude?: number | null;
+  working_days_mask?: number;
+  working_days?: number[];
 };

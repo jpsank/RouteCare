@@ -41,7 +41,7 @@ export function MessagingPanel({ visits, messages, onSend }: Props) {
         </div>
       </header>
 
-      <div className="message-form">
+      <div className="message-form rounded-xl border border-slate-200 bg-slate-50 p-3">
         <label className="field">
           <span className="field-label">Visit</span>
           <select value={visitId} onChange={(event) => setVisitId(event.target.value)}>
@@ -72,7 +72,7 @@ export function MessagingPanel({ visits, messages, onSend }: Props) {
           />
         </label>
 
-        <button type="button" className="btn btn-primary" onClick={sendMessage} disabled={loading || !visitId}>
+        <button type="button" className="btn-primary sm:col-span-2 sm:justify-self-start" onClick={sendMessage} disabled={loading || !visitId}>
           {loading ? "Sending..." : "Send Message"}
         </button>
       </div>

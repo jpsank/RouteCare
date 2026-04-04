@@ -1,7 +1,15 @@
 class Api::V1::CalendarBlocksController < Api::V1::BaseController
   def index
-    blocks = current_user.calendar_blocks.order(:starts_at)
+    blocks = current_user.calendar_blocks
+    if params[:week_start_on].present? || params[:week_end_on].present?
+      start_time = params[:week_start_on].present? ? Time.zone.parse(params[:week_start_on]).beginning_of_day : Time.zone.now.beginning_of_week
+      end_time = params[:week_end_on].present? ? Time.zone.parse(params[:week_end_on]).end_of_day : (start_time + 7.days)
+      blocks = blocks.between(start_time, end_time)
+    end
+    blocks = blocks.order(:starts_at)
     render json: { calendar_blocks: blocks.map { |block| serialize_block(block) } }
+  rescue ArgumentError
+    render_error("Invalid calendar block date range", :bad_request)
   end
 
   def create

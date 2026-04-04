@@ -1,6 +1,8 @@
 Rails.application.routes.draw do
   devise_for :users
   root "home#index"
+  get "auth/google/start", to: "calendar_oauth#google_start", as: :google_calendar_oauth_start
+  get "auth/google/callback", to: "calendar_oauth#google_callback", as: :google_calendar_oauth_callback
 
   namespace :api do
     namespace :v1 do
@@ -8,8 +10,21 @@ Rails.application.routes.draw do
         member do
           post :deactivate
         end
+        collection do
+          post :seed_demo
+        end
       end
+      resource :clinician_profile, only: %i[show update]
       resources :calendar_blocks, only: %i[index create update destroy]
+      resources :calendar_connections, only: %i[index create destroy] do
+        member do
+          get :available_calendars
+          post :select_calendar
+          post :sync
+          post :push_visits
+        end
+      end
+      get "calendar_feed", to: "calendar_feeds#show", defaults: { format: :ics }
       resources :alerts, only: %i[index update]
       resources :messages, only: %i[index create] do
         collection do
@@ -22,7 +37,7 @@ Rails.application.routes.draw do
         post :approve
       end
 
-      resources :visits, only: %i[index update] do
+      resources :visits, only: %i[index create update] do
         member do
           post :reschedule
         end

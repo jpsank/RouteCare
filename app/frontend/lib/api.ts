@@ -1,4 +1,14 @@
-import type { Alert, CalendarBlock, Message, Patient, Visit, Schedule as WeeklySchedule } from "../types";
+import type {
+  Alert,
+  CalendarBlock,
+  CalendarConnection,
+  CalendarOption,
+  Message,
+  Patient,
+  ClinicianProfile,
+  Visit,
+  Schedule as WeeklySchedule,
+} from "../types";
 
 type JsonObject = Record<string, unknown>;
 
@@ -28,9 +38,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+function browserTimeZone(): string | undefined {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+}
+
 export async function fetchPatients(): Promise<Patient[]> {
   const data = await request<{ patients: Patient[] }>("/api/v1/patients");
   return data.patients;
+}
+
+export async function fetchClinicianProfile(): Promise<ClinicianProfile> {
+  const data = await request<{ clinician_profile: ClinicianProfile }>("/api/v1/clinician_profile");
+  return data.clinician_profile;
 }
 
 export async function fetchSchedule(weekStartOn?: string): Promise<WeeklySchedule | null> {
@@ -46,9 +65,29 @@ export async function fetchSchedule(weekStartOn?: string): Promise<WeeklySchedul
 export async function optimizeSchedule(weekStartOn?: string): Promise<WeeklySchedule> {
   const data = await request<{ schedule: WeeklySchedule; generated: boolean }>("/api/v1/schedule/optimize", {
     method: "POST",
-    body: JSON.stringify({ week_start_on: weekStartOn }),
+    body: JSON.stringify({
+      week_start_on: weekStartOn,
+      client_timezone: browserTimeZone(),
+    }),
   });
 
+  return data.schedule;
+}
+
+export async function optimizeScheduleWithStart(
+  weekStartOn: string | undefined,
+  startLatitude?: number,
+  startLongitude?: number,
+): Promise<WeeklySchedule> {
+  const data = await request<{ schedule: WeeklySchedule; generated: boolean }>("/api/v1/schedule/optimize", {
+    method: "POST",
+    body: JSON.stringify({
+      week_start_on: weekStartOn,
+      start_latitude: startLatitude,
+      start_longitude: startLongitude,
+      client_timezone: browserTimeZone(),
+    }),
+  });
   return data.schedule;
 }
 
@@ -70,6 +109,14 @@ export async function rescheduleVisit(id: number, requestedStartsAt: string): Pr
   const data = await request<{ visit: Visit }>(`/api/v1/visits/${id}/reschedule`, {
     method: "POST",
     body: JSON.stringify({ requested_starts_at: requestedStartsAt }),
+  });
+  return data.visit;
+}
+
+export async function updateVisit(id: number, visit: Partial<Pick<Visit, "status" | "starts_at" | "ends_at" | "position_in_day">>): Promise<Visit> {
+  const data = await request<{ visit: Visit }>(`/api/v1/visits/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ visit }),
   });
   return data.visit;
 }
@@ -122,12 +169,15 @@ type CreatePatientPayload = {
   phone: string;
   email?: string;
   address_line1: string;
+  address_line2?: string;
   city: string;
   state: string;
   postal_code: string;
   required_visits_per_week: number;
   visit_duration_minutes: number;
   notes?: string;
+  latitude?: number;
+  longitude?: number;
 };
 
 export async function createPatient(patient: CreatePatientPayload): Promise<{ patient: Patient }> {
@@ -157,10 +207,15 @@ export const api = {
       throw error;
     }
   },
-  optimizeSchedule: (weekStartOn?: string) =>
+  optimizeSchedule: (weekStartOn?: string, startLatitude?: number, startLongitude?: number) =>
     request<{ schedule: WeeklySchedule; generated: boolean }>("/api/v1/schedule/optimize", {
       method: "POST",
-      body: JSON.stringify({ week_start_on: weekStartOn }),
+      body: JSON.stringify({
+        week_start_on: weekStartOn,
+        start_latitude: startLatitude,
+        start_longitude: startLongitude,
+        client_timezone: browserTimeZone(),
+      }),
     }),
   approveSchedule: (weekStartOn?: string) =>
     request<{ schedule: WeeklySchedule }>("/api/v1/schedule/approve", {
@@ -178,6 +233,28 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ patient }),
     }),
+  seedDemoPatients: () =>
+    request<{ patients: Patient[] }>("/api/v1/patients/seed_demo", {
+      method: "POST",
+    }),
+  getClinicianProfile: () => request<{ clinician_profile: ClinicianProfile }>("/api/v1/clinician_profile"),
+  updateClinicianProfile: (
+    clinician_profile: Partial<
+      Pick<
+        ClinicianProfile,
+        | "workday_start_minute"
+        | "workday_end_minute"
+        | "timezone"
+        | "home_latitude"
+        | "home_longitude"
+        | "working_days"
+      >
+    >,
+  ) =>
+    request<{ clinician_profile: ClinicianProfile }>("/api/v1/clinician_profile", {
+      method: "PATCH",
+      body: JSON.stringify({ clinician_profile }),
+    }),
   listMessages: () => request<{ messages: Message[] }>("/api/v1/messages"),
   createMessage: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) =>
     request<{ message: Message }>("/api/v1/messages", {
@@ -192,6 +269,70 @@ export const api = {
       }),
     }),
   listAlerts: () => request<{ alerts: Alert[] }>("/api/v1/alerts"),
-  listCalendarBlocks: () => request<{ calendar_blocks: CalendarBlock[] }>("/api/v1/calendar_blocks"),
+  listCalendarBlocks: (weekStartOn?: string, weekEndOn?: string) => {
+    const query = new URLSearchParams();
+    if (weekStartOn) query.set("week_start_on", weekStartOn);
+    if (weekEndOn) query.set("week_end_on", weekEndOn);
+    return request<{ calendar_blocks: CalendarBlock[] }>(
+      `/api/v1/calendar_blocks${query.toString() ? `?${query.toString()}` : ""}`,
+    );
+  },
+  listCalendarConnections: () => request<{ calendar_connections: CalendarConnection[] }>("/api/v1/calendar_connections"),
+  connectCalendar: (calendar_connection: {
+    provider: "google" | "outlook" | "apple";
+    external_calendar_id: string;
+    access_token?: string;
+    refresh_token?: string;
+    token_expires_at?: string;
+    metadata?: Record<string, unknown>;
+  }) =>
+    request<{ calendar_connection: CalendarConnection }>("/api/v1/calendar_connections", {
+      method: "POST",
+      body: JSON.stringify({
+        calendar_connection: {
+          ...calendar_connection,
+          access_token: calendar_connection.access_token ?? "n/a",
+          refresh_token: calendar_connection.refresh_token ?? "n/a",
+          metadata: calendar_connection.metadata ?? {},
+        },
+      }),
+    }),
+  syncCalendarConnection: (connectionId: number, weekStartOn: string, weekEndOn: string) =>
+    request<{ imported_events: number; total_events: number }>(`/api/v1/calendar_connections/${connectionId}/sync`, {
+      method: "POST",
+      body: JSON.stringify({
+        week_start_on: weekStartOn,
+        week_end_on: weekEndOn,
+      }),
+    }),
+  pushVisitsToCalendar: (connectionId: number, weekStartOn?: string) =>
+    request<{ pushed_visits: number }>(`/api/v1/calendar_connections/${connectionId}/push_visits`, {
+      method: "POST",
+      body: JSON.stringify({ week_start_on: weekStartOn }),
+    }),
+  listConnectionCalendars: (connectionId: number) =>
+    request<{ calendars: CalendarOption[] }>(`/api/v1/calendar_connections/${connectionId}/available_calendars`),
+  selectConnectionCalendar: (connectionId: number, externalCalendarId: string) =>
+    request<{ calendar_connection: CalendarConnection }>(`/api/v1/calendar_connections/${connectionId}/select_calendar`, {
+      method: "POST",
+      body: JSON.stringify({ external_calendar_id: externalCalendarId }),
+    }),
+  calendarFeedUrl: (weekStartOn?: string) =>
+    `/api/v1/calendar_feed.ics${weekStartOn ? `?week_start_on=${encodeURIComponent(weekStartOn)}` : ""}`,
   listVisits: () => request<{ visits: Visit[] }>("/api/v1/visits"),
+  rescheduleVisit: (id: number, requestedStartsAt: string) =>
+    request<{ visit: Visit }>(`/api/v1/visits/${id}/reschedule`, {
+      method: "POST",
+      body: JSON.stringify({ requested_starts_at: requestedStartsAt }),
+    }),
+  updateVisit: (id: number, visit: Partial<Pick<Visit, "status" | "starts_at" | "ends_at" | "position_in_day">>) =>
+    request<{ visit: Visit }>(`/api/v1/visits/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ visit }),
+    }),
+  createVisit: (visit: { patient_id: number; starts_at: string; duration_minutes?: number; status?: Visit["status"] }) =>
+    request<{ visit: Visit }>("/api/v1/visits", {
+      method: "POST",
+      body: JSON.stringify({ visit }),
+    }),
 };

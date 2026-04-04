@@ -31,7 +31,7 @@ export function AlertsPanel({ alerts }: Props) {
       {alerts.length > 0 && (
         <ul className="alerts-list">
           {sortedAlerts.map((alert) => (
-            <li key={alert.id} className={`alert-item severity-${alert.severity}`}>
+            <li key={alert.id} className={`alert-item severity-${alert.severity} bg-white`}>
               <p className="alert-message">{alert.message}</p>
               <div className="alert-meta">
                 <span>{alert.category.replaceAll("_", " ")}</span>
