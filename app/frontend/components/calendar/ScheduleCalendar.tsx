@@ -61,7 +61,6 @@ export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute,
       slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
       events={events}
       editable={false}
-      selectable
       allDaySlot={false}
       nowIndicator
       stickyHeaderDates

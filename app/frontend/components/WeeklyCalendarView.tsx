@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { api } from "../lib/api";
 import type { CalendarBlock, CalendarConnection, ClinicianProfile, Patient, WeeklySchedule, Visit } from "../types";
 import { CalendarConnectionsPanel } from "./calendar/CalendarConnectionsPanel";
@@ -108,10 +108,12 @@ export function WeeklyCalendarView({
   const [savingNewEvent, setSavingNewEvent] = useState(false);
   const [addEventPosition, setAddEventPosition] = useState<{ x: number; y: number } | null>(null);
   const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
-  const [pendingSlot, setPendingSlot] = useState<{ key: string; startIso: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [savingLunch, setSavingLunch] = useState(false);
   const addEventRef = useRef<HTMLDivElement | null>(null);
+  const popoverDragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
+  const POPOVER_WIDTH = 380;
+  const POPOVER_HEIGHT = 500;
 
   const homeOrigin = useMemo(() => {
     if (clinicianProfile?.home_latitude == null || clinicianProfile?.home_longitude == null) return null;
@@ -128,13 +130,13 @@ export function WeeklyCalendarView({
 
   useEffect(() => {
     if (!addEventOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
+    const onDocumentClick = (event: MouseEvent) => {
       if (!addEventRef.current) return;
       if (addEventRef.current.contains(event.target as Node)) return;
       setAddEventOpen(false);
     };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("click", onDocumentClick);
+    return () => document.removeEventListener("click", onDocumentClick);
   }, [addEventOpen]);
 
   const hourOptions = useMemo(
@@ -294,20 +296,47 @@ export function WeeklyCalendarView({
         className: "calendar-event-blocked",
       })),
       ...lunchEvents,
-      ...(pendingSlot
-        ? [
-            {
-              id: "pending-slot",
-              title: "Selected slot",
-              start: pendingSlot.startIso,
-              end: new Date(new Date(pendingSlot.startIso).getTime() + 30 * 60 * 1000).toISOString(),
-              display: "background" as const,
-              className: "calendar-slot-selected",
-            },
-          ]
+      ...(addEventOpen && addEventStartInput
+        ? (() => {
+            try {
+              const startIso = localInputToIso(addEventStartInput);
+              const startMs = new Date(startIso).getTime();
+              if (!Number.isFinite(startMs)) return [];
+              const patientDuration =
+                selectedPatientOption === "new"
+                  ? newPatientForm.visit_duration_minutes
+                  : selectedPatientOption
+                    ? patients.find((p) => p.id === Number(selectedPatientOption))?.visit_duration_minutes
+                    : undefined;
+              const durationMinutes = Math.max(15, patientDuration || 30);
+              const endIso = new Date(startMs + durationMinutes * 60 * 1000).toISOString();
+              return [
+                {
+                  id: "preview-slot",
+                  title: "",
+                  start: startIso,
+                  end: endIso,
+                  display: "background" as const,
+                  className: "calendar-slot-selected",
+                },
+              ];
+            } catch {
+              return [];
+            }
+          })()
         : []),
     ],
-    [calendarBlocks, lunchEvents, pendingSlot, selectedVisitId, visits],
+    [
+      addEventOpen,
+      addEventStartInput,
+      calendarBlocks,
+      lunchEvents,
+      newPatientForm.visit_duration_minutes,
+      patients,
+      selectedPatientOption,
+      selectedVisitId,
+      visits,
+    ],
   );
 
   const saveHomeFromCurrentLocation = async () => {
@@ -349,6 +378,13 @@ export function WeeklyCalendarView({
 
   const showEditorPanel = editorMode !== "none";
 
+  const clampPopoverPosition = (x: number, y: number) => ({
+    x: Math.max(12, Math.min(x, window.innerWidth - POPOVER_WIDTH)),
+    y: Math.max(12, Math.min(y, window.innerHeight - POPOVER_HEIGHT)),
+  });
+
+  const pointerToPopoverPosition = (x: number, y: number) => clampPopoverPosition(x + 8, y + 8);
+
   const openAddEventModal = (dateKey: string, startStr: string, pointer: { x: number; y: number }) => {
     setSelectedDate(dateKey);
     const hasTime = startStr.includes("T");
@@ -357,9 +393,8 @@ export function WeeklyCalendarView({
     setAddEventStatusInput("pending_patient_confirmation");
     setSelectedPatientOption("");
     setNewPatientForm(EMPTY_PATIENT_FORM);
-    setAddEventPosition(pointer);
+    setAddEventPosition(pointerToPopoverPosition(pointer.x, pointer.y));
     setAddEventOpen(true);
-    setPendingSlot(null);
   };
 
   const createEventFromModal = async () => {
@@ -383,10 +418,30 @@ export function WeeklyCalendarView({
       });
       await onCalendarRefresh();
       setAddEventOpen(false);
-      setPendingSlot(null);
     } finally {
       setSavingNewEvent(false);
     }
+  };
+
+  const startPopoverDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!addEventPosition) return;
+    popoverDragRef.current = {
+      offsetX: event.clientX - addEventPosition.x,
+      offsetY: event.clientY - addEventPosition.y,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  };
+
+  const movePopoverDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!popoverDragRef.current) return;
+    const nextX = event.clientX - popoverDragRef.current.offsetX;
+    const nextY = event.clientY - popoverDragRef.current.offsetY;
+    setAddEventPosition(clampPopoverPosition(nextX, nextY));
+  };
+
+  const endPopoverDrag = () => {
+    popoverDragRef.current = null;
   };
 
   if (!schedule) {
@@ -590,20 +645,18 @@ export function WeeklyCalendarView({
             workdayStartMinute={workdayStartMinute}
             workdayEndMinute={workdayEndMinute}
             onDateClick={(dateKey, startStr, pointer) => {
-              const slotIso = new Date(startStr).toISOString();
-              if (pendingSlot?.key === slotIso) {
-                openAddEventModal(dateKey, startStr, pointer);
-                return;
-              }
-              setPendingSlot({ key: slotIso, startIso: slotIso });
               setSelectedVisitId(null);
               setEditorMode("none");
               setEditorPosition(null);
+              if (addEventOpen) {
+                setAddEventOpen(false);
+                return;
+              }
+              openAddEventModal(dateKey, startStr, pointer);
             }}
             onEventClick={(eventId, startStr, pointer) => {
               setSelectedDate(asDateKey(startStr));
               setAddEventOpen(false);
-              setPendingSlot(null);
               const match = eventId.match(/^visit-(\d+)$/);
               if (!match) return;
               const visitId = Number(match[1]);
@@ -662,18 +715,25 @@ export function WeeklyCalendarView({
           ref={addEventRef}
           className="rc-popover"
           style={{
-            left: `${Math.max(12, Math.min((addEventPosition?.x ?? window.innerWidth / 2) + 8, window.innerWidth - 380))}px`,
-            top: `${Math.max(12, Math.min((addEventPosition?.y ?? 120) + 8, window.innerHeight - 500))}px`,
+            left: `${addEventPosition?.x ?? window.innerWidth / 2}px`,
+            top: `${addEventPosition?.y ?? 120}px`,
           }}
           role="dialog"
           aria-modal="false"
         >
           <div className="rc-popover-card space-y-3">
-            <div className="flex items-center justify-between">
+            <div
+              className="flex items-center justify-between cursor-move select-none"
+              onPointerDown={startPopoverDrag}
+              onPointerMove={movePopoverDrag}
+              onPointerUp={endPopoverDrag}
+              onPointerCancel={endPopoverDrag}
+            >
               <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
               <button
                 className="btn-ghost btn-xs"
-                onClick={() => { setAddEventOpen(false); setPendingSlot(null); }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setAddEventOpen(false)}
                 aria-label="Close"
               >
                 &times;

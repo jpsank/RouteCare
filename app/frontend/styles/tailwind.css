@@ -133,11 +133,11 @@
   }
 
   .rc-timeline-transit {
-    @apply flex items-center py-1 pl-[7px];
+    @apply flex items-center py-1 pl-[14px];
   }
   .rc-timeline-transit::before {
     content: "";
-    @apply absolute left-[7px] h-full w-px bg-gray-200;
+    @apply absolute left-[14px] h-full w-px bg-gray-200;
   }
 
   .rc-transit-chip {
@@ -267,15 +267,17 @@
 /* Toolbar */
 .fc .fc-toolbar.fc-header-toolbar {
   margin-bottom: 0 !important;
-  padding: 6px 10px !important;
+  padding: 5px 10px !important;
   border-bottom: 1px solid #e5e7eb !important;
   background: #fafafa !important;
+  gap: 6px !important;
 }
 
 .fc .fc-toolbar-title {
-  font-size: 14px !important;
+  font-size: 13px !important;
   font-weight: 600 !important;
   color: #111827 !important;
+  letter-spacing: -0.01em !important;
 }
 
 /* Buttons — kill the FC blue entirely */
@@ -367,26 +369,34 @@
 .fc .fc-timegrid-slot-lane,
 .fc .fc-daygrid-day-frame {
   cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.fc .fc-timegrid-slot-lane:hover {
+  background: rgb(243 244 246 / 0.55);
 }
 
 /* Now indicator */
 .fc .fc-timegrid-now-indicator-line {
   border-color: #ef4444 !important;
-  border-width: 2px !important;
+  border-width: 1.5px !important;
 }
 
 .fc .fc-timegrid-now-indicator-arrow {
   border-color: #ef4444 !important;
+  border-width: 4px !important;
 }
 
 /* Grid lines */
 .fc .fc-scrollgrid {
   border-color: #e5e7eb !important;
+  border-radius: 0 0 8px 8px !important;
+  overflow: hidden !important;
 }
 
 .fc td,
 .fc th {
-  border-color: #f3f4f6 !important;
+  border-color: #f0f1f3 !important;
 }
 
 .fc .fc-scrollgrid-section > td {
@@ -399,20 +409,26 @@
   border-width: 0 !important;
   border-left-width: 3px !important;
   border-left-style: solid !important;
-  border-radius: 5px !important;
-  padding: 1px 6px !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
   font-size: 12px !important;
-  line-height: 1.35 !important;
+  line-height: 1.4 !important;
   cursor: pointer !important;
+  transition: opacity 0.1s ease, filter 0.1s ease !important;
+}
+
+.fc .fc-event:hover {
+  filter: brightness(0.95) !important;
 }
 
 .fc .fc-event-time {
-  font-size: 11px !important;
-  opacity: 0.7;
+  font-size: 10px !important;
+  opacity: 0.65;
+  font-weight: 500 !important;
 }
 
 .fc .fc-event-title {
-  font-size: 12px !important;
+  font-size: 11.5px !important;
   font-weight: 600 !important;
 }
 
@@ -432,21 +448,21 @@
 
 /* Background events */
 .fc .calendar-event-blocked {
-  background: rgb(254 202 202 / 0.45) !important;
+  background: rgb(254 202 202 / 0.35) !important;
 }
 
 .fc .calendar-event-lunch {
   background: repeating-linear-gradient(
-    135deg,
-    rgb(229 231 235 / 0.35),
-    rgb(229 231 235 / 0.35) 4px,
-    rgb(243 244 246 / 0.2) 4px,
-    rgb(243 244 246 / 0.2) 8px
+    -45deg,
+    rgb(229 231 235 / 0.3),
+    rgb(229 231 235 / 0.3) 3px,
+    transparent 3px,
+    transparent 7px
   ) !important;
 }
 
 .fc .calendar-slot-selected {
-  background: rgb(99 102 241 / 0.12) !important;
+  background: rgb(156 163 175 / 0.22) !important;
 }
 
 /* Events — lock size so selection never causes reflow */
@@ -455,25 +471,28 @@
   overflow: hidden !important;
 }
 
-/* Selected visit — outline instead of inset shadow to avoid layout impact */
+/* Selected visit */
 .fc .visit-selected {
   outline: 2px solid #4f46e5 !important;
   outline-offset: -2px !important;
-  z-index: 3 !important;
+}
+
+.fc .visit-selected .fc-event-main {
+  position: relative !important;
 }
 
 .fc .visit-selected .fc-event-main::after {
   content: "✎";
   position: absolute;
-  right: 2px;
-  top: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  background: #312e81;
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: #4f46e5;
   color: #fff;
-  font-size: 10px;
-  line-height: 16px;
+  font-size: 9px;
+  line-height: 14px;
   text-align: center;
   font-weight: 700;
   pointer-events: none;
@@ -481,7 +500,7 @@
 
 /* DayGrid (month view) */
 .fc .fc-daygrid-day-number {
-  font-size: 12px !important;
+  font-size: 11px !important;
   font-weight: 500 !important;
   color: #6b7280 !important;
   text-decoration: none !important;
@@ -492,10 +511,22 @@
   background: #4f46e5 !important;
   color: #fff !important;
   border-radius: 9999px !important;
-  width: 24px !important;
-  height: 24px !important;
+  width: 22px !important;
+  height: 22px !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
   padding: 0 !important;
+  font-size: 11px !important;
+}
+
+.fc .fc-daygrid-event {
+  border-radius: 3px !important;
+  padding: 1px 4px !important;
+  font-size: 11px !important;
+  margin: 1px 2px !important;
+}
+
+.fc .fc-daygrid-day-frame:hover {
+  background: rgb(243 244 246 / 0.4);
 }
