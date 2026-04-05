@@ -70,5 +70,4 @@ COPY --chown=rails:rails --from=build /rails /rails
 
 ENTRYPOINT ["/rails/bin/docker-entrypoint"]
 
-EXPOSE 8080
-CMD ["./bin/thrust", "./bin/rails", "server"]
+CMD ["./bin/rails", "server", "-b", "0.0.0.0"]
