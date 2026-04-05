@@ -39,7 +39,7 @@ services:
 
       # ── Node version (for Vite asset build) ───────────────────────────────
       - key: NODE_VERSION
-        value: "22.11.0"
+        value: "22.16.0"
 
       # ── LLM / AI drafting (optional) ─────────────────────────────────────
       - key: ROUTECARE_LLM_API_KEY
