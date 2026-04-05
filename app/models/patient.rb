@@ -10,6 +10,8 @@ class Patient < ApplicationRecord
   validates :email, format: { with: URI::MailTo::EMAIL_REGEXP }, allow_blank: true
   validates :latitude, :longitude, numericality: true, allow_nil: true
 
+  before_save :geocode_address, if: :address_changed?
+
   scope :active, -> { where(active: true) }
 
   def address
@@ -18,5 +20,19 @@ class Patient < ApplicationRecord
 
   def preferred_message_channel
     phone.present? ? :sms : :email
+  end
+
+  private
+
+  def address_changed?
+    address_line1_changed? || city_changed? || state_changed? || postal_code_changed?
+  end
+
+  def geocode_address
+    result = Integrations::GeocodingClient.new.geocode(address)
+    return unless result
+
+    self.latitude = result[:lat]
+    self.longitude = result[:lng]
   end
 end
