@@ -5,8 +5,8 @@ Rails.application.routes.draw do
   get "auth/google/callback", to: "calendar_oauth#google_callback", as: :google_calendar_oauth_callback
 
   namespace :webhooks do
-    post "twilio/sms", to: "twilio#sms"
-    post "mailgun/inbound", to: "mailgun#inbound"
+    post "telnyx/sms", to: "telnyx#sms"
+    post "postmark/inbound", to: "postmark#inbound"
   end
 
   namespace :api do

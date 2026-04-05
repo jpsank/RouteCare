@@ -12,8 +12,11 @@ echo ">>> bundle install"
 bundle install
 
 # 2. Node/JS dependencies (needed for Vite build)
-echo ">>> npm install"
-npm install
+#    Clean install ensures platform-specific native bindings (e.g. rolldown)
+#    are built for Linux, not carried over from a macOS cache.
+echo ">>> npm ci"
+rm -rf node_modules
+npm ci
 
 # 3. Compile front-end assets (Vite → propshaft)
 echo ">>> rails assets:precompile"

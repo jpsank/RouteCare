@@ -1,17 +1,15 @@
-require "openssl"
-
 module Webhooks
-  class MailgunController < ActionController::Base
+  class PostmarkController < ActionController::Base
     skip_forgery_protection
-    before_action :verify_mailgun_signature!
+    before_action :verify_postmark_token!
 
     def inbound
-      from_email = extract_email(params["from"] || params["sender"])
-      body = (params["stripped-text"] || params["body-plain"]).to_s.strip
+      from_email = extract_email(params["FromFull"]&.dig("Email") || params["From"])
+      body = (params["TextBody"] || params["HtmlBody"]).to_s.strip
 
       @patient = Patient.where("LOWER(email) = ?", from_email.to_s.downcase).first
       unless @patient
-        Rails.logger.warn("[Webhooks::Mailgun] Unrecognized email sender")
+        Rails.logger.warn("[Webhooks::Postmark] Unrecognized email sender")
         head :ok
         return
       end
@@ -37,35 +35,27 @@ module Webhooks
 
       head :ok
     rescue StandardError => e
-      Rails.logger.error("[Webhooks::Mailgun] #{e.class}: #{e.message}")
+      Rails.logger.error("[Webhooks::Postmark] #{e.class}: #{e.message}")
       create_processing_alert!(
         "Failed to process email reply: #{e.message}",
-        { from: (params["from"] || params["sender"]).to_s, body: body.to_s.first(200) }
+        { from: (params["From"]).to_s, body: body.to_s.first(200) }
       ) if @user
       head :ok
     end
 
     private
 
-    def verify_mailgun_signature!
-      signing_key = ENV["ROUTECARE_MAILGUN_WEBHOOK_SIGNING_KEY"].to_s
-      # Skip validation when key is not configured (development/test)
-      return if signing_key.blank?
+    def verify_postmark_token!
+      expected_token = ENV["ROUTECARE_POSTMARK_INBOUND_TOKEN"].to_s
+      return if expected_token.blank?
 
-      timestamp = params["timestamp"].to_s
-      token     = params["token"].to_s
-      signature = params["signature"].to_s
+      # Postmark inbound webhooks can be secured by checking the inbound
+      # hash token included in the webhook URL path, or by verifying a
+      # shared secret header. We use a simple token comparison approach.
+      provided_token = params[:token].to_s
 
-      if timestamp.blank? || token.blank? || signature.blank?
-        Rails.logger.warn("[Webhooks::Mailgun] Missing signature fields from #{request.remote_ip}")
-        head :forbidden
-        return
-      end
-
-      expected = OpenSSL::HMAC.hexdigest("sha256", signing_key, "#{timestamp}#{token}")
-
-      unless ActiveSupport::SecurityUtils.secure_compare(expected, signature)
-        Rails.logger.warn("[Webhooks::Mailgun] Invalid signature from #{request.remote_ip}")
+      unless ActiveSupport::SecurityUtils.secure_compare(expected_token, provided_token)
+        Rails.logger.warn("[Webhooks::Postmark] Invalid token from #{request.remote_ip}")
         head :forbidden
       end
     end
@@ -82,7 +72,7 @@ module Webhooks
         metadata: metadata
       )
     rescue StandardError => e
-      Rails.logger.error("[Webhooks::Mailgun] Could not create processing alert: #{e.message}")
+      Rails.logger.error("[Webhooks::Postmark] Could not create processing alert: #{e.message}")
     end
 
     def extract_email(value)

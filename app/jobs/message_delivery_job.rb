@@ -27,7 +27,7 @@ class MessageDeliveryJob < ApplicationJob
   private
 
   def deliver_sms(message)
-    Integrations::TwilioSmsClient.new.deliver(to: message.patient.phone, body: message.body)
+    Integrations::TelnyxSmsClient.new.deliver(to: message.patient.phone, body: message.body)
   end
 
   def deliver_email(message)

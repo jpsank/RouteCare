@@ -49,28 +49,20 @@ services:
       - key: ROUTECARE_LLM_MODEL
         value: gpt-4o-mini
 
-      # ── Twilio SMS ────────────────────────────────────────────────────────
-      - key: ROUTECARE_TWILIO_ACCOUNT_SID
+      # ── Telnyx SMS ──────────────────────────────────────────────────────
+      - key: ROUTECARE_TELNYX_API_KEY
         sync: false
-      - key: ROUTECARE_TWILIO_AUTH_TOKEN
+      - key: ROUTECARE_TELNYX_FROM_NUMBER
         sync: false
-      - key: ROUTECARE_TWILIO_FROM_NUMBER
+      - key: ROUTECARE_TELNYX_PUBLIC_KEY
         sync: false
 
-      # ── Email / Mailgun ───────────────────────────────────────────────────
-      - key: ROUTECARE_MAILGUN_WEBHOOK_SIGNING_KEY
-        sync: false
+      # ── Email / Postmark ─────────────────────────────────────────────────
       - key: ROUTECARE_MAILER_FROM
         sync: false
-      - key: ROUTECARE_SMTP_ADDRESS
+      - key: ROUTECARE_POSTMARK_API_KEY
         sync: false
-      - key: ROUTECARE_SMTP_PORT
-        value: "587"
-      - key: ROUTECARE_SMTP_USERNAME
-        sync: false
-      - key: ROUTECARE_SMTP_PASSWORD
-        sync: false
-      - key: ROUTECARE_SMTP_DOMAIN
+      - key: ROUTECARE_POSTMARK_INBOUND_TOKEN
         sync: false
 
 databases:

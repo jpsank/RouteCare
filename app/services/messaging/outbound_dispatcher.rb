@@ -13,7 +13,7 @@ module Messaging
         return message
       end
 
-      transport = message.channel_sms? ? :twilio : :email
+      transport = message.channel_sms? ? :telnyx : :postmark
       metadata = (message.metadata || {}).merge("transport" => transport.to_s, "queued_at" => Time.current.iso8601)
 
       message.update!(status: :queued, metadata:)
