@@ -1,0 +1,81 @@
+# Render.com Infrastructure-as-Code for RouteCare
+# Docs: https://render.com/docs/blueprint-spec
+#
+# One web service + one free PostgreSQL database.
+# Solid Queue runs inside Puma (no separate worker process needed).
+# Solid Cache and Solid Cable also use the same single database.
+
+services:
+  - type: web
+    name: routecare
+    runtime: ruby
+    plan: free          # upgrade to "starter" ($7/mo) for always-on
+    buildCommand: "./bin/render-build.sh"
+    startCommand: "bundle exec rails server"
+    healthCheckPath: /up
+    envVars:
+      # ── Rails core ──────────────────────────────────────────────────────────
+      - key: RAILS_ENV
+        value: production
+      - key: RAILS_LOG_LEVEL
+        value: info
+      - key: RAILS_SERVE_STATIC_FILES
+        value: "true"
+      - key: RAILS_MAX_THREADS
+        value: "3"
+      # Set via Render dashboard → Environment → SECRET FILES or env var:
+      - key: RAILS_MASTER_KEY
+        sync: false       # <-- you paste the value in the Render dashboard
+
+      # ── Database (auto-wired from the database below) ──────────────────────
+      - key: DATABASE_URL
+        fromDatabase:
+          name: routecare-db
+          property: connectionString
+
+      # ── Solid Queue (runs inside Puma on a single server) ─────────────────
+      - key: SOLID_QUEUE_IN_PUMA
+        value: "true"
+
+      # ── Node version (for Vite asset build) ───────────────────────────────
+      - key: NODE_VERSION
+        value: "22.11.0"
+
+      # ── LLM / AI drafting (optional) ─────────────────────────────────────
+      - key: ROUTECARE_LLM_API_KEY
+        sync: false
+      - key: ROUTECARE_LLM_BASE_URL
+        value: https://api.openai.com/v1
+      - key: ROUTECARE_LLM_MODEL
+        value: gpt-4o-mini
+
+      # ── Twilio SMS ────────────────────────────────────────────────────────
+      - key: ROUTECARE_TWILIO_ACCOUNT_SID
+        sync: false
+      - key: ROUTECARE_TWILIO_AUTH_TOKEN
+        sync: false
+      - key: ROUTECARE_TWILIO_FROM_NUMBER
+        sync: false
+
+      # ── Email / Mailgun ───────────────────────────────────────────────────
+      - key: ROUTECARE_MAILGUN_WEBHOOK_SIGNING_KEY
+        sync: false
+      - key: ROUTECARE_MAILER_FROM
+        sync: false
+      - key: ROUTECARE_SMTP_ADDRESS
+        sync: false
+      - key: ROUTECARE_SMTP_PORT
+        value: "587"
+      - key: ROUTECARE_SMTP_USERNAME
+        sync: false
+      - key: ROUTECARE_SMTP_PASSWORD
+        sync: false
+      - key: ROUTECARE_SMTP_DOMAIN
+        sync: false
+
+databases:
+  - name: routecare-db
+    databaseName: routecare_production
+    user: routecare
+    plan: free          # free tier: 1 GB, expires after 90 days of inactivity
+                        # upgrade to "starter" ($7/mo) for persistent production DB
