@@ -8,10 +8,19 @@ class User < ApplicationRecord
     email = auth.info.email.to_s.strip.downcase
     return nil if email.blank? || !email.match?(Devise.email_regexp)
 
-    where(provider: auth.provider, uid: auth.uid).first_or_create do |user|
-      user.email = email
-      user.password = Devise.friendly_token(24)
+    # Find by OAuth identity, or link to existing account by email
+    user = find_by(provider: auth.provider, uid: auth.uid)
+    user ||= find_by(email: email)
+
+    if user
+      # Link OAuth identity to existing account
+      user.update!(provider: auth.provider, uid: auth.uid) if user.provider.blank?
+      user
+    else
+      create!(provider: auth.provider, uid: auth.uid, email: email, password: Devise.friendly_token(24))
     end
+  rescue ActiveRecord::RecordInvalid
+    nil
   end
 
   has_one :clinician_profile, dependent: :destroy
