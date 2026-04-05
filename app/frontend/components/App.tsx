@@ -47,7 +47,7 @@ export function App() {
   const stopLoading = useCallback(() => setLoadingCount((c) => Math.max(0, c - 1)), []);
   const [schedule, setSchedule] = useState<WeeklySchedule | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[] | null>(null);
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [calendarBlocks, setCalendarBlocks] = useState<CalendarBlock[]>([]);
   const [calendarConnections, setCalendarConnections] = useState<CalendarConnection[]>([]);
@@ -269,7 +269,7 @@ export function App() {
     setError(null);
     try {
       const result = await api.createMessage(visitId, channel, body, sendImmediately);
-      setMessages((prev) => [result.message, ...prev]);
+      setMessages((prev) => [result.message, ...(prev ?? [])]);
       return result.message;
     } catch (err) {
       setError((err as Error).message);
@@ -283,7 +283,7 @@ export function App() {
     setError(null);
     try {
       const result = await api.bulkConfirmMessages();
-      setMessages((prev) => [...result.messages, ...prev]);
+      setMessages((prev) => [...result.messages, ...(prev ?? [])]);
       return result;
     } catch (err) {
       setError((err as Error).message);
@@ -297,7 +297,7 @@ export function App() {
     setError(null);
     try {
       const result = await api.approveMessage(messageId);
-      setMessages((prev) => prev.map((message) => (message.id === messageId ? result.message : message)));
+      setMessages((prev) => (prev ?? []).map((message) => (message.id === messageId ? result.message : message)));
       return result.message;
     } catch (err) {
       setError((err as Error).message);
@@ -311,7 +311,7 @@ export function App() {
     setError(null);
     try {
       const result = await api.selectMessageSuggestion(messageId, suggestionIndex);
-      setMessages((prev) => prev.map((message) => (message.id === messageId ? result.message : message)));
+      setMessages((prev) => (prev ?? []).map((message) => (message.id === messageId ? result.message : message)));
       return result.message;
     } catch (err) {
       setError((err as Error).message);
@@ -326,7 +326,7 @@ export function App() {
       const result = await api.executeAlertAction(alertId);
       setAlerts((prev) => prev.map((a) => (a.id === alertId ? result.alert : a)));
       if (result.message) {
-        setMessages((prev) => [result.message!, ...prev]);
+        setMessages((prev) => [result.message!, ...(prev ?? [])]);
       }
     } catch (err) {
       setError((err as Error).message);
@@ -343,7 +343,7 @@ export function App() {
     }
   };
 
-  const pendingMessageCount = messages.filter((m) => m.status === "pending_approval").length;
+  const pendingMessageCount = (messages ?? []).filter((m) => m.status === "pending_approval").length;
 
   // Show onboarding wizard for new users
   const needsSetup = clinicianProfile && !clinicianProfile.setup_completed_at;
@@ -443,7 +443,7 @@ export function App() {
 
         {createPortal(
           <MessageHistorySlideOver
-            messages={messages}
+            messages={messages ?? []}
             isOpen={messageSlideOverOpen}
             onClose={() => setMessageSlideOverOpen(false)}
             onApprove={approveMessage}

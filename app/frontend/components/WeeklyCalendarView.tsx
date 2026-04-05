@@ -49,7 +49,7 @@ type Props = {
   onCalendarRefresh: () => Promise<void>;
   onBulkConfirm?: () => Promise<{ sent_count: number; skipped_count: number } | undefined>;
   onSendMessage?: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<import("../types").Message | undefined>;
-  messages?: ReadonlyArray<Message>;
+  messages?: ReadonlyArray<Message> | null;
   alerts?: Alert[];
   onUpdateAlert?: (alertId: number, status: Alert["status"]) => Promise<void>;
   onExecuteAlertAction?: (alertId: number) => Promise<void>;
@@ -85,7 +85,7 @@ export function WeeklyCalendarView({
   onCalendarRefresh,
   onBulkConfirm,
   onSendMessage,
-  messages = [],
+  messages,
   alerts = [],
   onUpdateAlert,
   onExecuteAlertAction,
@@ -417,11 +417,12 @@ export function WeeklyCalendarView({
 
       {/* Bulk confirm banner */}
       {(() => {
+        if (!messages || !onBulkConfirm) return null;
         const contactedPatientIds = new Set(messages.filter((m) => m.direction === "outbound").map((m) => m.patient_id));
         const unconfirmedCount = visits.filter(
           (v) => v.status === "pending_patient_confirmation" && !contactedPatientIds.has(v.patient_id),
         ).length;
-        if (unconfirmedCount === 0 || !onBulkConfirm) return null;
+        if (unconfirmedCount === 0) return null;
         return (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
             <span className="text-amber-800">
@@ -602,20 +603,33 @@ export function WeeklyCalendarView({
         </div>
 
         {routeCollapsed ? (
-          <button
-            className="hidden xl:flex flex-col items-center gap-2 self-start rounded-lg border border-gray-200 bg-white px-2 py-3 text-[10px] font-medium text-gray-400 shadow-sm hover:bg-gray-50 hover:text-gray-600"
-            onClick={() => { setRouteCollapsed(false); try { localStorage.setItem("rc-route-collapsed", "false"); } catch {} }}
-            title="Show route panel"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
-            </svg>
-            <span className="[writing-mode:vertical-lr]">Route</span>
-          </button>
+          <>
+            {/* xl: show collapsed tab to re-open; below xl: always show the route panel inline */}
+            <button
+              className="hidden xl:flex flex-col items-center gap-2 self-start rounded-lg border border-gray-200 bg-white px-2 py-3 text-[10px] font-medium text-gray-400 shadow-sm hover:bg-gray-50 hover:text-gray-600"
+              onClick={() => { setRouteCollapsed(false); try { localStorage.setItem("rc-route-collapsed", "false"); } catch {} }}
+              title="Show route panel"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
+              </svg>
+              <span className="[writing-mode:vertical-lr]">Route</span>
+            </button>
+            <div className="xl:hidden">
+              <RoutePanel
+                selectedDate={selectedDate}
+                dayVisits={dayVisits}
+                dayBlocks={dayBlocks}
+                selectedVisitId={selectedVisitId}
+                setSelectedVisitId={setSelectedVisitId}
+                homeOrigin={homeOrigin}
+              />
+            </div>
+          </>
         ) : (
           <div className="relative">
             <button
-              className="absolute right-2 top-2 z-10 rounded-md border-0 bg-transparent p-0.5 text-gray-300 shadow-none hover:text-gray-500"
+              className="hidden xl:block absolute right-2 top-2 z-10 rounded-md border-0 bg-transparent p-0.5 text-gray-300 shadow-none hover:text-gray-500"
               onClick={() => { setRouteCollapsed(true); try { localStorage.setItem("rc-route-collapsed", "true"); } catch {} }}
               title="Hide route panel"
             >
