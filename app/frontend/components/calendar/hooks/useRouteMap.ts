@@ -249,11 +249,11 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
   useEffect(() => {
     markerElementsRef.current.forEach((el, visitId) => {
       if (visitId === selectedVisitId) {
-        el.style.width = "28px";
-        el.style.height = "28px";
-        el.style.fontSize = "12px";
-        el.style.border = "3px solid #4f46e5";
-        el.style.boxShadow = "0 0 0 3px rgba(79,70,229,0.25), 0 2px 8px rgba(0,0,0,0.2)";
+        el.style.width = "24px";
+        el.style.height = "24px";
+        el.style.fontSize = "10px";
+        el.style.border = "2.5px solid #4f46e5";
+        el.style.boxShadow = "0 0 0 2px rgba(79,70,229,0.2), 0 1px 4px rgba(0,0,0,0.18)";
         el.style.zIndex = "10";
       } else {
         el.style.width = "22px";
