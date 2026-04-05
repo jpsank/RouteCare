@@ -59,17 +59,21 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
   return (
     <div
       ref={ref}
-      className={isMobile ? "fixed inset-x-0 bottom-0 z-[1100] p-3" : "fixed inset-0 z-[1100] flex items-start justify-center bg-black/20 pt-16"}
+      className={isMobile
+        ? "fixed inset-0 z-[1100] flex items-end animate-[fadeIn_0.15s_ease-out] bg-black/25"
+        : "fixed inset-0 z-[1100] flex items-start justify-center px-4 pt-[10vh] animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]"}
       data-modal-overlay
-      onClick={isMobile ? undefined : (e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className={`${isMobile ? "rounded-t-2xl" : "w-full max-w-md rounded-xl"} border border-gray-200 bg-white p-4 shadow-xl`}>
+      <div className={isMobile
+        ? "w-full max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl animate-[slideUp_0.2s_ease-out]"
+        : "w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.15s_ease-out]"}>
         {isMobile && <div className="mx-auto mb-3 h-1 w-8 rounded-full bg-gray-300" />}
 
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-900">Edit Patient</h3>
-          <button className="rounded-md border-0 bg-transparent p-1 text-gray-400 shadow-none hover:text-gray-600" onClick={onClose}>
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-gray-900">Edit Patient</h3>
+          <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onClick={onClose}>
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
         </div>
 

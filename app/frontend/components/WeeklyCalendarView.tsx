@@ -439,12 +439,12 @@ export function WeeklyCalendarView({
 
       {/* Settings modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-[800] flex items-start justify-center bg-black/20 pt-16" data-modal-overlay onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
-          <div className="w-full max-w-lg max-h-[calc(100vh-8rem)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">Settings</h2>
-              <button className="rounded-md border-0 bg-transparent p-1 text-gray-400 shadow-none hover:text-gray-600" onClick={() => setShowSettings(false)}>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        <div className="fixed inset-0 z-[800] flex items-start justify-center px-4 pt-[10vh] animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]" data-modal-overlay onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
+          <div className="w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.15s_ease-out]">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-gray-900">Settings</h2>
+              <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onClick={() => setShowSettings(false)}>
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
               </button>
             </div>
 

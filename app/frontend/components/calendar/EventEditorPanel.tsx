@@ -93,7 +93,9 @@ export function EventEditorPanel({
               ) : (selectedVisit?.patient_name ?? "Edit Event")}
             </h3>
           </div>
-          <button className="btn-ghost btn-xs" onClick={closeEditor} aria-label="Close">&times;</button>
+          <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onClick={closeEditor} aria-label="Close">
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+          </button>
         </div>
 
         {selectedVisit && (

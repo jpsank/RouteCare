@@ -44,16 +44,16 @@ export function MessageHistorySlideOver({ messages, isOpen, onClose, onApprove }
   const recentMessages = messages.filter((m) => m.status !== "pending_approval" && m.status !== "draft").slice(0, 30);
 
   return (
-    <div className="fixed inset-0 z-[900] flex justify-end bg-black/20">
-      <div ref={ref} className="flex h-full w-full max-w-sm flex-col bg-white shadow-xl">
+    <div className="fixed inset-0 z-[900] flex justify-end animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]" data-modal-overlay onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={ref} className="flex h-full w-full max-w-sm flex-col bg-white shadow-2xl ring-1 ring-black/5 animate-[slideInRight_0.2s_ease-out]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-          <h3 className="text-sm font-semibold text-gray-900">Messages</h3>
+        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3.5">
+          <h3 className="text-base font-semibold text-gray-900">Messages</h3>
           <button
-            className="rounded-md border-0 bg-transparent p-1 text-gray-400 shadow-none hover:text-gray-600"
+            className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600"
             onClick={onClose}
           >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
           </button>

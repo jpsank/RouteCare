@@ -98,7 +98,9 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
             {isMobile && <div className="mx-auto mb-2 h-1 w-8 rounded-full bg-gray-300" />}
             <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
           </div>
-          <button className="btn-ghost btn-xs" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label="Close">&times;</button>
+          <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label="Close">
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+          </button>
         </div>
 
         <div className="rc-field">

@@ -56,7 +56,7 @@ export function InlineAlertSummary({ alerts, onUpdateAlert, onExecuteAction }: P
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-[min(380px,calc(100vw-24px))] rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
+        <div className="absolute left-0 top-full z-50 mt-1 w-[min(380px,calc(100vw-24px))] rounded-2xl bg-white p-3.5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.12s_ease-out]">
           <h4 className="mb-2 text-xs font-semibold text-gray-500">Active Alerts</h4>
           <div className="max-h-64 space-y-2 overflow-y-auto">
             {topAlerts.map((alert) => (
