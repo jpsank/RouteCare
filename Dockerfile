@@ -3,7 +3,7 @@
 
 # Production Dockerfile for RouteCare
 # Build: docker build -t routecare .
-# Run:   docker run -d -p 80:80 -e RAILS_MASTER_KEY=<value> --name routecare routecare
+# Run:   docker run -d -p 3000:3000 -e RAILS_MASTER_KEY=<value> --name routecare routecare
 
 ARG RUBY_VERSION=3.4.4
 FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
@@ -37,26 +37,24 @@ RUN mkdir -p /usr/local/node && \
     curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
     | tar -xJ --strip-components=1 -C /usr/local/node/
 
-# Install Ruby gems
+# Install Ruby gems (BuildKit cache survives across builds)
 COPY Gemfile Gemfile.lock ./
 COPY vendor/ vendor/
-RUN bundle install && \
-    rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
+RUN --mount=type=cache,target=/root/.bundle/cache \
+    bundle install && \
+    rm -rf "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
     bundle exec bootsnap precompile --gemfile
 
-# Install Node modules
+# Install Node modules (BuildKit cache for npm)
 COPY package.json package-lock.json ./
-RUN npm ci --include=dev
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --include=dev
 
-# Copy application code
+# Copy application code and precompile
 COPY . .
-
-# Precompile bootsnap and assets
-RUN bundle exec bootsnap precompile app/ lib/
-RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
-
-# Remove node_modules (not needed at runtime)
-RUN rm -rf node_modules
+RUN bundle exec bootsnap precompile app/ lib/ && \
+    SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile && \
+    rm -rf node_modules
 
 # ---------- Runtime stage ----------
 FROM base
