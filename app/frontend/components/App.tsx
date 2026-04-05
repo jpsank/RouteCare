@@ -53,26 +53,42 @@ export function App() {
   const [clinicianProfile, setClinicianProfile] = useState<ClinicianProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const refreshAlerts = useCallback(async () => {
+    const res = await api.listAlerts();
+    setAlerts(res.alerts);
+  }, []);
+
+  const refreshMessages = useCallback(async () => {
+    const res = await api.listMessages();
+    setMessages(res.messages);
+  }, []);
+
   const refreshData = useCallback(async () => {
     startLoading();
     setError(null);
     try {
-      const [scheduleResponse, patientsResponse, messagesResponse, alertsResponse, blocksResponse, connectionsResponse, profileResponse] = await Promise.all([
+      // Critical path: schedule, patients, blocks, profile — renders the calendar
+      const [scheduleResponse, patientsResponse, blocksResponse, profileResponse] = await Promise.all([
         api.getSchedule(),
         api.listPatients(),
-        api.listMessages(),
-        api.listAlerts(),
         api.listCalendarBlocks(),
-        api.listCalendarConnections(),
         api.getClinicianProfile(),
       ]);
       setSchedule(scheduleResponse.schedule);
       setPatients(patientsResponse.patients);
-      setMessages(messagesResponse.messages);
-      setAlerts(alertsResponse.alerts);
       setCalendarBlocks(blocksResponse.calendar_blocks);
-      setCalendarConnections(connectionsResponse.calendar_connections);
       setClinicianProfile(profileResponse.clinician_profile);
+
+      // Deferred: messages, alerts, connections — populate after first paint
+      Promise.all([
+        api.listMessages(),
+        api.listAlerts(),
+        api.listCalendarConnections(),
+      ]).then(([messagesResponse, alertsResponse, connectionsResponse]) => {
+        setMessages(messagesResponse.messages);
+        setAlerts(alertsResponse.alerts);
+        setCalendarConnections(connectionsResponse.calendar_connections);
+      }).catch(() => undefined);
     } catch (err) {
       setError((err as Error).message);
     } finally {
