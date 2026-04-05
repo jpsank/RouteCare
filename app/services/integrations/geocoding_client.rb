@@ -1,17 +1,34 @@
 module Integrations
   class GeocodingClient < BaseClient
-    require "zlib"
+    MAPBOX_GEOCODING_URL = "https://api.mapbox.com/search/geocode/v6/forward".freeze
+    FALLBACK_TOKEN = "pk.eyJ1IjoicHVmZnlib2EiLCJhIjoiY2sxbXNqbng1MDQ1cDNocWQ1bGVucGwxYyJ9.BsdxpULi2RpbCiaEyW3rgA".freeze
+
+    def initialize(access_token: ENV.fetch("MAPBOX_ACCESS_TOKEN", FALLBACK_TOKEN))
+      super()
+      @access_token = access_token
+    end
 
     def geocode(address)
       return nil if address.blank?
 
-      # In production, connect to Google/HERE geocoding API here.
-      # For now we return deterministic pseudo coordinates for local dev.
-      seed = Zlib.crc32(address)
-      {
-        lat: 40.0 + ((seed % 10_000) / 10_000.0),
-        lng: -74.0 - (((seed / 10_000) % 10_000) / 10_000.0)
-      }
+      response = HTTParty.get(
+        MAPBOX_GEOCODING_URL,
+        query: { q: address, access_token: @access_token, limit: 1 },
+        timeout: 5
+      )
+
+      return nil unless response.success?
+
+      feature = response.parsed_response.dig("features", 0)
+      return nil unless feature
+
+      coords = feature.dig("geometry", "coordinates")
+      return nil unless coords&.length == 2
+
+      { lat: coords[1], lng: coords[0] }
+    rescue StandardError => e
+      Rails.logger.warn("[GeocodingClient] Geocode failed for '#{address}': #{e.message}")
+      nil
     end
   end
 end
