@@ -96,10 +96,10 @@ class CalendarOauthController < ApplicationController
   end
 
   def google_client_id
-    ENV.fetch("GOOGLE_OAUTH_CLIENT_ID")
+    ENV.fetch("GOOGLE_OAUTH_CLIENT_ID", "")
   end
 
   def google_client_secret
-    ENV.fetch("GOOGLE_OAUTH_CLIENT_SECRET")
+    ENV.fetch("GOOGLE_OAUTH_CLIENT_SECRET", "")
   end
 end

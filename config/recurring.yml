@@ -13,3 +13,13 @@ production:
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
+
+  alerts_generation:
+    class: AlertsGenerationJob
+    schedule: "*/15 * * * *"
+    description: "Generate alerts for unconfirmed visits, conflicts, and schedule shifts"
+
+  cleanup_resolved_alerts:
+    class: CleanupResolvedAlertsJob
+    schedule: "0 2 * * *"
+    description: "Purge resolved alerts older than 30 days"

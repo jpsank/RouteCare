@@ -24,7 +24,7 @@ Rails.application.configure do
   # Store uploaded files on the local file system (see config/storage.yml for options).
   config.active_storage.service = :local
 
-  # Render terminates SSL at their edge; tell Rails to trust the X-Forwarded-* headers.
+  # Railway/Render terminate SSL at their edge; tell Rails to trust the X-Forwarded-* headers.
   config.assume_ssl = true
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
@@ -55,7 +55,7 @@ Rails.application.configure do
   config.action_mailer.raise_delivery_errors = true
 
   # Set host to be used by links generated in mailer templates.
-  config.action_mailer.default_url_options = { host: "example.com" }
+  config.action_mailer.default_url_options = { host: ENV.fetch("ROUTECARE_APP_HOST", "localhost") }
 
   if ENV["ROUTECARE_POSTMARK_API_KEY"].present?
     config.action_mailer.delivery_method = :postmark
@@ -74,12 +74,8 @@ Rails.application.configure do
   # Only use :id for inspections in production.
   config.active_record.attributes_for_inspect = [ :id ]
 
-  # Enable DNS rebinding protection and other `Host` header attacks.
-  # config.hosts = [
-  #   "example.com",     # Allow requests from example.com
-  #   /.*\.example\.com/ # Allow requests from subdomains like `www.example.com`
-  # ]
-  #
-  # Skip DNS rebinding protection for the default health check endpoint.
-  # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+  # Allow Railway/Render dynamic hostnames and custom domains.
+  # Without this, requests are rejected with "Host header mismatch".
+  config.hosts.clear
+  config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
 end

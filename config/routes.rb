@@ -6,7 +6,7 @@ Rails.application.routes.draw do
 
   namespace :webhooks do
     post "telnyx/sms", to: "telnyx#sms"
-    post "postmark/inbound", to: "postmark#inbound"
+    post "postmark/inbound(/:token)", to: "postmark#inbound"
   end
 
   namespace :api do

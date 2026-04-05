@@ -38,9 +38,12 @@ Go to your app service → **Variables** and add:
 | `ROUTECARE_POSTMARK_API_KEY` | [Postmark](https://postmarkapp.com) → Server → API Tokens |
 | `ROUTECARE_POSTMARK_INBOUND_TOKEN` | Token for verifying inbound email webhooks |
 | `ROUTECARE_MAILER_FROM` | e.g. `care@yourdomain.com` |
+| `ROUTECARE_APP_HOST` | Your app URL, e.g. `routecare-production.up.railway.app` |
 | `ROUTECARE_LLM_API_KEY` | [OpenAI](https://platform.openai.com/api-keys) (optional — AI-drafted messages) |
 | `ROUTECARE_LLM_BASE_URL` | `https://api.openai.com/v1` |
 | `ROUTECARE_LLM_MODEL` | `gpt-4o-mini` |
+| `GOOGLE_OAUTH_CLIENT_ID` | [Google Cloud Console](https://console.cloud.google.com) (optional — calendar sync) |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Google Cloud Console (optional — calendar sync) |
 
 `DATABASE_URL` is auto-injected by Railway when you link the Postgres service — no need to set it manually.
 
