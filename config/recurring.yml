@@ -1,27 +1,15 @@
-# Solid Queue recurring tasks
-# https://github.com/rails/solid_queue#recurring-tasks
-#
-# These run automatically when the Solid Queue supervisor is running
-# (production: bin/rails solid_queue:start, or via Procfile worker: process).
+# examples:
+#   periodic_cleanup:
+#     class: CleanSoftDeletedRecordsJob
+#     queue: background
+#     args: [ 1000, { batch_size: 500 } ]
+#     schedule: every hour
+#   periodic_cleanup_with_command:
+#     command: "SoftDeletedRecord.due.delete_all"
+#     priority: 2
+#     schedule: at 5am every day
 
 production:
-  alerts_generation:
-    class: AlertsGenerationJob
-    schedule: "*/15 * * * *"   # every 15 minutes
-    description: "Generate alerts for unconfirmed visits, conflicts, and schedule shifts"
-
-  cleanup_resolved_alerts:
-    class: CleanupResolvedAlertsJob
-    schedule: "0 2 * * *"      # daily at 2 AM
-    description: "Purge resolved alerts older than 30 days to keep the table lean"
-
-development:
-  alerts_generation:
-    class: AlertsGenerationJob
-    schedule: "*/15 * * * *"
-    description: "Generate alerts for unconfirmed visits, conflicts, and schedule shifts"
-
-  cleanup_resolved_alerts:
-    class: CleanupResolvedAlertsJob
-    schedule: "0 2 * * *"
-    description: "Purge resolved alerts older than 30 days to keep the table lean"
+  clear_solid_queue_finished_jobs:
+    command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
+    schedule: every hour at minute 12

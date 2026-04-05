@@ -24,18 +24,11 @@ npm install --include=dev
 echo ">>> rails assets:precompile"
 bundle exec rails assets:precompile
 
-# 4. Ensure Solid adapter migrations are installed.
-#    These generators are idempotent — safe to run on every deploy.
-echo ">>> installing Solid adapter migrations"
-bundle exec rails solid_queue:install  2>/dev/null || true
-bundle exec rails solid_cache:install  2>/dev/null || true
-bundle exec rails solid_cable:install  2>/dev/null || true
-
-# 5. Run all pending migrations (primary + cache + queue + cable).
-#    All four connections point to the same Render PostgreSQL instance,
-#    so a single db:migrate covers everything.
-echo ">>> rails db:migrate"
-bundle exec rails db:migrate
+# 4. Prepare all databases (primary + queue + cache + cable).
+#    db:prepare creates missing databases and runs pending migrations
+#    or loads schema files for Solid Queue/Cache/Cable.
+echo ">>> rails db:prepare"
+bundle exec rails db:prepare
 
 echo "──────────────────────────────────────"
 echo " Build complete"
