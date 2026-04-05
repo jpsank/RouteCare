@@ -14,12 +14,16 @@ module Integrations
       response = HTTParty.get(
         MAPBOX_GEOCODING_URL,
         query: { q: address, access_token: @access_token, limit: 1 },
+        headers: { "Accept" => "application/json" },
+        format: :json,
         timeout: 5
       )
 
       return nil unless response.success?
 
-      feature = response.parsed_response.dig("features", 0)
+      body = response.parsed_response
+      body = JSON.parse(body) if body.is_a?(String)
+      feature = body.dig("features", 0)
       return nil unless feature
 
       coords = feature.dig("geometry", "coordinates")
