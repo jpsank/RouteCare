@@ -52,6 +52,8 @@ export function AlertsPanel({ alerts, onUpdateAlert }: Props) {
     }
   }
 
+  const highCount = alerts.filter((a) => a.severity === "high" && a.status === "open").length;
+
   return (
     <div className="rc-card space-y-4">
       <div className="flex items-center justify-between">
@@ -60,41 +62,58 @@ export function AlertsPanel({ alerts, onUpdateAlert }: Props) {
           <p className="rc-section-subtitle">Monitor conflicts and follow-up items.</p>
         </div>
         <div className="flex items-center gap-3">
+          {highCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+              {highCount} urgent
+            </span>
+          )}
+          <span className="rc-pill">{openCount} open</span>
           <label className="inline-flex items-center gap-1.5 text-xs text-gray-500">
             <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} />
             Show resolved
           </label>
-          <span className="rc-pill">{openCount} open</span>
         </div>
       </div>
 
-      {filtered.length === 0 && <div className="rc-empty">No active alerts.</div>}
+      {filtered.length === 0 && (
+        <div className="rc-empty">
+          <svg className="mx-auto mb-2 h-8 w-8 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+          No active alerts — you're all clear.
+        </div>
+      )}
 
       <div className="space-y-2">
         {filtered.map((alert) => (
-          <div key={alert.id} className={sevClass(alert.severity)}>
-            <div className="text-sm font-medium text-gray-900">{alert.message}</div>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-              <span>{alert.category.replaceAll("_", " ")}</span>
-              <span>&middot;</span>
-              <span>{alert.severity}</span>
-              {alert.due_at && (
-                <>
+          <div key={alert.id} className={`${sevClass(alert.severity)} transition-colors ${alert.status === "resolved" ? "opacity-50" : ""}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-gray-900">{alert.message}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                  <span className="capitalize">{alert.category.replaceAll("_", " ")}</span>
                   <span>&middot;</span>
-                  <span>Due {formatDate(alert.due_at)}</span>
-                </>
-              )}
-              {alert.created_at && (
-                <>
-                  <span>&middot;</span>
-                  <span>{formatDate(alert.created_at)}</span>
-                </>
-              )}
-              <span className="ml-auto flex items-center gap-1.5">
+                  <span className="capitalize">{alert.severity}</span>
+                  {alert.due_at && (
+                    <>
+                      <span>&middot;</span>
+                      <span>Due {formatDate(alert.due_at)}</span>
+                    </>
+                  )}
+                  {alert.created_at && (
+                    <>
+                      <span>&middot;</span>
+                      <span>{formatDate(alert.created_at)}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-none items-center gap-1.5">
                 {STATUS_OPTIONS.map(([value, label]) => (
                   <button
                     key={value}
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
                       alert.status === value
                         ? "bg-indigo-100 text-indigo-700"
                         : "bg-gray-100 text-gray-500 hover:bg-gray-200"
@@ -105,7 +124,7 @@ export function AlertsPanel({ alerts, onUpdateAlert }: Props) {
                     {label}
                   </button>
                 ))}
-              </span>
+              </div>
             </div>
           </div>
         ))}
