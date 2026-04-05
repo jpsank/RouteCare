@@ -1,0 +1,33 @@
+<div class="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 to-gray-100 px-4 py-12">
+  <div class="w-full max-w-sm">
+    <div class="mb-8 text-center">
+      <p class="text-sm font-semibold uppercase tracking-widest text-indigo-600">RouteCare</p>
+      <h1 class="mt-2 text-2xl font-bold tracking-tight text-gray-900">Reset your password</h1>
+      <p class="mt-1 text-sm text-gray-500">Enter your email and we'll send you a link to reset it.</p>
+    </div>
+
+    <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <%= form_for(resource, as: resource_name, url: password_path(resource_name), html: { method: :post, class: "space-y-4" }) do |f| %>
+        <% if resource.errors.any? %>
+          <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <% resource.errors.full_messages.each do |msg| %>
+              <p class="m-0"><%= msg %></p>
+            <% end %>
+          </div>
+        <% end %>
+
+        <div class="grid gap-1">
+          <%= f.label :email, class: "text-xs font-medium text-gray-500" %>
+          <%= f.email_field :email, autofocus: true, autocomplete: "email", placeholder: "you@example.com" %>
+        </div>
+
+        <%= f.submit "Send reset link", class: "btn-primary w-full justify-center" %>
+      <% end %>
+    </div>
+
+    <p class="mt-5 text-center text-sm text-gray-500">
+      Remember your password?
+      <%= link_to "Sign in", new_session_path(resource_name), class: "font-medium text-indigo-600 hover:text-indigo-800" %>
+    </p>
+  </div>
+</div>

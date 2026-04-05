@@ -1,19 +1,30 @@
-<div class="rc-app">
-  <div class="rc-shell">
-    <div class="mx-auto mt-10 max-w-md rc-card">
-      <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-indigo-600">RouteCare</p>
-      <h1 class="text-2xl font-bold tracking-tight text-gray-900">Welcome back</h1>
-      <p class="mt-2 text-sm text-gray-500">Sign in to manage schedules, routes, and patient outreach.</p>
+<div class="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 to-gray-100 px-4 py-12">
+  <div class="w-full max-w-sm">
+    <div class="mb-8 text-center">
+      <p class="text-sm font-semibold uppercase tracking-widest text-indigo-600">RouteCare</p>
+      <h1 class="mt-2 text-2xl font-bold tracking-tight text-gray-900">Welcome back</h1>
+      <p class="mt-1 text-sm text-gray-500">Sign in to manage schedules, routes, and patient outreach.</p>
+    </div>
 
-      <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "mt-5 space-y-3" }) do |f| %>
-        <div class="rc-field">
-          <%= f.label :email, class: "rc-label" %>
-          <%= f.email_field :email, autofocus: true, autocomplete: "email" %>
+    <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "space-y-4" }) do |f| %>
+        <% if alert.present? %>
+          <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"><%= alert %></div>
+        <% end %>
+
+        <div class="grid gap-1">
+          <%= f.label :email, class: "text-xs font-medium text-gray-500" %>
+          <%= f.email_field :email, autofocus: true, autocomplete: "email", placeholder: "you@example.com" %>
         </div>
 
-        <div class="rc-field">
-          <%= f.label :password, class: "rc-label" %>
-          <%= f.password_field :password, autocomplete: "current-password" %>
+        <div class="grid gap-1">
+          <div class="flex items-center justify-between">
+            <%= f.label :password, class: "text-xs font-medium text-gray-500" %>
+            <% if devise_mapping.recoverable? %>
+              <%= link_to "Forgot password?", new_password_path(resource_name), class: "text-xs font-medium text-indigo-600 hover:text-indigo-800" %>
+            <% end %>
+          </div>
+          <%= f.password_field :password, autocomplete: "current-password", placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" %>
         </div>
 
         <% if devise_mapping.rememberable? %>
@@ -25,10 +36,13 @@
 
         <%= f.submit "Sign in", class: "btn-primary w-full justify-center" %>
       <% end %>
-
-      <div class="mt-4 text-sm">
-        <%= render "devise/shared/links" %>
-      </div>
     </div>
+
+    <% if devise_mapping.registerable? %>
+      <p class="mt-5 text-center text-sm text-gray-500">
+        Don't have an account?
+        <%= link_to "Create one", new_registration_path(resource_name), class: "font-medium text-indigo-600 hover:text-indigo-800" %>
+      </p>
+    <% end %>
   </div>
 </div>
