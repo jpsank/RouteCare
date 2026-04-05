@@ -3,21 +3,6 @@
 # If running the rails server then create or migrate existing database
 if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
   ./bin/rails db:prepare
-
-  # Solid Queue/Cache/Cable share the primary database but use separate
-  # schema files. db:prepare skips schema loading when the database already
-  # exists, so we load them explicitly if their tables are missing.
-  ./bin/rails runner "
-    %w[queue cache cable].each do |db|
-      schema_file = Rails.root.join('db', \"#{db}_schema.rb\")
-      next unless schema_file.exist?
-      config = ActiveRecord::Base.configurations.configs_for(env_name: Rails.env, name: db)
-      next unless config
-      ActiveRecord::Tasks::DatabaseTasks.load_schema(config)
-    rescue ActiveRecord::StatementInvalid
-      # Tables already exist, skip
-    end
-  "
 fi
 
 exec "${@}"
