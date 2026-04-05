@@ -36,7 +36,7 @@
   <body>
     <% if flash.any? { |_, msg| msg.present? } %>
       <div class="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-4">
-        <div class="pointer-events-auto flex flex-col gap-2">
+        <div class="pointer-events-auto flex flex-col gap-2" id="flash-container">
           <% flash.each do |type, message| %>
             <% next if message.blank? %>
             <% icon, colors = case type.to_sym
@@ -55,6 +55,16 @@
           <% end %>
         </div>
       </div>
+      <script>
+        setTimeout(function() {
+          document.querySelectorAll('.flash-toast').forEach(function(el) {
+            el.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(-8px)';
+            setTimeout(function() { el.remove(); }, 300);
+          });
+        }, 5000);
+      </script>
     <% end %>
 
     <%= yield %>

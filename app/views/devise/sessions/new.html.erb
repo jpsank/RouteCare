@@ -33,6 +33,8 @@
 
         <%= f.submit "Sign in", class: "btn-primary w-full justify-center" %>
       <% end %>
+
+      <%= render "devise/shared/oauth_buttons" %>
     </div>
 
     <% if devise_mapping.registerable? %>

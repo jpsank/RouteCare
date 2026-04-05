@@ -1,5 +1,5 @@
 Rails.application.routes.draw do
-  devise_for :users
+  devise_for :users, controllers: { omniauth_callbacks: "users/omniauth_callbacks" }
   root "home#index"
   get "auth/google/start", to: "calendar_oauth#google_start", as: :google_calendar_oauth_start
   get "auth/google/callback", to: "calendar_oauth#google_callback", as: :google_calendar_oauth_callback
