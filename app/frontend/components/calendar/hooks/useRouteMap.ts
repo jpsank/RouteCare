@@ -42,21 +42,25 @@ type RouteStop = Point & {
 
 function createDotElement(color: string, label?: string): HTMLElement {
   const el = document.createElement("div");
-  el.style.width = "16px";
-  el.style.height = "16px";
+  const hasLabel = Boolean(label);
+  const size = hasLabel ? "22px" : "16px";
+  el.style.width = size;
+  el.style.height = size;
   el.style.borderRadius = "50%";
   el.style.backgroundColor = color;
   el.style.border = "2px solid #fff";
   el.style.boxShadow = "0 1px 4px rgba(0,0,0,0.18)";
   el.style.cursor = "pointer";
-  if (label) {
+  el.style.transition = "width 0.15s, height 0.15s, border 0.15s, box-shadow 0.15s";
+  if (hasLabel) {
     el.style.display = "flex";
     el.style.alignItems = "center";
     el.style.justifyContent = "center";
-    el.style.fontSize = "8px";
+    el.style.fontSize = "10px";
     el.style.fontWeight = "700";
     el.style.color = "#fff";
-    el.textContent = label;
+    el.style.lineHeight = "1";
+    el.textContent = label!;
   }
   return el;
 }
@@ -201,8 +205,9 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
             popupText = "Home";
           } else {
             const pc = patientColor(stop.patientId);
-            el = createDotElement(pc.accent);
-            popupText = `${stop.patientName}\n${stop.patientAddress}\n${new Date(stop.startsAt).toLocaleTimeString([], {
+            const stopNumber = homeOrigin ? idx : idx + 1;
+            el = createDotElement(pc.accent, String(stopNumber));
+            popupText = `${stopNumber}. ${stop.patientName}\n${stop.patientAddress}\n${new Date(stop.startsAt).toLocaleTimeString([], {
               hour: "numeric",
               minute: "2-digit",
             })} – ${new Date(stop.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
@@ -244,14 +249,16 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
   useEffect(() => {
     markerElementsRef.current.forEach((el, visitId) => {
       if (visitId === selectedVisitId) {
-        el.style.width = "22px";
-        el.style.height = "22px";
+        el.style.width = "28px";
+        el.style.height = "28px";
+        el.style.fontSize = "12px";
         el.style.border = "3px solid #4f46e5";
         el.style.boxShadow = "0 0 0 3px rgba(79,70,229,0.25), 0 2px 8px rgba(0,0,0,0.2)";
         el.style.zIndex = "10";
       } else {
-        el.style.width = "16px";
-        el.style.height = "16px";
+        el.style.width = "22px";
+        el.style.height = "22px";
+        el.style.fontSize = "10px";
         el.style.border = "2px solid #fff";
         el.style.boxShadow = "0 1px 4px rgba(0,0,0,0.18)";
         el.style.zIndex = "";
