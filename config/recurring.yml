@@ -23,3 +23,13 @@ production:
     class: CleanupResolvedAlertsJob
     schedule: "0 2 * * *"
     description: "Purge resolved alerts older than 30 days"
+
+  visit_reminders:
+    class: VisitReminderJob
+    schedule: "0 * * * *"
+    description: "Send reminder messages 24h before confirmed visits"
+
+  visit_auto_complete:
+    class: VisitAutoCompleteJob
+    schedule: "0 * * * *"
+    description: "Mark past confirmed visits as completed"

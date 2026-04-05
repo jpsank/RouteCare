@@ -211,6 +211,7 @@ const STATUS_BORDER: Record<string, string> = {
   pending_patient_confirmation: "#d97706",
   declined: "#dc2626",
   unscheduled: "#9ca3af",
+  completed: "#059669",
 };
 
 export function statusBorderColor(status: string): string {
@@ -223,5 +224,6 @@ export function statusOptions(): Array<{ label: string; value: Visit["status"] }
     { label: "Pending Confirmation", value: "pending_patient_confirmation" },
     { label: "Declined", value: "declined" },
     { label: "Unscheduled", value: "unscheduled" },
+    { label: "Completed", value: "completed" },
   ];
 }

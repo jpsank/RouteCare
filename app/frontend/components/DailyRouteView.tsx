@@ -29,8 +29,8 @@ export function DailyRouteView({ visits, date, onSendMessage, homeOrigin }: Prop
   );
 
   const now = new Date();
-  const nextVisitIdx = dayVisits.findIndex((v) => new Date(v.starts_at) > now);
-  const completedCount = nextVisitIdx === -1 ? dayVisits.length : nextVisitIdx;
+  const completedCount = dayVisits.filter((v) => v.status === "completed").length;
+  const nextVisitIdx = dayVisits.findIndex((v) => v.status !== "completed" && new Date(v.starts_at) > now);
   const nextVisit = nextVisitIdx >= 0 ? dayVisits[nextVisitIdx] : null;
 
   const dateLabel = new Date(date + "T12:00:00").toLocaleDateString(undefined, {
@@ -96,7 +96,7 @@ export function DailyRouteView({ visits, date, onSendMessage, homeOrigin }: Prop
       <div className="space-y-1.5">
         {dayVisits.map((visit, idx) => {
           const pc = patientColor(visit.patient_id);
-          const isPast = new Date(visit.ends_at) < now;
+          const isPast = visit.status === "completed" || new Date(visit.ends_at) < now;
           const isCurrent = nextVisitIdx === idx;
           const navUrl = navigateUrl(visit.patient_latitude, visit.patient_longitude);
 

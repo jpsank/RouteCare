@@ -6,7 +6,8 @@ class Visit < ApplicationRecord
     confirmed: "confirmed",
     pending_patient_confirmation: "pending_patient_confirmation",
     declined: "declined",
-    unscheduled: "unscheduled"
+    unscheduled: "unscheduled",
+    completed: "completed"
   }, validate: true
 
   validates :starts_at, :ends_at, :duration_minutes, :position_in_day, presence: true

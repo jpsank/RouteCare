@@ -48,7 +48,7 @@ export type Visit = {
   starts_at: string;
   ends_at: string;
   duration_minutes: number;
-  status: "confirmed" | "pending_patient_confirmation" | "declined" | "unscheduled";
+  status: "confirmed" | "pending_patient_confirmation" | "declined" | "unscheduled" | "completed";
   position_in_day: number;
   drive_from_previous_minutes: number;
   clinician_override: boolean;
