@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../lib/api";
 import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
 import { SetupWizard } from "./SetupWizard";
@@ -440,12 +441,15 @@ export function App() {
           </Suspense>
         </main>
 
-        <MessageHistorySlideOver
-          messages={messages}
-          isOpen={messageSlideOverOpen}
-          onClose={() => setMessageSlideOverOpen(false)}
-          onApprove={approveMessage}
-        />
+        {createPortal(
+          <MessageHistorySlideOver
+            messages={messages}
+            isOpen={messageSlideOverOpen}
+            onClose={() => setMessageSlideOverOpen(false)}
+            onApprove={approveMessage}
+          />,
+          document.body,
+        )}
       </div>
     </div>
   );

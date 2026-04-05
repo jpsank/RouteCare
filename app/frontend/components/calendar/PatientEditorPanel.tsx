@@ -60,8 +60,8 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
     <div
       ref={ref}
       className={isMobile
-        ? "fixed inset-0 z-[1100] h-screen w-screen flex items-end animate-[fadeIn_0.15s_ease-out] bg-black/25"
-        : "fixed inset-0 z-[1100] h-screen w-screen flex items-start justify-center px-4 pt-[10vh] animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]"}
+        ? "fixed inset-0 z-[1100] flex items-end animate-[fadeIn_0.15s_ease-out] bg-black/25"
+        : "fixed inset-0 z-[1100] flex items-start justify-center px-4 pt-[10vh] animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]"}
       data-modal-overlay
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
