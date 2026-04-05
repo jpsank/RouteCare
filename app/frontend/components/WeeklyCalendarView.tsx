@@ -44,6 +44,7 @@ type Props = {
   onUpdateHomeLocation: (latitude: number, longitude: number) => Promise<void>;
   onCalendarRefresh: () => Promise<void>;
   onBulkConfirm?: () => Promise<{ sent_count: number; skipped_count: number } | undefined>;
+  onSendMessage?: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<import("../types").Message | undefined>;
   messages?: ReadonlyArray<Message>;
 };
 
@@ -76,6 +77,7 @@ export function WeeklyCalendarView({
   onUpdateHomeLocation,
   onCalendarRefresh,
   onBulkConfirm,
+  onSendMessage,
   messages = [],
 }: Props) {
   const visits: Visit[] = schedule?.visits ?? [];
@@ -554,6 +556,7 @@ export function WeeklyCalendarView({
             setEditorPosition(null);
           }}
           position={editorPosition}
+          onSendMessage={onSendMessage}
         />
       )}
 

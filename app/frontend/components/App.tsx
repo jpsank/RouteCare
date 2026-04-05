@@ -363,6 +363,7 @@ export function App() {
           onUpdateHomeLocation={updateHomeLocation}
           onCalendarRefresh={refreshData}
           onBulkConfirm={bulkConfirmMessages}
+          onSendMessage={sendMessage}
           messages={messages}
         />
       );

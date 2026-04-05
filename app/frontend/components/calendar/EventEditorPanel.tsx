@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import type { Visit } from "../../types";
+import type { Message, Visit } from "../../types";
 import { patientColor, statusOptions, type PatientForm } from "./utils";
 
 type Props = {
@@ -17,6 +17,7 @@ type Props = {
   savePatient: () => Promise<void>;
   closeEditor: () => void;
   position?: { x: number; y: number } | null;
+  onSendMessage?: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<Message | undefined>;
 };
 
 export function EventEditorPanel({
@@ -34,14 +35,18 @@ export function EventEditorPanel({
   savePatient,
   closeEditor,
   position,
+  onSendMessage,
 }: Props) {
   const [showPatientFields, setShowPatientFields] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [messageSent, setMessageSent] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const isOpen = editorMode !== "none" || Boolean(selectedVisit);
 
   useEffect(() => {
     setShowPatientFields(false);
+    setMessageSent(false);
   }, [selectedVisit?.id, editorMode]);
 
   useEffect(() => {
@@ -110,6 +115,31 @@ export function EventEditorPanel({
             <button className="btn-primary w-full" onClick={saveVisit} disabled={savingVisit}>
               {savingVisit ? "Saving..." : "Save Visit"}
             </button>
+
+            {onSendMessage && !messageSent && (
+              <button
+                className="btn-secondary w-full"
+                disabled={sendingMessage}
+                onClick={async () => {
+                  setSendingMessage(true);
+                  try {
+                    await onSendMessage(selectedVisit.id, "sms", "", true);
+                    setMessageSent(true);
+                  } finally {
+                    setSendingMessage(false);
+                  }
+                }}
+              >
+                {sendingMessage
+                  ? "Sending..."
+                  : selectedVisit.status === "confirmed"
+                    ? "Send Reminder"
+                    : "Send Confirmation"}
+              </button>
+            )}
+            {messageSent && (
+              <p className="text-center text-xs text-emerald-600 font-medium">Message sent</p>
+            )}
           </>
         )}
 
