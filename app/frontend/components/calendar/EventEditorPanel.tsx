@@ -81,7 +81,8 @@ export function EventEditorPanel({
             <h3 className="text-sm font-semibold text-gray-900">
               {editorMode === "add" ? "Add Patient" : selectedVisit && onEditPatient ? (
                 <button
-                  className="border-0 bg-transparent p-0 text-sm font-semibold text-indigo-600 shadow-none hover:text-indigo-800 hover:underline"
+                  className="border-0 bg-transparent p-0 text-sm font-semibold shadow-none hover:underline"
+                  style={{ color: patientColor(selectedVisit.patient_id).accent }}
                   onClick={() => onEditPatient(selectedVisit.patient_id)}
                 >
                   {selectedVisit.patient_name}
