@@ -12,11 +12,13 @@ echo ">>> bundle install"
 bundle install
 
 # 2. Node/JS dependencies (needed for Vite build)
-#    Vite and its native bindings (rolldown) are devDependencies, so we must
-#    include them during the build step even though NODE_ENV=production.
-echo ">>> npm ci --include=dev"
+#    Vite and rolldown are devDependencies with platform-specific optional native
+#    bindings. npm has a known bug (npm/cli#4828) where optional deps from the
+#    lockfile aren't resolved for the build platform. Work around it by doing a
+#    fresh npm install (not ci) so npm resolves bindings for linux-x64.
+echo ">>> npm install (fresh, with dev deps)"
 rm -rf node_modules
-npm ci --include=dev
+npm install --include=dev
 
 # 3. Compile front-end assets (Vite → propshaft)
 echo ">>> rails assets:precompile"
