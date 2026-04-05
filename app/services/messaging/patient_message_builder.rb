@@ -20,6 +20,10 @@ module Messaging
       end
     end
 
+    private
+
+    attr_reader :visit, :channel, :kind, :proposed_starts_at
+
     def confirmation_text
       patient_first_name = visit.patient.full_name.split.first
       clinician_name = clinician_name_for_intro
@@ -71,9 +75,5 @@ module Messaging
       profile = visit.weekly_schedule.user.clinician_profile
       profile&.display_name.presence || profile&.discipline.presence || "your clinician"
     end
-
-    private
-
-    attr_reader :visit, :channel, :kind, :proposed_starts_at
   end
 end

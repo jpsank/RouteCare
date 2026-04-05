@@ -72,6 +72,7 @@ export type Message = {
   id: number;
   visit_id: number | null;
   patient_id: number;
+  patient_name?: string | null;
   direction: "outbound" | "inbound";
   channel: "sms" | "email";
   status: "draft" | "pending_approval" | "queued" | "sent" | "received" | "failed";
@@ -117,6 +118,7 @@ export type Alert = {
   due_at?: string | null;
   read_at?: string | null;
   metadata: Record<string, unknown>;
+  created_at: string;
 };
 
 export type DashboardApiState = {

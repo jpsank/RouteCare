@@ -10,9 +10,9 @@ type SuggestedVisitTime = {
 type Props = {
   visits: Visit[];
   messages: Message[];
-  onSend: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<Message>;
-  onApprove: (messageId: number) => Promise<Message>;
-  onSelectSuggestion: (messageId: number, suggestionIndex: number) => Promise<Message>;
+  onSend: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<Message | undefined>;
+  onApprove: (messageId: number) => Promise<Message | undefined>;
+  onSelectSuggestion: (messageId: number, suggestionIndex: number) => Promise<Message | undefined>;
 };
 
 function titleCase(value: string): string {
@@ -129,13 +129,14 @@ export function MessagingPanel({ visits, messages, onSend, onApprove, onSelectSu
 
       <div className="space-y-2">
         {messages.length === 0 && <div className="rc-empty">No messages sent yet.</div>}
-        {messages.slice(0, 8).map((msg) => (
+        {messages.map((msg) => (
           <div key={msg.id} className="rc-msg-item">
             {(() => {
               const suggestions = suggestedVisitTimes(msg);
               return (
                 <>
             <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              {msg.patient_name && <span className="font-semibold text-gray-800">{msg.patient_name}</span>}
               <span className="font-semibold text-gray-700">{msg.channel.toUpperCase()}</span>
               <span>{titleCase(msg.direction)}</span>
               <span className={badgeClass(msg.status)}>{titleCase(msg.status)}</span>

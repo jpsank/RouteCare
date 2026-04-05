@@ -14,4 +14,6 @@ class Alert < ApplicationRecord
   }, prefix: true
 
   validates :category, :message, presence: true
+
+  scope :active, -> { where.not(status: :resolved) }
 end

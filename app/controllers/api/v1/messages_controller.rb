@@ -114,6 +114,7 @@ class Api::V1::MessagesController < Api::V1::BaseController
       id: message.id,
       visit_id: message.visit_id,
       patient_id: message.patient_id,
+      patient_name: message.patient&.full_name,
       direction: message.direction,
       channel: message.channel,
       status: message.status,

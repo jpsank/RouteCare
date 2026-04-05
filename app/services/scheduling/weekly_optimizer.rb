@@ -28,6 +28,7 @@ module Scheduling
 
       ActiveRecord::Base.transaction do
         schedule.save! if schedule.new_record?
+        archive_messages_for_schedule!(schedule)
         schedule.visits.delete_all
         create_visits!(schedule, visit_plan, travel_matrix)
         calculate_drive_metrics!(schedule)
@@ -486,6 +487,23 @@ module Scheduling
       )
     rescue StandardError
       0
+    end
+
+    # Archive message-visit associations before visits are deleted during re-optimization.
+    # Stores the original visit_id in metadata so the audit trail is preserved.
+    def archive_messages_for_schedule!(schedule)
+      return if schedule.visit_ids.empty?
+
+      PatientMessage.where(visit_id: schedule.visit_ids).find_each do |message|
+        message.update!(
+          visit_id: nil,
+          metadata: (message.metadata || {}).merge(
+            archived_from_visit_id: message.visit_id,
+            archived_at: Time.current.iso8601,
+            archive_reason: "schedule_re_optimized"
+          )
+        )
+      end
     end
   end
 end

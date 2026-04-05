@@ -64,7 +64,8 @@ export const EMPTY_PATIENT_FORM: PatientForm = {
 };
 
 export function asDateKey(value: string): string {
-  return new Date(value).toISOString().slice(0, 10);
+  const d = new Date(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function fmt(date: string): string {

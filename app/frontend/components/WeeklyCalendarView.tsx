@@ -1,19 +1,17 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import type { CalendarBlock, CalendarConnection, ClinicianProfile, Patient, WeeklySchedule, Visit } from "../types";
-import { CalendarConnectionsPanel } from "./calendar/CalendarConnectionsPanel";
+import { AddEventPopover } from "./calendar/AddEventPopover";
 import { EventEditorPanel } from "./calendar/EventEditorPanel";
+import { WeeklySettingsPanel } from "./calendar/WeeklySettingsPanel";
 import { useCalendarConnections } from "./calendar/hooks/useCalendarConnections";
 import { useEventEditor } from "./calendar/hooks/useEventEditor";
 import {
   asDateKey,
-  EMPTY_PATIENT_FORM,
   localInputToIso,
   patientColor,
-  patientPayloadFromForm,
   statusBorderColor,
   toLocalInputValue,
-  type PatientForm,
   type PatientSavePayload,
 } from "./calendar/utils";
 
@@ -111,20 +109,13 @@ export function WeeklyCalendarView({
   const [savingHomeInput, setSavingHomeInput] = useState(false);
   const [addEventOpen, setAddEventOpen] = useState(false);
   const [addEventStartInput, setAddEventStartInput] = useState("");
-  const [addEventStatusInput, setAddEventStatusInput] = useState<Visit["status"]>("pending_patient_confirmation");
-  const [selectedPatientOption, setSelectedPatientOption] = useState<string>("");
-  const [newPatientForm, setNewPatientForm] = useState<PatientForm>(EMPTY_PATIENT_FORM);
-  const [savingNewEvent, setSavingNewEvent] = useState(false);
   const [addEventPosition, setAddEventPosition] = useState<{ x: number; y: number } | null>(null);
   const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [savingLunch, setSavingLunch] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState("");
   const [savingDisplayName, setSavingDisplayName] = useState(false);
-  const addEventRef = useRef<HTMLDivElement | null>(null);
-  const popoverDragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
-  const POPOVER_WIDTH = 380;
-  const POPOVER_HEIGHT = 500;
+
 
   const homeOrigin = useMemo(() => {
     if (clinicianProfile?.home_latitude == null || clinicianProfile?.home_longitude == null) return null;
@@ -137,35 +128,11 @@ export function WeeklyCalendarView({
   useEffect(() => {
     setHomeLatitudeInput(clinicianProfile?.home_latitude != null ? String(clinicianProfile.home_latitude) : "");
     setHomeLongitudeInput(clinicianProfile?.home_longitude != null ? String(clinicianProfile.home_longitude) : "");
-    setDisplayNameInput(clinicianProfile?.display_name ?? "");
   }, [clinicianProfile?.home_latitude, clinicianProfile?.home_longitude]);
 
   useEffect(() => {
     setDisplayNameInput(clinicianProfile?.display_name ?? "");
   }, [clinicianProfile?.display_name]);
-
-  useEffect(() => {
-    if (!addEventOpen) return;
-    const onDocumentClick = (event: MouseEvent) => {
-      if (!addEventRef.current) return;
-      if (addEventRef.current.contains(event.target as Node)) return;
-      setAddEventOpen(false);
-    };
-    document.addEventListener("click", onDocumentClick);
-    return () => document.removeEventListener("click", onDocumentClick);
-  }, [addEventOpen]);
-
-  const hourOptions = useMemo(
-    () =>
-      Array.from({ length: 25 }).map((_, index) => {
-        const minuteValue = index * 60;
-        if (index === 24) return { minuteValue, label: "12:00 AM (next day)" };
-        const meridiem = index >= 12 ? "PM" : "AM";
-        const hour12 = ((index + 11) % 12) + 1;
-        return { minuteValue, label: `${hour12}:00 ${meridiem}` };
-      }),
-    [],
-  );
 
   const workdayStartMinute = clinicianProfile?.workday_start_minute ?? 8 * 60;
   const workdayEndMinute = clinicianProfile?.workday_end_minute ?? 18 * 60;
@@ -173,19 +140,6 @@ export function WeeklyCalendarView({
   const lunchStartMinute = clinicianProfile?.lunch_start_minute ?? 720;
   const lunchDurationMinutes = clinicianProfile?.lunch_duration_minutes ?? 30;
   const lunchWindowMinutes = clinicianProfile?.lunch_window_minutes ?? 90;
-
-  const lunchTimeOptions = useMemo(
-    () =>
-      Array.from({ length: 13 }).map((_, i) => {
-        const minute = 660 + i * 15; // 11:00 AM to 2:00 PM in 15-min steps
-        const h = Math.floor(minute / 60);
-        const m = minute % 60;
-        const meridiem = h >= 12 ? "PM" : "AM";
-        const h12 = ((h + 11) % 12) + 1;
-        return { value: minute, label: `${h12}:${String(m).padStart(2, "0")} ${meridiem}` };
-      }),
-    [],
-  );
 
   const updateLunch = async (startMin: number, duration: number, window: number) => {
     setSavingLunch(true);
@@ -318,14 +272,7 @@ export function WeeklyCalendarView({
               const startIso = localInputToIso(addEventStartInput);
               const startMs = new Date(startIso).getTime();
               if (!Number.isFinite(startMs)) return [];
-              const patientDuration =
-                selectedPatientOption === "new"
-                  ? newPatientForm.visit_duration_minutes
-                  : selectedPatientOption
-                    ? patients.find((p) => p.id === Number(selectedPatientOption))?.visit_duration_minutes
-                    : undefined;
-              const durationMinutes = Math.max(15, patientDuration || 30);
-              const endIso = new Date(startMs + durationMinutes * 60 * 1000).toISOString();
+              const endIso = new Date(startMs + 30 * 60 * 1000).toISOString();
               return [
                 {
                   id: "preview-slot",
@@ -347,9 +294,6 @@ export function WeeklyCalendarView({
       addEventStartInput,
       calendarBlocks,
       lunchEvents,
-      newPatientForm.visit_duration_minutes,
-      patients,
-      selectedPatientOption,
       selectedVisitId,
       visits,
     ],
@@ -394,70 +338,13 @@ export function WeeklyCalendarView({
 
   const showEditorPanel = editorMode !== "none";
 
-  const clampPopoverPosition = (x: number, y: number) => ({
-    x: Math.max(12, Math.min(x, window.innerWidth - POPOVER_WIDTH)),
-    y: Math.max(12, Math.min(y, window.innerHeight - POPOVER_HEIGHT)),
-  });
-
-  const pointerToPopoverPosition = (x: number, y: number) => clampPopoverPosition(x + 8, y + 8);
-
   const openAddEventModal = (dateKey: string, startStr: string, pointer: { x: number; y: number }) => {
     setSelectedDate(dateKey);
     const hasTime = startStr.includes("T");
     const fallback = `${dateKey}T${String(Math.floor(workdayStartMinute / 60)).padStart(2, "0")}:${String(workdayStartMinute % 60).padStart(2, "0")}`;
     setAddEventStartInput(hasTime ? toLocalInputValue(startStr) : fallback);
-    setAddEventStatusInput("pending_patient_confirmation");
-    setSelectedPatientOption("");
-    setNewPatientForm(EMPTY_PATIENT_FORM);
-    setAddEventPosition(pointerToPopoverPosition(pointer.x, pointer.y));
+    setAddEventPosition({ x: Math.max(12, pointer.x + 8), y: Math.max(12, pointer.y + 8) });
     setAddEventOpen(true);
-  };
-
-  const createEventFromModal = async () => {
-    if (!addEventStartInput) return;
-    setSavingNewEvent(true);
-    try {
-      let patientId: number | null = null;
-      if (selectedPatientOption === "new") {
-        const payload = patientPayloadFromForm(newPatientForm);
-        const created = await api.createPatient(payload);
-        patientId = created.patient.id;
-      } else if (selectedPatientOption) {
-        patientId = Number(selectedPatientOption);
-      }
-      if (!patientId) return;
-
-      await api.createVisit({
-        patient_id: patientId,
-        starts_at: localInputToIso(addEventStartInput),
-        status: addEventStatusInput,
-      });
-      await onCalendarRefresh();
-      setAddEventOpen(false);
-    } finally {
-      setSavingNewEvent(false);
-    }
-  };
-
-  const startPopoverDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!addEventPosition) return;
-    popoverDragRef.current = {
-      offsetX: event.clientX - addEventPosition.x,
-      offsetY: event.clientY - addEventPosition.y,
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
-  };
-
-  const movePopoverDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!popoverDragRef.current) return;
-    const nextX = event.clientX - popoverDragRef.current.offsetX;
-    const nextY = event.clientY - popoverDragRef.current.offsetY;
-    setAddEventPosition(clampPopoverPosition(nextX, nextY));
-  };
-
-  const endPopoverDrag = () => {
-    popoverDragRef.current = null;
   };
 
   if (!schedule) {
@@ -507,144 +394,51 @@ export function WeeklyCalendarView({
       </div>
 
       {showSettings && (
-        <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="rc-field">
-              <span className="rc-label">Your name</span>
-              <input
-                className="w-48"
-                value={displayNameInput}
-                onChange={(e) => setDisplayNameInput(e.target.value)}
-                placeholder="Alex Smith"
-                maxLength={80}
-              />
-            </div>
-            <button className="btn-sm" onClick={saveDisplayName} disabled={loading || savingDisplayName}>
-              {savingDisplayName ? "Saving..." : "Save Name"}
-            </button>
-            <div className="rc-field">
-              <span className="rc-label">Day starts</span>
-              <select
-                className="w-32"
-                value={workdayStartMinute}
-                onChange={(event) => updateWorkdayRange(Number(event.target.value), workdayEndMinute)}
-                disabled={loading || savingHours}
-              >
-                {hourOptions
-                  .filter((o) => o.minuteValue < workdayEndMinute)
-                  .map((o) => (
-                    <option key={`s-${o.minuteValue}`} value={o.minuteValue}>{o.label}</option>
-                  ))}
-              </select>
-            </div>
-            <div className="rc-field">
-              <span className="rc-label">Day ends</span>
-              <select
-                className="w-32"
-                value={workdayEndMinute}
-                onChange={(event) => updateWorkdayRange(workdayStartMinute, Number(event.target.value))}
-                disabled={loading || savingHours}
-              >
-                {hourOptions
-                  .filter((o) => o.minuteValue > workdayStartMinute)
-                  .map((o) => (
-                    <option key={`e-${o.minuteValue}`} value={o.minuteValue}>{o.label}</option>
-                  ))}
-              </select>
-            </div>
-            <div className="rc-field">
-              <span className="rc-label">Home lat</span>
-              <input
-                className="w-20"
-                value={homeLatitudeInput}
-                onChange={(e) => setHomeLatitudeInput(e.target.value)}
-                placeholder="36.18"
-              />
-            </div>
-            <div className="rc-field">
-              <span className="rc-label">Home lng</span>
-              <input
-                className="w-20"
-                value={homeLongitudeInput}
-                onChange={(e) => setHomeLongitudeInput(e.target.value)}
-                placeholder="-94.13"
-              />
-            </div>
-            <button className="btn-sm" onClick={saveHomeFromInputs} disabled={loading || savingHomeInput}>
-              {savingHomeInput ? "Saving..." : "Save Home"}
-            </button>
-            <button className="btn-sm" onClick={saveHomeFromCurrentLocation} disabled={loading || savingHomeLocation}>
-              {savingHomeLocation ? "Saving..." : "Use Current Location"}
-            </button>
-            <button className="btn-ghost btn-sm" onClick={onSeedDemoPatients} disabled={loading}>
-              Demo Patients
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 pt-2.5">
-            <div className="rc-field">
-              <span className="rc-label">Lunch at</span>
-              <select
-                className="w-28"
-                value={lunchStartMinute}
-                onChange={(e) => updateLunch(Number(e.target.value), lunchDurationMinutes, lunchWindowMinutes)}
-                disabled={loading || savingLunch}
-              >
-                {lunchTimeOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="rc-field">
-              <span className="rc-label">Duration</span>
-              <select
-                className="w-20"
-                value={lunchDurationMinutes}
-                onChange={(e) => updateLunch(lunchStartMinute, Number(e.target.value), lunchWindowMinutes)}
-                disabled={loading || savingLunch}
-              >
-                {[15, 30, 45, 60].map((d) => (
-                  <option key={d} value={d}>{d} min</option>
-                ))}
-              </select>
-            </div>
-            <div className="rc-field">
-              <span className="rc-label">Flex window</span>
-              <select
-                className="w-20"
-                value={lunchWindowMinutes}
-                onChange={(e) => updateLunch(lunchStartMinute, lunchDurationMinutes, Number(e.target.value))}
-                disabled={loading || savingLunch}
-              >
-                {[0, 30, 60, 90, 120, 180].map((w) => (
-                  <option key={w} value={w}>{w === 0 ? "Fixed" : `±${w / 2}m`}</option>
-                ))}
-              </select>
-            </div>
-            {savingLunch && <span className="text-xs text-gray-400">Saving...</span>}
-          </div>
-
-          <CalendarConnectionsPanel
-            connectingProvider={connectingProvider}
-            setConnectingProvider={setConnectingProvider}
-            externalCalendarId={externalCalendarId}
-            setExternalCalendarId={setExternalCalendarId}
-            appleIcsUrl={appleIcsUrl}
-            setAppleIcsUrl={setAppleIcsUrl}
-            googleConnection={googleConnection}
-            googleCalendars={googleCalendars}
-            selectedGoogleCalendarId={selectedGoogleCalendarId}
-            setSelectedGoogleCalendarId={setSelectedGoogleCalendarId}
-            calendarConnections={calendarConnections}
-            calendarConfigMessage={calendarConfigMessage}
-            connectCalendar={connectCalendar}
-            loadGoogleCalendars={loadGoogleCalendars}
-            saveGoogleCalendarSelection={saveGoogleCalendarSelection}
-            syncConnection={syncConnection}
-            pushToConnection={pushToConnection}
-            calendarFeedUrl={api.calendarFeedUrl(schedule.week_start_on)}
-          />
-        </div>
+        <WeeklySettingsPanel
+          loading={loading}
+          workdayStartMinute={workdayStartMinute}
+          workdayEndMinute={workdayEndMinute}
+          onUpdateWorkdayRange={updateWorkdayRange}
+          savingHours={savingHours}
+          homeLatitudeInput={homeLatitudeInput}
+          homeLongitudeInput={homeLongitudeInput}
+          onHomeLatitudeInputChange={setHomeLatitudeInput}
+          onHomeLongitudeInputChange={setHomeLongitudeInput}
+          onSaveHomeFromInputs={saveHomeFromInputs}
+          onSaveHomeFromCurrentLocation={saveHomeFromCurrentLocation}
+          savingHomeInput={savingHomeInput}
+          savingHomeLocation={savingHomeLocation}
+          onSeedDemoPatients={onSeedDemoPatients}
+          lunchStartMinute={lunchStartMinute}
+          lunchDurationMinutes={lunchDurationMinutes}
+          lunchWindowMinutes={lunchWindowMinutes}
+          onUpdateLunch={updateLunch}
+          savingLunch={savingLunch}
+          displayNameInput={displayNameInput}
+          onDisplayNameInputChange={setDisplayNameInput}
+          onSaveDisplayName={saveDisplayName}
+          savingDisplayName={savingDisplayName}
+          calendarConnectionsProps={{
+            connectingProvider,
+            setConnectingProvider,
+            externalCalendarId,
+            setExternalCalendarId,
+            appleIcsUrl,
+            setAppleIcsUrl,
+            googleConnection,
+            googleCalendars,
+            selectedGoogleCalendarId,
+            setSelectedGoogleCalendarId,
+            calendarConnections,
+            calendarConfigMessage,
+            connectCalendar,
+            loadGoogleCalendars,
+            saveGoogleCalendarSelection,
+            syncConnection,
+            pushToConnection,
+            calendarFeedUrl: api.calendarFeedUrl(schedule.week_start_on),
+          }}
+        />
       )}
 
       {/* Calendar + Route */}
@@ -736,99 +530,15 @@ export function WeeklyCalendarView({
         />
       )}
 
-      {addEventOpen && (
-        <div
-          ref={addEventRef}
-          className="rc-popover"
-          style={{
-            left: `${addEventPosition?.x ?? window.innerWidth / 2}px`,
-            top: `${addEventPosition?.y ?? 120}px`,
-          }}
-          role="dialog"
-          aria-modal="false"
-        >
-          <div className="rc-popover-card space-y-3">
-            <div
-              className="flex items-center justify-between cursor-move select-none"
-              onPointerDown={startPopoverDrag}
-              onPointerMove={movePopoverDrag}
-              onPointerUp={endPopoverDrag}
-              onPointerCancel={endPopoverDrag}
-            >
-              <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
-              <button
-                className="btn-ghost btn-xs"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => setAddEventOpen(false)}
-                aria-label="Close"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="rc-field">
-              <span className="rc-label">Start time</span>
-              <input type="datetime-local" value={addEventStartInput} onChange={(e) => setAddEventStartInput(e.target.value)} />
-            </div>
-            <div className="rc-field">
-              <span className="rc-label">Status</span>
-              <select value={addEventStatusInput} onChange={(e) => setAddEventStatusInput(e.target.value as Visit["status"])}>
-                <option value="pending_patient_confirmation">Pending Confirmation</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="declined">Declined</option>
-                <option value="unscheduled">Unscheduled</option>
-              </select>
-            </div>
-            <div className="rc-field">
-              <span className="rc-label">Patient</span>
-              <select value={selectedPatientOption} onChange={(e) => setSelectedPatientOption(e.target.value)}>
-                <option value="">Select patient...</option>
-                {patients.map((p) => (
-                  <option key={p.id} value={String(p.id)}>{p.full_name}</option>
-                ))}
-                <option value="new">+ New patient</option>
-              </select>
-            </div>
-            {selectedPatientOption === "new" && (
-              <div className="rc-form-grid rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <div className="rc-field">
-                  <span className="rc-label">Full Name</span>
-                  <input value={newPatientForm.full_name} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, full_name: e.target.value }))} />
-                </div>
-                <div className="rc-field">
-                  <span className="rc-label">Phone</span>
-                  <input value={newPatientForm.phone} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, phone: e.target.value }))} />
-                </div>
-                <div className="rc-field">
-                  <span className="rc-label">Duration (min)</span>
-                  <input type="number" min={15} step={15} value={newPatientForm.visit_duration_minutes} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, visit_duration_minutes: Number(e.target.value) || 60 }))} />
-                </div>
-                <div className="rc-field">
-                  <span className="rc-label">Visits / week</span>
-                  <input type="number" min={1} max={7} value={newPatientForm.required_visits_per_week} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, required_visits_per_week: Number(e.target.value) || 1 }))} />
-                </div>
-                <div className="rc-field">
-                  <span className="rc-label">Address</span>
-                  <input value={newPatientForm.address_line1} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, address_line1: e.target.value }))} />
-                </div>
-                <div className="rc-field">
-                  <span className="rc-label">City</span>
-                  <input value={newPatientForm.city} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, city: e.target.value }))} />
-                </div>
-                <div className="rc-field">
-                  <span className="rc-label">State</span>
-                  <input value={newPatientForm.state} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, state: e.target.value }))} />
-                </div>
-                <div className="rc-field sm:col-span-2">
-                  <span className="rc-label">Postal Code</span>
-                  <input value={newPatientForm.postal_code} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, postal_code: e.target.value }))} />
-                </div>
-              </div>
-            )}
-            <button className="btn-primary w-full" onClick={createEventFromModal} disabled={savingNewEvent}>
-              {savingNewEvent ? "Saving..." : "Create Event"}
-            </button>
-          </div>
-        </div>
+      {addEventOpen && addEventPosition && (
+        <AddEventPopover
+          patients={patients}
+          position={addEventPosition}
+          startInput={addEventStartInput}
+          onStartInputChange={setAddEventStartInput}
+          onClose={() => setAddEventOpen(false)}
+          onCalendarRefresh={onCalendarRefresh}
+        />
       )}
     </div>
   );

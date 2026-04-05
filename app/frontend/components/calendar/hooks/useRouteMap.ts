@@ -222,6 +222,12 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin }: Args) {
 
     return () => {
       cancelled = true;
+      markersRef.current.forEach((marker) => marker.remove());
+      markersRef.current = [];
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
     };
   }, [routeSnapshot, routePlan, homeOrigin]);
 

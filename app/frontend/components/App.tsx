@@ -50,7 +50,10 @@ function PanelFallback() {
 
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>("schedule");
-  const [loading, setLoading] = useState(false);
+  const [loadingCount, setLoadingCount] = useState(0);
+  const loading = loadingCount > 0;
+  const startLoading = useCallback(() => setLoadingCount((c) => c + 1), []);
+  const stopLoading = useCallback(() => setLoadingCount((c) => Math.max(0, c - 1)), []);
   const [schedule, setSchedule] = useState<WeeklySchedule | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -61,7 +64,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   const refreshData = useCallback(async () => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const [scheduleResponse, patientsResponse, messagesResponse, alertsResponse, blocksResponse, connectionsResponse, profileResponse] = await Promise.all([
@@ -83,7 +86,7 @@ export function App() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   }, []);
 
@@ -93,7 +96,7 @@ export function App() {
 
   const visits = useMemo(() => schedule?.visits ?? [], [schedule]);
   const optimizeSchedule = async (start?: { latitude: number; longitude: number }) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const response = await api.optimizeSchedule(undefined, start?.latitude, start?.longitude);
@@ -103,12 +106,12 @@ export function App() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const createPatient = async (payload: PatientSavePayload) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const created = await api.createPatient(payload);
@@ -116,26 +119,25 @@ export function App() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const updatePatient = async (patientId: number, payload: PatientSavePayload) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const updated = await api.updatePatient(patientId, payload);
       setPatients((prev) => prev.map((patient) => (patient.id === patientId ? updated.patient : patient)));
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const seedDemoPatients = async () => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const response = await api.seedDemoPatients();
@@ -146,14 +148,13 @@ export function App() {
       setCalendarBlocks(refreshedBlocks.calendar_blocks);
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const updateWorkingHours = async (workdayStartMinute: number, workdayEndMinute: number) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const response = await api.updateClinicianProfile({
@@ -167,14 +168,13 @@ export function App() {
       setCalendarBlocks(refreshedBlocks.calendar_blocks);
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const updateLunchSettings = async (lunchStartMinute: number, lunchDurationMinutes: number, lunchWindowMinutes: number) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const response = await api.updateClinicianProfile({
@@ -189,14 +189,13 @@ export function App() {
       setCalendarBlocks(refreshedBlocks.calendar_blocks);
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const updateWorkingDays = async (workingDays: number[]) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const response = await api.updateClinicianProfile({
@@ -209,35 +208,13 @@ export function App() {
       setCalendarBlocks(refreshedBlocks.calendar_blocks);
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const setHomeFromCurrentLocation = async (latitude: number, longitude: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await api.updateClinicianProfile({
-        home_latitude: latitude,
-        home_longitude: longitude,
-      });
-      setClinicianProfile(response.clinician_profile);
-      const optimized = await api.optimizeSchedule();
-      setSchedule(optimized.schedule);
-      const refreshedBlocks = await api.listCalendarBlocks();
-      setCalendarBlocks(refreshedBlocks.calendar_blocks);
-    } catch (err) {
-      setError((err as Error).message);
-      throw err;
-    } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const updateHomeLocation = async (latitude: number, longitude: number) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const response = await api.updateClinicianProfile({
@@ -251,14 +228,13 @@ export function App() {
       setCalendarBlocks(refreshedBlocks.calendar_blocks);
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const updateDisplayName = async (displayName: string) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const response = await api.updateClinicianProfile({
@@ -267,14 +243,13 @@ export function App() {
       setClinicianProfile(response.clinician_profile);
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const sendMessage = async (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const result = await api.createMessage(visitId, channel, body, sendImmediately);
@@ -282,14 +257,13 @@ export function App() {
       return result.message;
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const approveMessage = async (messageId: number) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const result = await api.approveMessage(messageId);
@@ -297,14 +271,13 @@ export function App() {
       return result.message;
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
     }
   };
 
   const selectMessageSuggestion = async (messageId: number, suggestionIndex: number) => {
-    setLoading(true);
+    startLoading();
     setError(null);
     try {
       const result = await api.selectMessageSuggestion(messageId, suggestionIndex);
@@ -312,9 +285,18 @@ export function App() {
       return result.message;
     } catch (err) {
       setError((err as Error).message);
-      throw err;
     } finally {
-      setLoading(false);
+      stopLoading();
+    }
+  };
+
+  const updateAlert = async (alertId: number, status: string) => {
+    setError(null);
+    try {
+      const result = await api.updateAlert(alertId, status);
+      setAlerts((prev) => prev.map((a) => (a.id === alertId ? result.alert : a)));
+    } catch (err) {
+      setError((err as Error).message);
     }
   };
 
@@ -336,7 +318,7 @@ export function App() {
           onUpdateWorkingDays={updateWorkingDays}
           onUpdateLunchSettings={updateLunchSettings}
           onUpdateDisplayName={updateDisplayName}
-          onSetHomeFromCurrentLocation={setHomeFromCurrentLocation}
+          onSetHomeFromCurrentLocation={updateHomeLocation}
           onUpdateHomeLocation={updateHomeLocation}
           onCalendarRefresh={refreshData}
         />
@@ -353,7 +335,7 @@ export function App() {
         />
       );
     }
-    return <AlertsPanel alerts={alerts} />;
+    return <AlertsPanel alerts={alerts} onUpdateAlert={updateAlert} />;
   };
 
   return (

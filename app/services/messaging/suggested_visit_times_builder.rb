@@ -26,6 +26,8 @@ module Messaging
       @visit = visit
       @proposed_windows = Array(proposed_windows)
       @routing_client = Integrations::RoutingClient.new
+      @visits_cache = {}
+      @blocks_cache = {}
     end
 
     def call
@@ -40,7 +42,7 @@ module Messaging
 
     private
 
-    attr_reader :visit, :proposed_windows, :routing_client
+    attr_reader :visit, :proposed_windows, :routing_client, :visits_cache, :blocks_cache
 
     def build_suggestions(window)
       date = candidate_date(window["day"])
@@ -138,9 +140,7 @@ module Messaging
     end
 
     def blocked?(starts_at, ends_at)
-      CalendarBlock.where(user: visit.weekly_schedule.user)
-        .where("starts_at < ? AND ends_at > ?", ends_at, starts_at)
-        .exists?
+      blocks_for_date(starts_at.to_date).any? { |block| block.starts_at < ends_at && block.ends_at > starts_at }
     end
 
     def feasible_with_neighbors?(starts_at, ends_at)
@@ -149,10 +149,8 @@ module Messaging
       return false if previous_visit.present? && previous_visit.ends_at + travel_from(previous_visit.patient) + TRANSIT_BUFFER_MINUTES.minutes > starts_at
       return false if next_visit.present? && ends_at + travel_to(next_visit.patient) + TRANSIT_BUFFER_MINUTES.minutes > next_visit.starts_at
 
-      overlapping_visit = same_day_visits(starts_at.to_date)
-        .where("starts_at < ? AND ends_at > ?", ends_at, starts_at)
-        .exists?
-      !overlapping_visit
+      overlapping = visits_for_date(starts_at.to_date).any? { |v| v.starts_at < ends_at && v.ends_at > starts_at }
+      !overlapping
     end
 
     def candidate_score(starts_at:, ends_at:, requested_window:, requested_start_minute:)
@@ -202,18 +200,27 @@ module Messaging
     end
 
     def neighbor_visits(starts_at)
-      day_visits = same_day_visits(starts_at.to_date).to_a
+      day_visits = visits_for_date(starts_at.to_date)
       previous_visit = day_visits.select { |existing| existing.starts_at <= starts_at }.max_by(&:starts_at)
       next_visit = day_visits.select { |existing| existing.starts_at > starts_at }.min_by(&:starts_at)
       [ previous_visit, next_visit ]
     end
 
-    def same_day_visits(date)
-      Visit.joins(:weekly_schedule)
+    def visits_for_date(date)
+      visits_cache[date] ||= Visit.joins(:weekly_schedule)
         .where(weekly_schedules: { user_id: visit.weekly_schedule.user_id })
         .where.not(id: visit.id)
         .where(starts_at: date.beginning_of_day..date.end_of_day)
         .order(:starts_at)
+        .includes(:patient)
+        .to_a
+    end
+
+    def blocks_for_date(date)
+      blocks_cache[date] ||= CalendarBlock
+        .where(user: visit.weekly_schedule.user)
+        .where(starts_at: date.beginning_of_day..date.end_of_day)
+        .to_a
     end
 
     def travel_from(patient)

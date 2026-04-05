@@ -4,6 +4,11 @@ Rails.application.routes.draw do
   get "auth/google/start", to: "calendar_oauth#google_start", as: :google_calendar_oauth_start
   get "auth/google/callback", to: "calendar_oauth#google_callback", as: :google_calendar_oauth_callback
 
+  namespace :webhooks do
+    post "twilio/sms", to: "twilio#sms"
+    post "mailgun/inbound", to: "mailgun#inbound"
+  end
+
   namespace :api do
     namespace :v1 do
       resources :patients do

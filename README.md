@@ -109,6 +109,9 @@ Rails runs on port `3000`, Vite dev server on `3036`.
 - `GET /api/v1/calendar_blocks`
 - `POST /api/v1/calendar_blocks`
 - `GET /api/v1/alerts`
+- `PATCH /api/v1/alerts/:id`
+- `POST /webhooks/twilio/sms` (Twilio inbound SMS webhook)
+- `POST /webhooks/mailgun/inbound` (Mailgun inbound email webhook)
 
 ## Integrations (Pluggable Boundaries)
 
@@ -120,6 +123,10 @@ Service boundaries are already in place for:
 - LLM-assisted message drafting and reply interpretation (`app/services/integrations/llm_client.rb`)
 
 The current implementation includes safe local fallbacks/mocks for development and testing.
+
+### Background jobs
+
+- `AlertsGenerationJob` — scans all clinician users and creates/updates alerts for unconfirmed visits, calendar conflicts, and significant schedule changes. Run periodically (e.g., every 15 minutes via cron or `recurring` Solid Queue config).
 
 ### Optional LLM configuration
 

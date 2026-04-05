@@ -1,5 +1,5 @@
 class PatientMessage < ApplicationRecord
-  belongs_to :visit
+  belongs_to :visit, optional: true
   belongs_to :patient
   belongs_to :user
 

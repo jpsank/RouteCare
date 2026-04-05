@@ -31,7 +31,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as JsonObject;
-    const error = (payload.error as string) || JSON.stringify(payload) || response.statusText;
+    const stringified = JSON.stringify(payload);
+    const error = (payload.error as string) || (stringified !== "{}" ? stringified : null) || response.statusText;
     throw new Error(error);
   }
 
@@ -304,6 +305,11 @@ export const api = {
       body: JSON.stringify({ suggestion_index: suggestionIndex }),
     }),
   listAlerts: () => request<{ alerts: Alert[] }>("/api/v1/alerts"),
+  updateAlert: (id: number, status: string) =>
+    request<{ alert: Alert }>(`/api/v1/alerts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ alert: { status, read_at: new Date().toISOString() } }),
+    }),
   listCalendarBlocks: (weekStartOn?: string, weekEndOn?: string) => {
     const query = new URLSearchParams();
     if (weekStartOn) query.set("week_start_on", weekStartOn);

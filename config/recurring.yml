@@ -1,0 +1,27 @@
+# Solid Queue recurring tasks
+# https://github.com/rails/solid_queue#recurring-tasks
+#
+# These run automatically when the Solid Queue supervisor is running
+# (production: bin/rails solid_queue:start, or via Procfile worker: process).
+
+production:
+  alerts_generation:
+    class: AlertsGenerationJob
+    schedule: "*/15 * * * *"   # every 15 minutes
+    description: "Generate alerts for unconfirmed visits, conflicts, and schedule shifts"
+
+  cleanup_resolved_alerts:
+    class: CleanupResolvedAlertsJob
+    schedule: "0 2 * * *"      # daily at 2 AM
+    description: "Purge resolved alerts older than 30 days to keep the table lean"
+
+development:
+  alerts_generation:
+    class: AlertsGenerationJob
+    schedule: "*/15 * * * *"
+    description: "Generate alerts for unconfirmed visits, conflicts, and schedule shifts"
+
+  cleanup_resolved_alerts:
+    class: CleanupResolvedAlertsJob
+    schedule: "0 2 * * *"
+    description: "Purge resolved alerts older than 30 days to keep the table lean"

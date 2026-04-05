@@ -5,6 +5,14 @@ module Api
 
       protect_from_forgery with: :null_session
 
+      rescue_from ActiveRecord::RecordInvalid do |exception|
+        render json: { errors: exception.record.errors.full_messages }, status: :unprocessable_entity
+      end
+
+      rescue_from ActiveRecord::RecordNotFound do |exception|
+        render json: { error: exception.message }, status: :not_found
+      end
+
       private
 
       def render_not_found(resource = "resource")

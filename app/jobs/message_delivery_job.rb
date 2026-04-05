@@ -1,6 +1,10 @@
 class MessageDeliveryJob < ApplicationJob
   queue_as :default
 
+  retry_on StandardError, wait: :polynomially_longer, attempts: 3 do |_job, error|
+    Rails.logger.error("[MessageDeliveryJob] Exhausted retries: #{error.message}")
+  end
+
   def perform(message_id)
     message = PatientMessage.find(message_id)
     return unless message.status_queued?
