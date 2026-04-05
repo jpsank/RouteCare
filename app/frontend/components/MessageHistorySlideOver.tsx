@@ -44,7 +44,7 @@ export function MessageHistorySlideOver({ messages, isOpen, onClose, onApprove }
   const recentMessages = messages.filter((m) => m.status !== "pending_approval" && m.status !== "draft").slice(0, 30);
 
   return (
-    <div className="fixed inset-0 z-[900] flex justify-end animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]" data-modal-overlay onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-[900] h-screen w-screen flex justify-end animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]" data-modal-overlay onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={ref} className="flex h-full w-full max-w-sm flex-col bg-white shadow-2xl ring-1 ring-black/5 animate-[slideInRight_0.2s_ease-out]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3.5">
