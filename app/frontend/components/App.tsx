@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
+import { SetupWizard } from "./SetupWizard";
 
 const AlertsPanel = lazy(async () => {
   const module = await import("./AlertsPanel");
@@ -97,6 +98,15 @@ export function App() {
   useEffect(() => {
     refreshData().catch(() => undefined);
   }, [refreshData]);
+
+  // Auto-complete setup for existing users who already have data
+  useEffect(() => {
+    if (clinicianProfile && !clinicianProfile.setup_completed_at && (clinicianProfile.home_latitude || patients.length > 0)) {
+      api.updateClinicianProfile({ setup_completed_at: new Date().toISOString() })
+        .then(() => setClinicianProfile((prev) => prev ? { ...prev, setup_completed_at: new Date().toISOString() } : prev))
+        .catch(() => undefined);
+    }
+  }, [clinicianProfile, patients.length]);
 
   const visits = useMemo(() => schedule?.visits ?? [], [schedule]);
   const optimizeSchedule = async (start?: { latitude: number; longitude: number }) => {
@@ -350,6 +360,22 @@ export function App() {
     if (tab === "messages") return pendingMessageCount;
     return 0;
   };
+
+  // Show onboarding wizard for new users
+  const needsSetup = clinicianProfile && !clinicianProfile.setup_completed_at;
+  if (needsSetup) {
+    return (
+      <div className="rc-app">
+        <div className="rc-shell">
+          <SetupWizard
+            clinicianProfile={clinicianProfile}
+            onComplete={refreshData}
+            onSeedDemo={seedDemoPatients}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rc-app">

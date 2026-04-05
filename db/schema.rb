@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_05_165603) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_05_182843) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -95,6 +95,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_165603) do
     t.integer "lunch_start_minute", default: 720, null: false
     t.integer "lunch_window_minutes", default: 90, null: false
     t.string "phone"
+    t.datetime "setup_completed_at"
     t.string "timezone", default: "America/New_York", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false

@@ -142,4 +142,5 @@ export type ClinicianProfile = {
   lunch_start_minute: number;
   lunch_duration_minutes: number;
   lunch_window_minutes: number;
+  setup_completed_at?: string | null;
 };

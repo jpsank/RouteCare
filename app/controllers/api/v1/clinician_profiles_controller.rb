@@ -30,6 +30,7 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
       :lunch_start_minute,
       :lunch_duration_minutes,
       :lunch_window_minutes,
+      :setup_completed_at,
       working_days: []
     )
   end
@@ -48,7 +49,8 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
       working_days: profile.working_day_wdays,
       lunch_start_minute: profile.lunch_start_minute,
       lunch_duration_minutes: profile.lunch_duration_minutes,
-      lunch_window_minutes: profile.lunch_window_minutes
+      lunch_window_minutes: profile.lunch_window_minutes,
+      setup_completed_at: profile.setup_completed_at
     }
   end
 end
