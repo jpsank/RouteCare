@@ -50,6 +50,9 @@ export function EventEditorPanel({
     const onPointerDown = (event: PointerEvent) => {
       if (!panelRef.current) return;
       if (panelRef.current.contains(event.target as Node)) return;
+      // Don't close if a higher-z modal (patient editor, settings) is open
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-modal-overlay]")) return;
       closeEditor();
     };
     document.addEventListener("pointerdown", onPointerDown, true);

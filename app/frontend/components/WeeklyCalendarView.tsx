@@ -439,7 +439,7 @@ export function WeeklyCalendarView({
 
       {/* Settings modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-[800] flex items-start justify-center bg-black/20 pt-16" onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
+        <div className="fixed inset-0 z-[800] flex items-start justify-center bg-black/20 pt-16" data-modal-overlay onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
           <div className="w-full max-w-lg max-h-[calc(100vh-8rem)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-900">Settings</h2>
