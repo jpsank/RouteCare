@@ -47,7 +47,7 @@ export function App() {
   const [schedule, setSchedule] = useState<WeeklySchedule | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [calendarBlocks, setCalendarBlocks] = useState<CalendarBlock[]>([]);
   const [calendarConnections, setCalendarConnections] = useState<CalendarConnection[]>([]);
   const [clinicianProfile, setClinicianProfile] = useState<ClinicianProfile | null>(null);
@@ -433,7 +433,7 @@ export function App() {
               onBulkConfirm={bulkConfirmMessages}
               onSendMessage={sendMessage}
               messages={messages}
-              alerts={alerts}
+              alerts={alerts ?? []}
               onUpdateAlert={updateAlert}
               onExecuteAlertAction={executeAlertAction}
             />
