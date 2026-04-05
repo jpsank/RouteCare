@@ -1,26 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Patient } from "../../types";
-import type { PatientForm } from "./utils";
+import type { PatientForm, PatientSavePayload } from "./utils";
+import { patientFormFromPatient, patientPayloadFromForm } from "./utils";
 
 type Props = {
   patient: Patient | null;
-  onSave: (patientId: number, form: PatientForm) => Promise<void>;
+  onSave: (patientId: number, payload: PatientSavePayload) => Promise<void>;
   onClose: () => void;
 };
-
-function formFromPatient(patient: Patient): PatientForm {
-  return {
-    full_name: patient.full_name,
-    phone: patient.phone,
-    email: patient.email ?? "",
-    address_line1: patient.address_line1 ?? "",
-    city: patient.city ?? "",
-    state: patient.state ?? "",
-    postal_code: patient.postal_code ?? "",
-    required_visits_per_week: patient.required_visits_per_week,
-    visit_duration_minutes: patient.visit_duration_minutes,
-  };
-}
 
 export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
   const [form, setForm] = useState<PatientForm | null>(null);
@@ -29,7 +16,7 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
 
   useEffect(() => {
-    if (patient) setForm(formFromPatient(patient));
+    if (patient) setForm(patientFormFromPatient(patient));
   }, [patient?.id]);
 
   useEffect(() => {
@@ -46,7 +33,7 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onSave(patient.id, form);
+      await onSave(patient.id, patientPayloadFromForm(form));
       onClose();
     } finally {
       setSaving(false);

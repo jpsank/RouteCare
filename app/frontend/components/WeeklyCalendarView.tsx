@@ -671,8 +671,9 @@ export function WeeklyCalendarView({
       {editingPatientId && createPortal(
         <PatientEditorPanel
           patient={patients.find((p) => p.id === editingPatientId) ?? null}
-          onSave={async (patientId, form) => {
-            await onUpdatePatient(patientId, form);
+          onSave={async (patientId, payload) => {
+            await onUpdatePatient(patientId, payload);
+            await onCalendarRefresh();
           }}
           onClose={() => setEditingPatientId(null)}
         />,
