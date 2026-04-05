@@ -32,15 +32,15 @@ FROM base AS build
 
 # Install packages needed to build gems and node modules
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential git libpq-dev libvips libyaml-dev node-gyp pkg-config python-is-python3 && \
+    apt-get install --no-install-recommends -y build-essential git libpq-dev libvips libyaml-dev pkg-config && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
-# Install JavaScript dependencies
+# Install Node.js from pre-built binary (much faster than compiling via node-build)
 ARG NODE_VERSION=22.16.0
 ENV PATH=/usr/local/node/bin:$PATH
-RUN curl -sL https://github.com/nodenv/node-build/archive/master.tar.gz | tar xz -C /tmp/ && \
-    /tmp/node-build-master/bin/node-build "${NODE_VERSION}" /usr/local/node && \
-    rm -rf /tmp/node-build-master
+RUN mkdir -p /usr/local/node && \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+    | tar -xJ --strip-components=1 -C /usr/local/node/
 
 # Install application gems
 COPY vendor/* ./vendor/
