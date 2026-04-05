@@ -324,7 +324,7 @@ export function App() {
     setError(null);
     try {
       const result = await api.executeAlertAction(alertId);
-      setAlerts((prev) => prev.map((a) => (a.id === alertId ? result.alert : a)));
+      setAlerts((prev) => (prev ?? []).map((a) => (a.id === alertId ? result.alert : a)));
       if (result.message) {
         setMessages((prev) => [result.message!, ...(prev ?? [])]);
       }
@@ -337,7 +337,7 @@ export function App() {
     setError(null);
     try {
       const result = await api.updateAlert(alertId, status);
-      setAlerts((prev) => prev.map((a) => (a.id === alertId ? result.alert : a)));
+      setAlerts((prev) => (prev ?? []).map((a) => (a.id === alertId ? result.alert : a)));
     } catch (err) {
       setError((err as Error).message);
     }

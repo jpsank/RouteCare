@@ -112,7 +112,7 @@ export function AlertsPanel({ alerts, onUpdateAlert, onExecuteAction }: Props) {
                 </div>
               </div>
               <div className="flex flex-none items-center gap-1.5">
-                {alert.category === "unconfirmed_visit" && alert.metadata?.visit_id && alert.status === "open" && onExecuteAction && (
+                {alert.category === "unconfirmed_visit" && Boolean(alert.metadata?.visit_id) && alert.status === "open" && onExecuteAction && (
                   <button
                     className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white transition-colors hover:bg-indigo-700"
                     disabled={actingId === alert.id}

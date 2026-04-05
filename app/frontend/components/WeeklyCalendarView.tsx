@@ -680,6 +680,9 @@ export function WeeklyCalendarView({
                 prev.state !== payload.state ||
                 prev.postal_code !== payload.postal_code);
             if (addressChanged) {
+              setEditorMode("none");
+              setSelectedVisitId(null);
+              setEditorPosition(null);
               await onOptimize();
             } else {
               await onCalendarRefresh();

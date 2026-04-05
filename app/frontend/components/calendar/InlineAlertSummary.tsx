@@ -72,7 +72,7 @@ export function InlineAlertSummary({ alerts, onUpdateAlert, onExecuteAction }: P
               >
                 <p className="font-medium text-gray-900">{alert.message}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  {alert.category === "unconfirmed_visit" && alert.metadata?.visit_id && onExecuteAction && (
+                  {alert.category === "unconfirmed_visit" && Boolean(alert.metadata?.visit_id) && onExecuteAction && (
                     <button
                       className="rounded bg-indigo-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-indigo-700"
                       disabled={actingId === alert.id}

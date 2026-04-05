@@ -275,6 +275,7 @@ export const api = {
         | "lunch_start_minute"
         | "lunch_duration_minutes"
         | "lunch_window_minutes"
+        | "setup_completed_at"
       >
     >,
   ) =>

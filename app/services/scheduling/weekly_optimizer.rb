@@ -21,15 +21,22 @@ module Scheduling
       schedule = user.weekly_schedules.find_or_initialize_by(week_start_on: week_start_on)
       schedule.status = :optimized
 
-      visit_plan, soft_constraint_count = build_visit_plan
-      travel_matrix = Scheduling::TravelTimeMatrixBuilder.new(
-        patients: visit_plan.map { |slot| slot[:patient] }.uniq
-      ).call
+      # Preserve confirmed/completed visits — only re-optimize the rest
+      @locked_visits = schedule.persisted? ? schedule.visits.where(status: %w[confirmed completed]).to_a : []
+      locked_patient_days = @locked_visits.each_with_object({}) do |visit, hash|
+        day = visit.starts_at.to_date
+        (hash[visit.patient_id] ||= Set.new) << day
+      end
+
+      visit_plan, soft_constraint_count = build_visit_plan(locked_patient_days:)
+      all_patients = (visit_plan.map { |slot| slot[:patient] } + @locked_visits.map(&:patient)).uniq
+      travel_matrix = Scheduling::TravelTimeMatrixBuilder.new(patients: all_patients).call
 
       ActiveRecord::Base.transaction do
         schedule.save! if schedule.new_record?
-        archive_messages_for_schedule!(schedule)
-        schedule.visits.delete_all
+        unlocked_visit_ids = schedule.visit_ids - @locked_visits.map(&:id)
+        archive_messages_for_visits!(schedule, unlocked_visit_ids)
+        schedule.visits.where(id: unlocked_visit_ids).delete_all
         create_visits!(schedule, visit_plan, travel_matrix)
         calculate_drive_metrics!(schedule)
         lunch_data = @lunch_breaks || {}
@@ -58,21 +65,34 @@ module Scheduling
 
     attr_reader :user, :week_start_on, :clinician_profile, :start_point, :routing_client
 
-    def build_visit_plan
+    def build_visit_plan(locked_patient_days: {})
       blocked_ranges = Scheduling::CalendarConstraints.new(user:, week_start_on:).blocked_ranges_by_day
       weekly_days.each { |date| blocked_ranges[date] ||= [] }
+
+      # Block time ranges occupied by locked visits so new visits don't overlap
+      @locked_visits.each do |visit|
+        date = visit.starts_at.to_date
+        blocked_ranges[date] ||= []
+        blocked_ranges[date] << (visit.starts_at...visit.ends_at)
+      end
+
       plan = []
       soft_constraint_count = 0
 
       clinician_profile.patients.active.includes(:patient_availability_windows).each do |patient|
-        target_day_offsets = evenly_spaced_day_offsets(patient.required_visits_per_week)
+        locked_days = locked_patient_days[patient.id] || Set.new
+        remaining_visits = patient.required_visits_per_week - locked_days.size
+        next if remaining_visits <= 0
 
-        patient.required_visits_per_week.times do |visit_index|
+        target_day_offsets = evenly_spaced_day_offsets(remaining_visits)
+
+        remaining_visits.times do |visit_index|
           slot = find_best_slot(
             patient: patient,
             blocked_ranges: blocked_ranges,
             current_plan: plan,
-            target_day_offset: target_day_offsets[visit_index]
+            target_day_offset: target_day_offsets[visit_index],
+            excluded_days: locked_days
           )
           soft_constraint_count += 1 if slot[:soft_constraint_override]
           plan << slot
@@ -83,11 +103,12 @@ module Scheduling
       [ plan.sort_by { |slot| slot[:starts_at] }, soft_constraint_count ]
     end
 
-    def find_best_slot(patient:, blocked_ranges:, current_plan:, target_day_offset:)
+    def find_best_slot(patient:, blocked_ranges:, current_plan:, target_day_offset:, excluded_days: Set.new)
       candidates = []
       existing_patient_days = existing_days_for_patient(patient, current_plan)
 
       weekly_days.each do |date|
+        next if excluded_days.include?(date)
         next if existing_patient_days.include?(date)
         next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
 
@@ -196,39 +217,56 @@ module Scheduling
 
     def create_visits!(schedule, visit_plan, travel_matrix)
       grouped = visit_plan.group_by { |slot| slot[:date] }
+      locked_by_date = @locked_visits.group_by { |v| v.starts_at.to_date }
       @lunch_breaks = {}
 
-      grouped.each_value do |slots|
-        ordered_slots = nearest_neighbor_order(slots, travel_matrix)
-        retimed_slots, lunch_placement = retime_slots(ordered_slots, travel_matrix)
+      # Process all days that have either new or locked visits
+      all_dates = (grouped.keys + locked_by_date.keys).uniq
+      all_dates.each do |date|
+        new_slots = grouped[date] || []
+        locked = locked_by_date[date] || []
 
-        @lunch_breaks[slots.first[:date].to_s] = lunch_placement if lunch_placement
+        ordered_slots = nearest_neighbor_order(new_slots, travel_matrix)
+        retimed_slots, lunch_placement = retime_slots(ordered_slots, travel_matrix, locked_visits: locked)
+
+        @lunch_breaks[date.to_s] = lunch_placement if lunch_placement
+
+        # Merge locked + new visits in time order to assign correct position_in_day and drive times
+        all_day_items = []
+        locked.each { |v| all_day_items << { type: :locked, visit: v, starts_at: v.starts_at, patient: v.patient } }
+        retimed_slots.each { |s| all_day_items << { type: :new, slot: s, starts_at: s[:starts_at], patient: s[:patient] } }
+        all_day_items.sort_by! { |item| item[:starts_at] }
 
         current_point = start_point_for_day
         previous_patient_id = nil
 
-        retimed_slots.each_with_index do |slot, index|
+        all_day_items.each_with_index do |item, index|
           drive_minutes =
             if previous_patient_id.nil?
-              travel_minutes_from_point(current_point, slot[:patient])
+              travel_minutes_from_point(current_point, item[:patient])
             else
-              (travel_matrix.dig(previous_patient_id, slot[:patient].id) || 0)
+              (travel_matrix.dig(previous_patient_id, item[:patient].id) || 0)
             end
 
-          schedule.visits.create!(
-            patient: slot[:patient],
-            starts_at: slot[:starts_at],
-            ends_at: slot[:ends_at],
-            duration_minutes: ((slot[:ends_at] - slot[:starts_at]) / 60).to_i,
-            status: :pending_patient_confirmation,
-            position_in_day: index,
-            drive_from_previous_minutes: drive_minutes,
-            soft_constraint_override: slot[:soft_constraint_override],
-            source: "optimizer"
-          )
+          if item[:type] == :locked
+            # Update position and drive time for locked visits (keeps status/time intact)
+            item[:visit].update!(position_in_day: index, drive_from_previous_minutes: drive_minutes)
+          else
+            schedule.visits.create!(
+              patient: item[:slot][:patient],
+              starts_at: item[:slot][:starts_at],
+              ends_at: item[:slot][:ends_at],
+              duration_minutes: ((item[:slot][:ends_at] - item[:slot][:starts_at]) / 60).to_i,
+              status: :pending_patient_confirmation,
+              position_in_day: index,
+              drive_from_previous_minutes: drive_minutes,
+              soft_constraint_override: item[:slot][:soft_constraint_override],
+              source: "optimizer"
+            )
+          end
 
-          previous_patient_id = slot[:patient].id
-          current_point = point_for(slot[:patient])
+          previous_patient_id = item[:patient].id
+          current_point = point_for(item[:patient])
         end
       end
     end
@@ -259,8 +297,11 @@ module Scheduling
       ordered
     end
 
-    def retime_slots(ordered_slots, travel_matrix)
+    def retime_slots(ordered_slots, travel_matrix, locked_visits: [])
       return [ ordered_slots, nil ] if ordered_slots.empty?
+
+      # Build blocked ranges from locked visits so new slots don't overlap
+      locked_ranges = locked_visits.map { |v| (v.starts_at...v.ends_at) }
 
       date = ordered_slots.first[:date]
       current_minute = day_start_minute
@@ -292,6 +333,16 @@ module Scheduling
             earliest_start = round_up_to_interval(lunch_end)
           end
           lunch_taken = true
+        end
+
+        # Skip past any locked visit time ranges
+        locked_ranges.each do |range|
+          proposed_start = Time.zone.parse("#{date} #{minute_to_hhmm(earliest_start)}")
+          proposed_end = proposed_start + duration.minutes
+          if proposed_start < range.end && proposed_end > range.begin
+            locked_end_minute = (range.end - range.begin.beginning_of_day) / 60
+            earliest_start = round_up_to_interval(locked_end_minute.to_i + TRANSIT_BUFFER_MINUTES)
+          end
         end
 
         if earliest_start + duration > day_end_minute
@@ -420,7 +471,8 @@ module Scheduling
     end
 
     def day_visit_count(current_plan, date)
-      current_plan.count { |slot| slot[:date] == date }
+      locked_count = @locked_visits.count { |v| v.starts_at.to_date == date }
+      current_plan.count { |slot| slot[:date] == date } + locked_count
     end
 
     def existing_days_for_patient(patient, current_plan)
@@ -489,12 +541,12 @@ module Scheduling
       0
     end
 
-    # Archive message-visit associations before visits are deleted during re-optimization.
+    # Archive message-visit associations before unlocked visits are deleted during re-optimization.
     # Stores the original visit_id in metadata so the audit trail is preserved.
-    def archive_messages_for_schedule!(schedule)
-      return if schedule.visit_ids.empty?
+    def archive_messages_for_visits!(schedule, visit_ids)
+      return if visit_ids.empty?
 
-      PatientMessage.where(visit_id: schedule.visit_ids).find_each do |message|
+      PatientMessage.where(visit_id: visit_ids).find_each do |message|
         message.update!(
           visit_id: nil,
           metadata: (message.metadata || {}).merge(
