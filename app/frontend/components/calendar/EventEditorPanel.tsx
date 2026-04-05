@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Message, Visit } from "../../types";
-import { patientColor, statusOptions, type PatientForm } from "./utils";
+import { patientColor, statusOptions } from "./utils";
 
 type Props = {
   editorMode: "none" | "add" | "edit";
@@ -11,13 +11,10 @@ type Props = {
   setVisitStatusInput: (value: Visit["status"]) => void;
   savingVisit: boolean;
   saveVisit: () => Promise<void>;
-  patientForm: PatientForm;
-  setPatientForm: Dispatch<SetStateAction<PatientForm>>;
-  savingPatient: boolean;
-  savePatient: () => Promise<void>;
   closeEditor: () => void;
   position?: { x: number; y: number } | null;
   onSendMessage?: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<Message | undefined>;
+  onEditPatient?: (patientId: number) => void;
 };
 
 export function EventEditorPanel({
@@ -36,8 +33,8 @@ export function EventEditorPanel({
   closeEditor,
   position,
   onSendMessage,
+  onEditPatient,
 }: Props) {
-  const [showPatientFields, setShowPatientFields] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -45,7 +42,6 @@ export function EventEditorPanel({
   const isOpen = editorMode !== "none" || Boolean(selectedVisit);
 
   useEffect(() => {
-    setShowPatientFields(false);
     setMessageSent(false);
   }, [selectedVisit?.id, editorMode]);
 
@@ -84,7 +80,14 @@ export function EventEditorPanel({
               />
             )}
             <h3 className="text-sm font-semibold text-gray-900">
-              {editorMode === "add" ? "Add Patient" : selectedVisit?.patient_name ?? "Edit Event"}
+              {editorMode === "add" ? "Add Patient" : selectedVisit && onEditPatient ? (
+                <button
+                  className="border-0 bg-transparent p-0 text-sm font-semibold text-indigo-600 shadow-none hover:text-indigo-800 hover:underline"
+                  onClick={() => onEditPatient(selectedVisit.patient_id)}
+                >
+                  {selectedVisit.patient_name}
+                </button>
+              ) : (selectedVisit?.patient_name ?? "Edit Event")}
             </h3>
           </div>
           <button className="btn-ghost btn-xs" onClick={closeEditor} aria-label="Close">&times;</button>
@@ -143,54 +146,11 @@ export function EventEditorPanel({
           </>
         )}
 
-        <button className="btn-link text-xs" onClick={() => setShowPatientFields((prev) => !prev)}>
-          {showPatientFields ? "Hide patient details" : "Edit patient details"}
-        </button>
-
-        {showPatientFields && (
-          <>
-            <div className="rc-form-grid rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <div className="rc-field">
-                <span className="rc-label">Full Name</span>
-                <input value={patientForm.full_name} onChange={(e) => setPatientForm((prev) => ({ ...prev, full_name: e.target.value }))} />
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">Phone</span>
-                <input value={patientForm.phone} onChange={(e) => setPatientForm((prev) => ({ ...prev, phone: e.target.value }))} />
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">Duration (min)</span>
-                <input type="number" min={15} step={15} value={patientForm.visit_duration_minutes} onChange={(e) => setPatientForm((prev) => ({ ...prev, visit_duration_minutes: Number(e.target.value) || 60 }))} />
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">Visits / week</span>
-                <input type="number" min={1} max={7} value={patientForm.required_visits_per_week} onChange={(e) => setPatientForm((prev) => ({ ...prev, required_visits_per_week: Number(e.target.value) || 1 }))} />
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">Email</span>
-                <input type="email" value={patientForm.email} onChange={(e) => setPatientForm((prev) => ({ ...prev, email: e.target.value }))} />
-              </div>
-              <div className="rc-field sm:col-span-2">
-                <span className="rc-label">Address</span>
-                <input value={patientForm.address_line1} onChange={(e) => setPatientForm((prev) => ({ ...prev, address_line1: e.target.value }))} />
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">City</span>
-                <input value={patientForm.city} onChange={(e) => setPatientForm((prev) => ({ ...prev, city: e.target.value }))} />
-              </div>
-              <div className="rc-field">
-                <span className="rc-label">State</span>
-                <input value={patientForm.state} onChange={(e) => setPatientForm((prev) => ({ ...prev, state: e.target.value }))} />
-              </div>
-              <div className="rc-field sm:col-span-2">
-                <span className="rc-label">Postal Code</span>
-                <input value={patientForm.postal_code} onChange={(e) => setPatientForm((prev) => ({ ...prev, postal_code: e.target.value }))} />
-              </div>
-            </div>
-            <button className="btn-primary w-full" onClick={savePatient} disabled={savingPatient}>
-              {savingPatient ? "Saving..." : editorMode === "add" ? "Add Patient" : "Save Patient"}
-            </button>
-          </>
+        {/* Patient info (read-only, click name above to edit) */}
+        {selectedVisit && (
+          <div className="text-[11px] text-gray-400">
+            {selectedVisit.patient_address || "No address on file"}
+          </div>
         )}
       </div>
     </div>

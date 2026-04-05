@@ -5,6 +5,7 @@ import { AddEventPopover } from "./calendar/AddEventPopover";
 import { DailyRouteView } from "./DailyRouteView";
 import { EventEditorPanel } from "./calendar/EventEditorPanel";
 import { InlineAlertSummary } from "./calendar/InlineAlertSummary";
+import { PatientEditorPanel } from "./calendar/PatientEditorPanel";
 import { WeeklySettingsPanel } from "./calendar/WeeklySettingsPanel";
 import { useCalendarConnections } from "./calendar/hooks/useCalendarConnections";
 import { useEventEditor } from "./calendar/hooks/useEventEditor";
@@ -115,6 +116,7 @@ export function WeeklyCalendarView({
   });
 
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [editingPatientId, setEditingPatientId] = useState<number | null>(null);
   const [savingHours, setSavingHours] = useState(false);
   const [savingWorkingDays, setSavingWorkingDays] = useState(false);
   const [savingHomeLocation, setSavingHomeLocation] = useState(false);
@@ -614,10 +616,6 @@ export function WeeklyCalendarView({
           setVisitStatusInput={setVisitStatusInput}
           savingVisit={savingVisit}
           saveVisit={saveVisit}
-          patientForm={patientForm}
-          setPatientForm={setPatientForm}
-          savingPatient={savingPatient}
-          savePatient={savePatient}
           closeEditor={() => {
             setEditorMode("none");
             setSelectedVisitId(null);
@@ -625,6 +623,17 @@ export function WeeklyCalendarView({
           }}
           position={editorPosition}
           onSendMessage={onSendMessage}
+          onEditPatient={(patientId) => setEditingPatientId(patientId)}
+        />
+      )}
+
+      {editingPatientId && (
+        <PatientEditorPanel
+          patient={patients.find((p) => p.id === editingPatientId) ?? null}
+          onSave={async (patientId, form) => {
+            await onUpdatePatient(patientId, form);
+          }}
+          onClose={() => setEditingPatientId(null)}
         />
       )}
 
