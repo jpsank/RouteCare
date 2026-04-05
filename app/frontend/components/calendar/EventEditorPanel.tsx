@@ -97,7 +97,7 @@ export function EventEditorPanel({
             )}
             <div className="rc-field">
               <span className="rc-label">Visit Start</span>
-              <input type="datetime-local" value={visitStartInput} onChange={(e) => setVisitStartInput(e.target.value)} />
+              <input type="datetime-local" className="min-w-0 max-w-full" value={visitStartInput} onChange={(e) => setVisitStartInput(e.target.value)} />
             </div>
             <div className="rc-field">
               <span className="rc-label">Visit Status</span>

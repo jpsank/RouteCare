@@ -176,7 +176,7 @@
   }
 
   .rc-popover-card {
-    @apply max-h-[min(480px,calc(100vh-24px))] overflow-auto rounded-xl border border-gray-200 bg-white p-3 shadow-popup;
+    @apply max-h-[min(480px,calc(100vh-24px))] overflow-y-auto overflow-x-hidden rounded-xl border border-gray-200 bg-white p-3 shadow-popup;
   }
 
   /* ── Pill / Badge ── */

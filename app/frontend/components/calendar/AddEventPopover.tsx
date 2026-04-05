@@ -103,7 +103,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
 
         <div className="rc-field">
           <span className="rc-label">Start time</span>
-          <input type="datetime-local" value={startInput} onChange={(e) => onStartInputChange(e.target.value)} />
+          <input type="datetime-local" className="min-w-0 max-w-full" value={startInput} onChange={(e) => onStartInputChange(e.target.value)} />
         </div>
 
         <div className="rc-field">
