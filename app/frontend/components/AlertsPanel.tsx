@@ -4,6 +4,7 @@ import type { Alert } from "../types";
 type Props = {
   alerts: Alert[];
   onUpdateAlert: (alertId: number, status: Alert["status"]) => Promise<void>;
+  onExecuteAction?: (alertId: number) => Promise<void>;
 };
 
 function formatDate(value?: string | null): string {
@@ -24,9 +25,10 @@ const STATUS_OPTIONS: Array<[Alert["status"], string]> = [
   ["resolved", "Resolved"],
 ];
 
-export function AlertsPanel({ alerts, onUpdateAlert }: Props) {
+export function AlertsPanel({ alerts, onUpdateAlert, onExecuteAction }: Props) {
   const [showResolved, setShowResolved] = useState(false);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [actingId, setActingId] = useState<number | null>(null);
 
   const filtered = useMemo(() => {
     const base = showResolved ? alerts : alerts.filter((a) => a.status !== "resolved");
@@ -110,6 +112,18 @@ export function AlertsPanel({ alerts, onUpdateAlert }: Props) {
                 </div>
               </div>
               <div className="flex flex-none items-center gap-1.5">
+                {alert.category === "unconfirmed_visit" && alert.metadata?.visit_id && alert.status === "open" && onExecuteAction && (
+                  <button
+                    className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white transition-colors hover:bg-indigo-700"
+                    disabled={actingId === alert.id}
+                    onClick={async () => {
+                      setActingId(alert.id);
+                      try { await onExecuteAction(alert.id); } finally { setActingId(null); }
+                    }}
+                  >
+                    {actingId === alert.id ? "Sending..." : "Send Reminder"}
+                  </button>
+                )}
                 {STATUS_OPTIONS.map(([value, label]) => (
                   <button
                     key={value}

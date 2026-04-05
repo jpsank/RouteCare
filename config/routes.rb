@@ -30,7 +30,11 @@ Rails.application.routes.draw do
         end
       end
       get "calendar_feed", to: "calendar_feeds#show", defaults: { format: :ics }
-      resources :alerts, only: %i[index update]
+      resources :alerts, only: %i[index update] do
+        member do
+          post :execute_action, path: "action"
+        end
+      end
       resources :messages, only: %i[index create] do
         member do
           post :approve

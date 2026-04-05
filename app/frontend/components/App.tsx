@@ -318,6 +318,19 @@ export function App() {
     }
   };
 
+  const executeAlertAction = async (alertId: number) => {
+    setError(null);
+    try {
+      const result = await api.executeAlertAction(alertId);
+      setAlerts((prev) => prev.map((a) => (a.id === alertId ? result.alert : a)));
+      if (result.message) {
+        setMessages((prev) => [result.message!, ...prev]);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   const updateAlert = async (alertId: number, status: string) => {
     setError(null);
     try {
@@ -365,7 +378,7 @@ export function App() {
         />
       );
     }
-    return <AlertsPanel alerts={alerts} onUpdateAlert={updateAlert} />;
+    return <AlertsPanel alerts={alerts} onUpdateAlert={updateAlert} onExecuteAction={executeAlertAction} />;
   };
 
   const openAlertCount = alerts.filter((a) => a.status === "open").length;

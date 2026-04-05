@@ -309,6 +309,8 @@ export const api = {
       body: JSON.stringify({ suggestion_index: suggestionIndex }),
     }),
   listAlerts: () => request<{ alerts: Alert[] }>("/api/v1/alerts"),
+  executeAlertAction: (id: number) =>
+    request<{ alert: Alert; message?: Message }>(`/api/v1/alerts/${id}/action`, { method: "POST" }),
   updateAlert: (id: number, status: string) =>
     request<{ alert: Alert }>(`/api/v1/alerts/${id}`, {
       method: "PATCH",
