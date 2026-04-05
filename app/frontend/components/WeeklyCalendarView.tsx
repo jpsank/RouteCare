@@ -276,6 +276,7 @@ export function WeeklyCalendarView({
           textColor: pc.text,
           borderColor: statusBorderColor(visit.status),
           className: `calendar-event visit-status-${visit.status}${isSelected ? " visit-selected" : ""}`,
+          extendedProps: { patientId: visit.patient_id },
         };
       }),
       ...calendarBlocks.map((block) => ({
@@ -583,12 +584,23 @@ export function WeeklyCalendarView({
                 }
                 openAddEventModal(dateKey, startStr, pointer);
               }}
-              onEventClick={(eventId, startStr, pointer) => {
+              onEventClick={(eventId, startStr, pointer, target) => {
                 setSelectedDate(asDateKey(startStr));
                 setAddEventOpen(false);
                 const match = eventId.match(/^visit-(\d+)$/);
                 if (!match) return;
                 const visitId = Number(match[1]);
+
+                // Click on patient name → open patient editor directly
+                const nameEl = (target as HTMLElement).closest?.("[data-patient-id]");
+                if (nameEl) {
+                  const patientId = Number(nameEl.getAttribute("data-patient-id"));
+                  if (patientId) {
+                    setEditingPatientId(patientId);
+                    return;
+                  }
+                }
+
                 if (selectedVisitId === visitId && editorMode === "none") {
                   setEditorPosition(pointer);
                   setEditorMode("edit");

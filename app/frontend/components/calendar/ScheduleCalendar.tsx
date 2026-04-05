@@ -13,6 +13,7 @@ export type CalendarEvent = {
   backgroundColor?: string;
   textColor?: string;
   borderColor?: string;
+  extendedProps?: Record<string, unknown>;
 };
 
 type Props = {
@@ -20,7 +21,7 @@ type Props = {
   workdayStartMinute: number;
   workdayEndMinute: number;
   onDateClick: (dateKey: string, startStr: string, pointer: { x: number; y: number }) => void;
-  onEventClick: (eventId: string, startStr: string, pointer: { x: number; y: number }) => void;
+  onEventClick: (eventId: string, startStr: string, pointer: { x: number; y: number }, target: HTMLElement) => void;
 };
 
 function minuteToFullCalendarTime(minute: number): string {
@@ -74,7 +75,21 @@ export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute,
       dateClick={(info) =>
         onDateClick(info.dateStr.slice(0, 10), info.dateStr, { x: info.jsEvent.clientX, y: info.jsEvent.clientY })
       }
-      eventClick={(info) => onEventClick(info.event.id, info.event.startStr, { x: info.jsEvent.clientX, y: info.jsEvent.clientY })}
+      eventContent={(arg) => {
+        if (arg.event.display === "background") return undefined;
+        const patientId = arg.event.extendedProps?.patientId as number | undefined;
+        return (
+          <div className="fc-event-main-inner">
+            {arg.timeText && <div className="fc-event-time">{arg.timeText}</div>}
+            <div className="fc-event-title">
+              {patientId != null ? (
+                <span className="rc-event-patient-name" data-patient-id={patientId}>{arg.event.title}</span>
+              ) : arg.event.title}
+            </div>
+          </div>
+        );
+      }}
+      eventClick={(info) => onEventClick(info.event.id, info.event.startStr, { x: info.jsEvent.clientX, y: info.jsEvent.clientY }, info.jsEvent.target as HTMLElement)}
     />
   );
 }
