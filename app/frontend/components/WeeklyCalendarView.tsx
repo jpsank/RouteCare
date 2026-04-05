@@ -416,9 +416,9 @@ export function WeeklyCalendarView({
 
       {/* Bulk confirm banner */}
       {(() => {
-        const outboundVisitIds = new Set(messages.filter((m) => m.direction === "outbound").map((m) => m.visit_id));
+        const contactedPatientIds = new Set(messages.filter((m) => m.direction === "outbound").map((m) => m.patient_id));
         const unconfirmedCount = visits.filter(
-          (v) => v.status === "pending_patient_confirmation" && !outboundVisitIds.has(v.id),
+          (v) => v.status === "pending_patient_confirmation" && !contactedPatientIds.has(v.patient_id),
         ).length;
         if (unconfirmedCount === 0 || !onBulkConfirm) return null;
         return (

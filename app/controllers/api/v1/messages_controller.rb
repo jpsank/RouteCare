@@ -64,10 +64,18 @@ class Api::V1::MessagesController < Api::V1::BaseController
     schedule = current_user.weekly_schedules.order(created_at: :desc).first
     return render_error("No schedule found", :unprocessable_entity) unless schedule
 
+    # Find patients who already received a confirmation this week
+    week_start = schedule.week_start_on.to_date.beginning_of_day
+    already_contacted_patient_ids = current_user.patient_messages
+      .where(direction: :outbound)
+      .where("created_at >= ?", week_start)
+      .pluck(:patient_id)
+      .uniq
+
     visits = schedule.visits
       .includes(:patient)
       .where(status: :pending_patient_confirmation)
-      .where.not(id: current_user.patient_messages.where(direction: :outbound).select(:visit_id))
+      .where.not(patient_id: already_contacted_patient_ids)
 
     created = visits.filter_map do |visit|
       channel = visit.patient.preferred_message_channel
