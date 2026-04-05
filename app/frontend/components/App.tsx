@@ -358,6 +358,19 @@ export function App() {
               </button>
             ))}
           </nav>
+          <button
+            className="ml-auto rounded-md border-0 bg-transparent px-2.5 py-1 text-xs font-medium text-gray-400 shadow-none hover:bg-gray-100 hover:text-gray-600"
+            onClick={() => {
+              const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+              fetch("/users/sign_out", {
+                method: "DELETE",
+                headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
+                credentials: "same-origin",
+              }).then(() => { window.location.href = "/users/sign_in"; });
+            }}
+          >
+            Sign out
+          </button>
         </header>
 
         {error && <div className="rc-error">{error}</div>}
