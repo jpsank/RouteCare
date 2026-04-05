@@ -354,11 +354,11 @@ export function App() {
   return (
     <div className="rc-app">
       <div className="rc-shell">
-        <header className="mb-4 flex items-center gap-1 border-b border-gray-200 pb-2">
-          <svg className="mr-1 h-5 w-5 text-indigo-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <header className="mb-4 flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-gray-200 pb-2">
+          <svg className="mr-1 h-5 w-5 flex-none text-indigo-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
           </svg>
-          <span className="mr-4 text-sm font-bold tracking-tight text-gray-900">RouteCare</span>
+          <span className="mr-2 text-sm font-bold tracking-tight text-gray-900 sm:mr-4">RouteCare</span>
 
           <nav className="flex gap-0.5">
             {TABS.map(([tab, label, iconPath]) => {
@@ -366,17 +366,17 @@ export function App() {
               return (
                 <button
                   key={tab}
-                  className={`relative flex items-center gap-1.5 rounded-lg border-0 bg-transparent px-3 py-1.5 text-xs font-medium shadow-none transition-colors hover:bg-gray-100 ${
+                  className={`relative flex items-center gap-1 rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium shadow-none transition-colors hover:bg-gray-100 sm:gap-1.5 sm:px-3 ${
                     activeTab === tab
                       ? "bg-indigo-50 text-indigo-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
                   onClick={() => setActiveTab(tab)}
                 >
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <svg className="h-3.5 w-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path strokeLinecap="round" strokeLinejoin="round" d={iconPath} />
                   </svg>
-                  {label}
+                  <span className="hidden sm:inline">{label}</span>
                   {count > 0 && (
                     <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
                       {count}
@@ -395,7 +395,7 @@ export function App() {
               </svg>
             )}
             <button
-              className="rounded-lg border-0 bg-transparent px-2.5 py-1.5 text-xs font-medium text-gray-400 shadow-none hover:bg-gray-100 hover:text-gray-600"
+              className="rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium text-gray-400 shadow-none hover:bg-gray-100 hover:text-gray-600"
               onClick={() => {
                 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
                 fetch("/users/sign_out", {
@@ -405,7 +405,10 @@ export function App() {
                 }).then(() => { window.location.href = "/users/sign_in"; });
               }}
             >
-              Sign out
+              <svg className="h-4 w-4 sm:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+              </svg>
+              <span className="hidden sm:inline">Sign out</span>
             </button>
           </div>
         </header>

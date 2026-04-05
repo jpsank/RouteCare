@@ -456,7 +456,7 @@ export function WeeklyCalendarView({
                   </span>
                 );
               })}
-              <span className="ml-auto inline-flex items-center gap-2.5 text-gray-400">
+              <span className="ml-auto hidden items-center gap-2.5 text-gray-400 sm:inline-flex">
                 <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#16a34a" }} />OK</span>
                 <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#d97706" }} />Pending</span>
                 <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#dc2626" }} />Declined</span>

@@ -56,7 +56,7 @@ export function AlertsPanel({ alerts, onUpdateAlert }: Props) {
 
   return (
     <div className="rc-card space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="rc-section-title">Alerts</h2>
           <p className="rc-section-subtitle">Monitor conflicts and follow-up items.</p>
@@ -88,7 +88,7 @@ export function AlertsPanel({ alerts, onUpdateAlert }: Props) {
       <div className="space-y-2">
         {filtered.map((alert) => (
           <div key={alert.id} className={`${sevClass(alert.severity)} transition-colors ${alert.status === "resolved" ? "opacity-50" : ""}`}>
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-gray-900">{alert.message}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">

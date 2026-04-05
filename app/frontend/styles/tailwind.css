@@ -276,6 +276,7 @@
   border-bottom: 1px solid #e5e7eb !important;
   background: #fafafa !important;
   gap: 6px !important;
+  flex-wrap: wrap !important;
 }
 
 .fc .fc-toolbar-title {

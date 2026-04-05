@@ -79,7 +79,7 @@ export function MessagingPanel({ visits, messages, onSend, onApprove, onSelectSu
 
   return (
     <div className="rc-card space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="rc-section-title">Messages</h2>
           <p className="rc-section-subtitle">Send appointment proposals and review responses.</p>
