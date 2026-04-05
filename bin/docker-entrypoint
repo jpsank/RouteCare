@@ -3,6 +3,17 @@
 # If running the rails server then create or migrate existing database
 if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
   ./bin/rails db:prepare
+
+  # Ensure Solid Queue tables exist. The migration may have been marked as
+  # "already run" from a previous partial attempt without creating the tables.
+  ./bin/rails runner "
+    unless ActiveRecord::Base.connection.table_exists?('solid_queue_jobs')
+      puts 'Solid Queue tables missing — loading schema files...'
+      load Rails.root.join('db/queue_schema.rb')
+      load Rails.root.join('db/cache_schema.rb')
+      load Rails.root.join('db/cable_schema.rb')
+    end
+  "
 fi
 
 exec "${@}"
