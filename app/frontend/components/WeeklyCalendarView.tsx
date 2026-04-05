@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import type { CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
 import { AddEventPopover } from "./calendar/AddEventPopover";
+import { DailyRouteView } from "./DailyRouteView";
 import { EventEditorPanel } from "./calendar/EventEditorPanel";
 import { WeeklySettingsPanel } from "./calendar/WeeklySettingsPanel";
 import { useCalendarConnections } from "./calendar/hooks/useCalendarConnections";
@@ -117,6 +118,7 @@ export function WeeklyCalendarView({
   const [addEventStartInput, setAddEventStartInput] = useState("");
   const [addEventPosition, setAddEventPosition] = useState<{ x: number; y: number } | null>(null);
   const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
+  const [mobileToday, setMobileToday] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
   const [showSettings, setShowSettings] = useState(false);
   const [savingLunch, setSavingLunch] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState("");
@@ -470,8 +472,36 @@ export function WeeklyCalendarView({
         />
       )}
 
-      {/* Calendar + Route */}
-      <div className="rc-calendar-layout">
+      {/* Mobile today toggle */}
+      <div className="flex items-center gap-2 sm:hidden">
+        <button
+          className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${mobileToday ? "bg-indigo-100 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200"}`}
+          onClick={() => setMobileToday(true)}
+        >
+          Today
+        </button>
+        <button
+          className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${!mobileToday ? "bg-indigo-100 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200"}`}
+          onClick={() => setMobileToday(false)}
+        >
+          Full Calendar
+        </button>
+      </div>
+
+      {/* Mobile today view */}
+      {mobileToday && (
+        <div className="sm:hidden">
+          <DailyRouteView
+            visits={visits}
+            date={new Date().toISOString().slice(0, 10)}
+            onSendMessage={onSendMessage}
+            homeOrigin={homeOrigin}
+          />
+        </div>
+      )}
+
+      {/* Calendar + Route (hidden on mobile when today view is active) */}
+      <div className={`rc-calendar-layout ${mobileToday ? "hidden sm:grid" : ""}`}>
         <div className="rc-calendar-wrapper">
           {/* Patient legend — inside the calendar card */}
           {visits.length > 0 && (
