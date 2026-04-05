@@ -38,6 +38,7 @@ Rails.application.routes.draw do
         end
         collection do
           post :create_inbound, path: "inbound"
+          post :bulk_confirm
         end
       end
 

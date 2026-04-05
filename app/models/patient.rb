@@ -15,4 +15,8 @@ class Patient < ApplicationRecord
   def address
     [ address_line1, address_line2, city, state, postal_code ].compact_blank.join(", ")
   end
+
+  def preferred_message_channel
+    phone.present? ? :sms : :email
+  end
 end

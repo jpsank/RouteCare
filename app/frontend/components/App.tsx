@@ -276,6 +276,20 @@ export function App() {
     }
   };
 
+  const bulkConfirmMessages = async () => {
+    startLoading();
+    setError(null);
+    try {
+      const result = await api.bulkConfirmMessages();
+      setMessages((prev) => [...result.messages, ...prev]);
+      return result;
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      stopLoading();
+    }
+  };
+
   const approveMessage = async (messageId: number) => {
     startLoading();
     setError(null);
@@ -335,6 +349,8 @@ export function App() {
           onSetHomeFromCurrentLocation={updateHomeLocation}
           onUpdateHomeLocation={updateHomeLocation}
           onCalendarRefresh={refreshData}
+          onBulkConfirm={bulkConfirmMessages}
+          messages={messages}
         />
       );
     }

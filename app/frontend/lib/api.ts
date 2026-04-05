@@ -295,6 +295,10 @@ export const api = {
         },
       }),
     }),
+  bulkConfirmMessages: () =>
+    request<{ messages: Message[]; sent_count: number; skipped_count: number }>("/api/v1/messages/bulk_confirm", {
+      method: "POST",
+    }),
   approveMessage: (id: number) =>
     request<{ message: Message }>(`/api/v1/messages/${id}/approve`, {
       method: "POST",

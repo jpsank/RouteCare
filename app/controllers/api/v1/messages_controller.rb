@@ -60,6 +60,42 @@ class Api::V1::MessagesController < Api::V1::BaseController
     }, status: :created
   end
 
+  def bulk_confirm
+    schedule = current_user.weekly_schedules.order(created_at: :desc).first
+    return render_error("No schedule found", :unprocessable_entity) unless schedule
+
+    visits = schedule.visits
+      .includes(:patient)
+      .where(status: :pending_patient_confirmation)
+      .where.not(id: current_user.patient_messages.where(direction: :outbound).select(:visit_id))
+
+    created = visits.filter_map do |visit|
+      channel = visit.patient.preferred_message_channel
+      next unless channel == :sms ? visit.patient.phone.present? : visit.patient.email.present?
+
+      message = current_user.patient_messages.create!(
+        visit: visit,
+        patient: visit.patient,
+        direction: :outbound,
+        channel: channel,
+        status: :draft,
+        body: Messaging::PatientMessageBuilder.new(visit: visit, channel: channel).call,
+        proposed_starts_at: visit.starts_at,
+        proposed_ends_at: visit.ends_at,
+        requires_approval: !current_user.clinician_profile&.auto_send_enabled?
+      )
+
+      Messaging::OutboundDispatcher.new(message).call
+      message
+    end
+
+    render json: {
+      messages: created.map { |m| message_payload(m) },
+      sent_count: created.size,
+      skipped_count: visits.size - created.size
+    }
+  end
+
   def approve
     return render_error("Only outbound messages can be approved", :unprocessable_entity) unless @message.direction_outbound?
 

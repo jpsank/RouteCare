@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import type { CalendarBlock, CalendarConnection, ClinicianProfile, Patient, WeeklySchedule, Visit } from "../types";
+import type { CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
 import { AddEventPopover } from "./calendar/AddEventPopover";
 import { EventEditorPanel } from "./calendar/EventEditorPanel";
 import { WeeklySettingsPanel } from "./calendar/WeeklySettingsPanel";
@@ -43,6 +43,8 @@ type Props = {
   onSetHomeFromCurrentLocation: (latitude: number, longitude: number) => Promise<void>;
   onUpdateHomeLocation: (latitude: number, longitude: number) => Promise<void>;
   onCalendarRefresh: () => Promise<void>;
+  onBulkConfirm?: () => Promise<{ sent_count: number; skipped_count: number } | undefined>;
+  messages?: ReadonlyArray<Message>;
 };
 
 const DAY_LABELS: Array<[number, string]> = [
@@ -73,6 +75,8 @@ export function WeeklyCalendarView({
   onSetHomeFromCurrentLocation,
   onUpdateHomeLocation,
   onCalendarRefresh,
+  onBulkConfirm,
+  messages = [],
 }: Props) {
   const visits: Visit[] = schedule?.visits ?? [];
 
@@ -392,6 +396,29 @@ export function WeeklyCalendarView({
           {showSettings ? "Hide Settings" : "Settings"}
         </button>
       </div>
+
+      {/* Bulk confirm banner */}
+      {(() => {
+        const outboundVisitIds = new Set(messages.filter((m) => m.direction === "outbound").map((m) => m.visit_id));
+        const unconfirmedCount = visits.filter(
+          (v) => v.status === "pending_patient_confirmation" && !outboundVisitIds.has(v.id),
+        ).length;
+        if (unconfirmedCount === 0 || !onBulkConfirm) return null;
+        return (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+            <span className="text-amber-800">
+              <strong>{unconfirmedCount}</strong> visit{unconfirmedCount !== 1 ? "s" : ""} need confirmation
+            </span>
+            <button
+              className="btn-primary btn-sm ml-auto"
+              onClick={() => onBulkConfirm()}
+              disabled={loading}
+            >
+              Send All Confirmations
+            </button>
+          </div>
+        );
+      })()}
 
       {showSettings && (
         <WeeklySettingsPanel
