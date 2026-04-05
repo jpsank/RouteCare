@@ -1,12 +1,7 @@
 class User < ApplicationRecord
-  OMNIAUTH_PROVIDERS = [
-    (:google_oauth2 if ENV["GOOGLE_OAUTH_CLIENT_ID"].present?),
-    (:github if ENV["GITHUB_OAUTH_CLIENT_ID"].present?)
-  ].compact.freeze
-
   devise :database_authenticatable, :registerable,
          :recoverable, :rememberable, :validatable,
-         *(OMNIAUTH_PROVIDERS.any? ? [ :omniauthable, { omniauth_providers: OMNIAUTH_PROVIDERS } ] : [])
+         :omniauthable, omniauth_providers: %i[google_oauth2 github]
 
   def self.from_omniauth(auth)
     where(provider: auth.provider, uid: auth.uid).first_or_create do |user|
