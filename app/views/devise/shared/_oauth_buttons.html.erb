@@ -1,5 +1,5 @@
-<% configured_providers = resource_class.omniauth_providers.select { |p| Devise.omniauth_configs.key?(p) } %>
-<% if devise_mapping.omniauthable? && configured_providers.any? %>
+<% configured_providers = Devise.omniauth_configs.keys %>
+<% if configured_providers.any? %>
   <div class="relative my-4">
     <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200"></div></div>
     <div class="relative flex justify-center"><span class="bg-white px-3 text-xs text-gray-400">or continue with</span></div>
@@ -15,7 +15,7 @@
         else
           [OmniAuth::Utils.camelize(provider), nil, "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"]
         end %>
-      <%= button_to user_omniauth_authorize_path(provider),
+      <%= button_to "/users/auth/#{provider}",
             method: :post,
             data: { turbo: false },
             class: "inline-flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors #{bg_class}" do %>
