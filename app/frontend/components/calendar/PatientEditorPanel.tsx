@@ -59,7 +59,7 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
   return (
     <div
       ref={ref}
-      className={isMobile ? "fixed inset-x-0 bottom-0 z-[1000] p-3" : "fixed inset-0 z-[800] flex items-start justify-center bg-black/20 pt-16"}
+      className={isMobile ? "fixed inset-x-0 bottom-0 z-[1100] p-3" : "fixed inset-0 z-[1100] flex items-start justify-center bg-black/20 pt-16"}
       onClick={isMobile ? undefined : (e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className={`${isMobile ? "rounded-t-2xl" : "w-full max-w-md rounded-xl"} border border-gray-200 bg-white p-4 shadow-xl`}>

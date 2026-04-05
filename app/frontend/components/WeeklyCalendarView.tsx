@@ -544,7 +544,7 @@ export function WeeklyCalendarView({
       )}
 
       {/* Calendar + Route (hidden on mobile when today view is active) */}
-      <div className={`grid items-start gap-3 ${routeCollapsed ? "grid-cols-1" : "grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]"} ${mobileToday ? "hidden sm:grid" : ""}`}>
+      <div className={`grid items-start gap-3 ${routeCollapsed ? "grid-cols-1 xl:grid-cols-[1fr_auto]" : "grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]"} ${mobileToday ? "hidden sm:grid" : ""}`}>
         <div className="rc-calendar-wrapper">
           {/* Patient legend — inside the calendar card */}
           {visits.length > 0 && (
@@ -601,13 +601,14 @@ export function WeeklyCalendarView({
 
         {routeCollapsed ? (
           <button
-            className="hidden xl:flex items-center gap-1.5 self-start rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-500 shadow-sm hover:bg-gray-50"
+            className="hidden xl:flex flex-col items-center gap-2 self-start rounded-lg border border-gray-200 bg-white px-2 py-3 text-[10px] font-medium text-gray-400 shadow-sm hover:bg-gray-50 hover:text-gray-600"
             onClick={() => { setRouteCollapsed(false); try { localStorage.setItem("rc-route-collapsed", "false"); } catch {} }}
+            title="Show route panel"
           >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
             </svg>
-            Show Route
+            <span className="[writing-mode:vertical-lr]">Route</span>
           </button>
         ) : (
           <div className="relative">
