@@ -1,11 +1,15 @@
 class User < ApplicationRecord
   devise :database_authenticatable, :registerable,
          :recoverable, :rememberable, :validatable,
+         :timeoutable, :lockable,
          :omniauthable, omniauth_providers: %i[google_oauth2 github]
 
   def self.from_omniauth(auth)
+    email = auth.info.email.to_s.strip.downcase
+    return nil if email.blank? || !email.match?(Devise.email_regexp)
+
     where(provider: auth.provider, uid: auth.uid).first_or_create do |user|
-      user.email = auth.info.email
+      user.email = email
       user.password = Devise.friendly_token(24)
     end
   end

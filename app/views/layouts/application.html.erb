@@ -40,13 +40,13 @@
           <% flash.each do |type, message| %>
             <% next if message.blank? %>
             <% icon, colors = case type.to_sym
-                              when :notice then ["&#10003;", "border-emerald-300/60 bg-emerald-50 text-emerald-800 [&_.flash-icon]:bg-emerald-500"]
+                              when :notice then ["\u2713", "border-emerald-300/60 bg-emerald-50 text-emerald-800 [&_.flash-icon]:bg-emerald-500"]
                               when :alert  then ["!", "border-red-300/60 bg-red-50 text-red-800 [&_.flash-icon]:bg-red-500"]
-                              else              ["&#8505;", "border-slate-300/60 bg-slate-50 text-slate-800 [&_.flash-icon]:bg-slate-500"]
+                              else              ["\u2139", "border-slate-300/60 bg-slate-50 text-slate-800 [&_.flash-icon]:bg-slate-500"]
                               end %>
             <div class="flash-toast flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-lg backdrop-blur-sm animate-[slideDown_0.25s_ease-out] <%= colors %>">
               <span class="flash-icon inline-flex h-5 w-5 flex-none items-center justify-center rounded-full text-xs font-bold text-white">
-                <%= raw icon %>
+                <%= icon %>
               </span>
               <span><%= message %></span>
               <button type="button" class="ml-2 flex-none border-0 bg-transparent p-0 text-current opacity-40 shadow-none hover:opacity-70"
