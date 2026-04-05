@@ -136,7 +136,7 @@ export function RoutePanel({
       {dayVisits.length > 0 && (
         <>
           <Suspense fallback={<div className="mt-2 text-[11px] text-gray-400">Loading map...</div>}>
-            <RouteMapSection dayVisits={dayVisits} selectedDate={selectedDate} homeOrigin={homeOrigin} />
+            <RouteMapSection dayVisits={dayVisits} selectedDate={selectedDate} homeOrigin={homeOrigin} selectedVisitId={selectedVisitId} />
           </Suspense>
         </>
       )}

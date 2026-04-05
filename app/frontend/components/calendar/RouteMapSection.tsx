@@ -6,15 +6,16 @@ type Props = {
   dayVisits: Visit[];
   selectedDate: string;
   homeOrigin?: Point | null;
+  selectedVisitId?: number | null;
 };
 
-export function RouteMapSection({ dayVisits, selectedDate, homeOrigin }: Props) {
+export function RouteMapSection({ dayVisits, selectedDate, homeOrigin, selectedVisitId }: Props) {
   const {
     mapContainerRef,
     routeLoading,
     routeSnapshot,
     routeError,
-  } = useRouteMap({ dayVisits, selectedDate, homeOrigin });
+  } = useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisitId });
 
   return (
     <>

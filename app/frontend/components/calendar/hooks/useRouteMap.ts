@@ -29,6 +29,7 @@ type Args = {
   dayVisits: Visit[];
   selectedDate: string;
   homeOrigin?: Point | null;
+  selectedVisitId?: number | null;
 };
 
 type RouteStop = Point & {
@@ -60,7 +61,7 @@ function createDotElement(color: string, label?: string): HTMLElement {
   return el;
 }
 
-export function useRouteMap({ dayVisits, selectedDate, homeOrigin }: Args) {
+export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisitId }: Args) {
   const [routeError, setRouteError] = useState<string | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeSnapshot, setRouteSnapshot] = useState<RouteSnapshot | null>(null);
@@ -68,6 +69,7 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin }: Args) {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const markerElementsRef = useRef<Map<number, HTMLElement>>(new Map());
   const requestIdRef = useRef(0);
 
   const clearRenderedRoute = useCallback(() => {
@@ -185,6 +187,7 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin }: Args) {
 
         markersRef.current.forEach((marker) => marker.remove());
         markersRef.current = [];
+        markerElementsRef.current.clear();
         const allPoints = [routePlan?.origin, ...(routePlan?.stops || [])].filter(Boolean) as Array<Point | RouteStop>;
         allPoints.forEach((point, idx) => {
           const isHome = idx === 0 && homeOrigin != null;
@@ -203,6 +206,12 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin }: Args) {
               hour: "numeric",
               minute: "2-digit",
             })} – ${new Date(stop.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+
+            // Store element for highlight sync
+            const visitMatch = dayVisits.find(
+              (v) => v.patient_id === stop.patientId && v.starts_at === stop.startsAt,
+            );
+            if (visitMatch) markerElementsRef.current.set(visitMatch.id, el);
           }
 
           const marker = new mapbox.Marker({ element: el, anchor: "center" })
@@ -230,6 +239,25 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin }: Args) {
       }
     };
   }, [routeSnapshot, routePlan, homeOrigin]);
+
+  // Highlight selected marker
+  useEffect(() => {
+    markerElementsRef.current.forEach((el, visitId) => {
+      if (visitId === selectedVisitId) {
+        el.style.width = "22px";
+        el.style.height = "22px";
+        el.style.border = "3px solid #4f46e5";
+        el.style.boxShadow = "0 0 0 3px rgba(79,70,229,0.25), 0 2px 8px rgba(0,0,0,0.2)";
+        el.style.zIndex = "10";
+      } else {
+        el.style.width = "16px";
+        el.style.height = "16px";
+        el.style.border = "2px solid #fff";
+        el.style.boxShadow = "0 1px 4px rgba(0,0,0,0.18)";
+        el.style.zIndex = "";
+      }
+    });
+  }, [selectedVisitId]);
 
   return {
     mapContainerRef,
