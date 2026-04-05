@@ -672,8 +672,18 @@ export function WeeklyCalendarView({
         <PatientEditorPanel
           patient={patients.find((p) => p.id === editingPatientId) ?? null}
           onSave={async (patientId, payload) => {
+            const prev = patients.find((p) => p.id === patientId);
             await onUpdatePatient(patientId, payload);
-            await onCalendarRefresh();
+            const addressChanged =
+              prev && (prev.address_line1 !== payload.address_line1 ||
+                prev.city !== payload.city ||
+                prev.state !== payload.state ||
+                prev.postal_code !== payload.postal_code);
+            if (addressChanged) {
+              await onOptimize();
+            } else {
+              await onCalendarRefresh();
+            }
           }}
           onClose={() => setEditingPatientId(null)}
         />,
