@@ -1,9 +1,10 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import type { CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
+import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
 import { AddEventPopover } from "./calendar/AddEventPopover";
 import { DailyRouteView } from "./DailyRouteView";
 import { EventEditorPanel } from "./calendar/EventEditorPanel";
+import { InlineAlertSummary } from "./calendar/InlineAlertSummary";
 import { WeeklySettingsPanel } from "./calendar/WeeklySettingsPanel";
 import { useCalendarConnections } from "./calendar/hooks/useCalendarConnections";
 import { useEventEditor } from "./calendar/hooks/useEventEditor";
@@ -47,6 +48,9 @@ type Props = {
   onBulkConfirm?: () => Promise<{ sent_count: number; skipped_count: number } | undefined>;
   onSendMessage?: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<import("../types").Message | undefined>;
   messages?: ReadonlyArray<Message>;
+  alerts?: Alert[];
+  onUpdateAlert?: (alertId: number, status: Alert["status"]) => Promise<void>;
+  onExecuteAlertAction?: (alertId: number) => Promise<void>;
 };
 
 const DAY_LABELS: Array<[number, string]> = [
@@ -80,6 +84,9 @@ export function WeeklyCalendarView({
   onBulkConfirm,
   onSendMessage,
   messages = [],
+  alerts = [],
+  onUpdateAlert,
+  onExecuteAlertAction,
 }: Props) {
   const visits: Visit[] = schedule?.visits ?? [];
 
@@ -395,6 +402,14 @@ export function WeeklyCalendarView({
             </button>
           ))}
         </div>
+
+        {onUpdateAlert && (
+          <InlineAlertSummary
+            alerts={alerts}
+            onUpdateAlert={onUpdateAlert}
+            onExecuteAction={onExecuteAlertAction}
+          />
+        )}
 
         <button className="btn-ghost btn-xs" onClick={() => setShowSettings(!showSettings)}>
           {showSettings ? "Hide Settings" : "Settings"}
