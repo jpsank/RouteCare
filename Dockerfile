@@ -62,9 +62,11 @@ COPY . .
 # -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
 RUN bundle exec bootsnap precompile -j 1 app/ lib/
 
+# Install Solid Queue/Cache/Cable migrations
+RUN bundle exec rails solid_queue:install solid_cache:install solid_cable:install 2>/dev/null || true
+
 # Precompiling assets for production without requiring secret RAILS_MASTER_KEY
 RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
-
 
 RUN rm -rf node_modules
 
