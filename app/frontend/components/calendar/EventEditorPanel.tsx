@@ -55,17 +55,21 @@ export function EventEditorPanel({
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [isOpen, closeEditor]);
 
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+
   const panelStyle = useMemo(() => {
+    if (isMobile) return {};
     const x = Math.max(12, Math.min((position?.x ?? window.innerWidth / 2) + 8, window.innerWidth - 380));
     const y = Math.max(12, Math.min((position?.y ?? 120) + 8, window.innerHeight - 500));
     return { left: `${x}px`, top: `${y}px` };
-  }, [position]);
+  }, [position, isMobile]);
 
   if (!isOpen) return null;
 
   return (
-    <div ref={panelRef} className="rc-popover" style={panelStyle} role="dialog" aria-modal="false">
-      <div className="rc-popover-card space-y-3">
+    <div ref={panelRef} className={isMobile ? "fixed inset-x-0 bottom-0 z-[1000] p-3" : "rc-popover"} style={panelStyle} role="dialog" aria-modal="false">
+      <div className={`${isMobile ? "rounded-t-2xl" : ""} rc-popover-card space-y-3`}>
+        {isMobile && <div className="mx-auto mb-2 h-1 w-8 rounded-full bg-gray-300" />}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {selectedVisit && (

@@ -26,6 +26,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
   const ref = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const [pos, setPos] = useState(position);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
   const [statusInput, setStatusInput] = useState<Visit["status"]>("pending_patient_confirmation");
   const [selectedPatient, setSelectedPatient] = useState("");
   const [newPatientForm, setNewPatientForm] = useState<PatientForm>(EMPTY_PATIENT_FORM);
@@ -78,16 +79,25 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
   const endDrag = () => { dragRef.current = null; };
 
   return (
-    <div ref={ref} className="rc-popover" style={{ left: `${pos.x}px`, top: `${pos.y}px` }} role="dialog" aria-modal="false">
-      <div className="rc-popover-card space-y-3">
+    <div
+      ref={ref}
+      className={isMobile ? "fixed inset-x-0 bottom-0 z-[1000] p-3" : "rc-popover"}
+      style={isMobile ? undefined : { left: `${pos.x}px`, top: `${pos.y}px` }}
+      role="dialog"
+      aria-modal="false"
+    >
+      <div className={`${isMobile ? "rounded-t-2xl" : ""} rc-popover-card space-y-3`}>
         <div
-          className="flex items-center justify-between cursor-move select-none"
-          onPointerDown={startDrag}
-          onPointerMove={moveDrag}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
+          className={`flex items-center justify-between select-none ${isMobile ? "" : "cursor-move"}`}
+          onPointerDown={isMobile ? undefined : startDrag}
+          onPointerMove={isMobile ? undefined : moveDrag}
+          onPointerUp={isMobile ? undefined : endDrag}
+          onPointerCancel={isMobile ? undefined : endDrag}
         >
-          <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
+          <div>
+            {isMobile && <div className="mx-auto mb-2 h-1 w-8 rounded-full bg-gray-300" />}
+            <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
+          </div>
           <button className="btn-ghost btn-xs" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label="Close">&times;</button>
         </div>
 
