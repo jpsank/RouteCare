@@ -36,6 +36,7 @@ class MessageDeliveryJob < ApplicationJob
     delivery = PatientMessageMailer.with(message: message).outbound_message.deliver_now
     { ok: true, provider_message_id: delivery.message_id }
   rescue StandardError => e
+    Rails.logger.error("[MessageDeliveryJob] Email delivery failed: #{e.class}: #{e.message}")
     { ok: false, error: e.message }
   end
 end
