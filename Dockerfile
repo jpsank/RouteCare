@@ -40,15 +40,13 @@ RUN mkdir -p /usr/local/node && \
 # Install Ruby gems (BuildKit cache survives across builds)
 COPY Gemfile Gemfile.lock ./
 COPY vendor/ vendor/
-RUN --mount=type=cache,id=bundle,target=/root/.bundle/cache \
-    bundle install && \
-    rm -rf "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
+RUN bundle install && \
+    rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
     bundle exec bootsnap precompile --gemfile
 
 # Install Node modules (BuildKit cache for npm)
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,id=npm,target=/root/.npm \
-    npm ci --include=dev
+RUN npm ci --include=dev
 
 # Copy application code and precompile
 COPY . .
