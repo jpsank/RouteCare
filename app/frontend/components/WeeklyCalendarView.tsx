@@ -131,7 +131,8 @@ export function WeeklyCalendarView({
   const [addEventStartInput, setAddEventStartInput] = useState("");
   const [addEventPosition, setAddEventPosition] = useState<{ x: number; y: number } | null>(null);
   const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
-  const [mobileToday, setMobileToday] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
+  const [mobileToday, setMobileToday] = useState(false);
+  const [mobileTodayInitialized, setMobileTodayInitialized] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [savingLunch, setSavingLunch] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState("");
@@ -154,6 +155,16 @@ export function WeeklyCalendarView({
   useEffect(() => {
     setDisplayNameInput(clinicianProfile?.display_name ?? "");
   }, [clinicianProfile?.display_name]);
+
+  // Default to Today view on mobile only if there are visits today
+  useEffect(() => {
+    if (mobileTodayInitialized || !schedule) return;
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+    const today = new Date().toISOString().slice(0, 10);
+    const hasVisitsToday = visits.some((v) => asDateKey(v.starts_at) === today);
+    setMobileToday(isMobile && hasVisitsToday);
+    setMobileTodayInitialized(true);
+  }, [schedule, visits, mobileTodayInitialized]);
 
   const workdayStartMinute = clinicianProfile?.workday_start_minute ?? 8 * 60;
   const workdayEndMinute = clinicianProfile?.workday_end_minute ?? 18 * 60;
