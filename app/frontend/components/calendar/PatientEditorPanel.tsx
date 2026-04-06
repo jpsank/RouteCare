@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Patient } from "../../types";
+import { useSwipeDown } from "./hooks/useSwipeDown";
 import type { PatientForm, PatientSavePayload } from "./utils";
 import { patientFormFromPatient, patientPayloadFromForm } from "./utils";
 
@@ -14,6 +15,7 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+  const { handleProps, sheetStyle } = useSwipeDown(onClose);
 
   useEffect(() => {
     if (patient) setForm(patientFormFromPatient(patient));
@@ -54,8 +56,9 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
     >
       <div className={isMobile
         ? "w-full max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl animate-[slideUp_0.2s_ease-out]"
-        : "w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.15s_ease-out]"}>
-        {isMobile && <div className="mx-auto mb-3 h-1 w-8 rounded-full bg-gray-300" />}
+        : "w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.15s_ease-out]"}
+        style={isMobile ? sheetStyle : undefined}>
+        {isMobile && <div className="mx-auto mb-3 flex h-5 w-12 cursor-grab items-center justify-center" {...handleProps}><div className="h-1 w-8 rounded-full bg-gray-300" /></div>}
 
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-semibold text-gray-900">Edit Patient</h3>

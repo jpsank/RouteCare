@@ -515,20 +515,58 @@
   ) !important;
 }
 
-/* Hide lunch label text on small screens to prevent overlap */
+/* Mobile: bigger events, smaller chrome */
 @media (max-width: 639px) {
+  /* Hide lunch label */
   .fc .calendar-event-lunch .fc-event-title,
   .fc .calendar-event-lunch .fc-bg-event-title {
     font-size: 0 !important;
   }
+  /* Compact event padding */
   .fc .fc-event {
     padding: 1px 2px !important;
   }
+  /* Hide event time text */
   .fc .fc-event-time {
     font-size: 0 !important;
   }
   .fc .fc-event-title {
+    font-size: 11px !important;
+  }
+  /* Shrink toolbar */
+  .fc .fc-toolbar.fc-header-toolbar {
+    padding: 3px 4px !important;
+    gap: 3px !important;
+  }
+  .fc .fc-toolbar-title {
+    font-size: 11px !important;
+  }
+  .fc .fc-button,
+  .fc .fc-button-primary {
     font-size: 10px !important;
+    padding: 2px 5px !important;
+  }
+  /* Shrink column headers */
+  .fc .fc-col-header-cell-cushion {
+    padding: 2px 1px !important;
+    font-size: 9px !important;
+  }
+  /* Shrink time axis */
+  .fc .fc-timegrid-slot-label-cushion {
+    font-size: 9px !important;
+    padding: 0 2px !important;
+  }
+  .fc .fc-timegrid-axis-cushion {
+    font-size: 9px !important;
+  }
+  /* Narrower time axis column */
+  .fc .fc-timegrid-axis {
+    width: 36px !important;
+    min-width: 36px !important;
+  }
+  /* Taller slots = taller events */
+  .fc .fc-timegrid-slot {
+    height: 2.2rem !important;
   }
 }
 

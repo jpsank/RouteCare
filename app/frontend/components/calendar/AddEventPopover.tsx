@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { api } from "../../lib/api";
 import type { Patient, Visit } from "../../types";
+import { useSwipeDown } from "./hooks/useSwipeDown";
 import { EMPTY_PATIENT_FORM, localInputToIso, patientPayloadFromForm, type PatientForm } from "./utils";
 
 type Props = {
@@ -27,6 +28,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
   const dragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const [pos, setPos] = useState(position);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+  const { handleProps: swipeProps, sheetStyle } = useSwipeDown(onClose);
   const [statusInput, setStatusInput] = useState<Visit["status"]>("pending_patient_confirmation");
   const [selectedPatient, setSelectedPatient] = useState("");
   const [newPatientForm, setNewPatientForm] = useState<PatientForm>(EMPTY_PATIENT_FORM);
@@ -86,7 +88,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
       role="dialog"
       aria-modal="false"
     >
-      <div className={`${isMobile ? "rounded-t-2xl" : ""} rc-popover-card space-y-3`}>
+      <div className={`${isMobile ? "rounded-t-2xl" : ""} rc-popover-card space-y-3`} style={isMobile ? sheetStyle : undefined}>
         <div
           className={`flex items-center justify-between select-none ${isMobile ? "" : "cursor-move"}`}
           onPointerDown={isMobile ? undefined : startDrag}
@@ -95,7 +97,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
           onPointerCancel={isMobile ? undefined : endDrag}
         >
           <div>
-            {isMobile && <div className="mx-auto mb-2 h-1 w-8 rounded-full bg-gray-300" />}
+            {isMobile && <div className="mx-auto mb-2 flex h-5 w-12 cursor-grab items-center justify-center" {...swipeProps}><div className="h-1 w-8 rounded-full bg-gray-300" /></div>}
             <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
           </div>
           <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label="Close">

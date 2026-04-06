@@ -550,25 +550,6 @@ export function WeeklyCalendarView({
       {/* Calendar + Route (hidden on mobile when today view is active) */}
       <div className={`grid items-start gap-3 ${routeCollapsed ? "grid-cols-1 xl:grid-cols-[1fr_auto]" : "grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]"} ${mobileToday ? "hidden sm:grid" : ""}`}>
         <div className="rc-calendar-wrapper">
-          {/* Patient legend — inside the calendar card */}
-          {visits.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-gray-100 px-3 py-1.5 text-[11px] text-gray-500">
-              {Array.from(new Map(visits.map((v) => [v.patient_id, v.patient_name]))).map(([pid, name]) => {
-                const pc = patientColor(pid);
-                return (
-                  <span key={pid} className="inline-flex items-center gap-1">
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: pc.accent }} />
-                    {name}
-                  </span>
-                );
-              })}
-              <span className="ml-auto hidden items-center gap-2.5 text-gray-400 sm:inline-flex">
-                <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#16a34a" }} />OK</span>
-                <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#d97706" }} />Pending</span>
-                <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "#dc2626" }} />Declined</span>
-              </span>
-            </div>
-          )}
           <Suspense fallback={<div className="p-4 text-sm text-gray-500">Loading calendar...</div>}>
             <ScheduleCalendar
               events={calendarEvents}
@@ -592,7 +573,8 @@ export function WeeklyCalendarView({
                 const visitId = Number(match[1]);
 
                 // Click on patient name → open patient editor directly
-                const nameEl = (target as HTMLElement).closest?.("[data-patient-id]");
+                const nameEl = (target as HTMLElement).closest?.("[data-patient-id]")
+                  || (target as HTMLElement).querySelector?.("[data-patient-id]");
                 if (nameEl) {
                   const patientId = Number(nameEl.getAttribute("data-patient-id"));
                   if (patientId) {
@@ -601,7 +583,9 @@ export function WeeklyCalendarView({
                   }
                 }
 
-                if (selectedVisitId === visitId && editorMode === "none") {
+                const mobile = window.innerWidth < 640;
+                if (mobile || (selectedVisitId === visitId && editorMode === "none")) {
+                  setSelectedVisitId(visitId);
                   setEditorPosition(pointer);
                   setEditorMode("edit");
                 } else {
