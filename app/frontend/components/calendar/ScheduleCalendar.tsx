@@ -20,6 +20,7 @@ type Props = {
   events: CalendarEvent[];
   workdayStartMinute: number;
   workdayEndMinute: number;
+  workingDays?: number[];
   onDateClick: (dateKey: string, startStr: string, pointer: { x: number; y: number }) => void;
   onEventClick: (eventId: string, startStr: string, pointer: { x: number; y: number }, target: HTMLElement) => void;
 };
@@ -31,10 +32,14 @@ function minuteToFullCalendarTime(minute: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
 }
 
-export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute, onDateClick, onEventClick }: Props) {
+export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute, workingDays, onDateClick, onEventClick }: Props) {
   const slotMinTime = minuteToFullCalendarTime(workdayStartMinute);
   const slotMaxTime = minuteToFullCalendarTime(workdayEndMinute);
   const scrollTime = minuteToFullCalendarTime(Math.min(workdayStartMinute + 60, workdayEndMinute - 30));
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+  const hiddenDays = isMobile && workingDays?.length
+    ? [0, 1, 2, 3, 4, 5, 6].filter((d) => !workingDays.includes(d))
+    : [];
 
   return (
     <FullCalendar
@@ -61,6 +66,7 @@ export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute,
       }}
       slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
       events={events}
+      hiddenDays={hiddenDays}
       editable={false}
       allDaySlot={false}
       nowIndicator

@@ -555,6 +555,7 @@ export function WeeklyCalendarView({
               events={calendarEvents}
               workdayStartMinute={workdayStartMinute}
               workdayEndMinute={workdayEndMinute}
+              workingDays={workingDays}
               onDateClick={(dateKey, startStr, pointer) => {
                 setSelectedVisitId(null);
                 setEditorMode("none");
