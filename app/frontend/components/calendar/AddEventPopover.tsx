@@ -97,7 +97,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
           onPointerCancel={isMobile ? undefined : endDrag}
         >
           <div>
-            {isMobile && <div ref={swipeRef} className="mx-auto mb-2 flex h-5 w-12 cursor-grab items-center justify-center"><div className="h-1 w-8 rounded-full bg-gray-300" /></div>}
+            {isMobile && <div ref={swipeRef} className="flex h-8 w-full cursor-grab items-center justify-center"><div className="h-1 w-10 rounded-full bg-gray-300" /></div>}
             <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
           </div>
           <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label="Close">
