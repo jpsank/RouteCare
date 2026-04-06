@@ -38,7 +38,7 @@
       <div class="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-4">
         <div class="pointer-events-auto flex flex-col gap-2" id="flash-container">
           <% flash.each do |type, message| %>
-            <% next if message.blank? %>
+            <% next if message.blank? || !message.is_a?(String) %>
             <% icon, colors = case type.to_sym
                               when :notice then ["\u2713", "border-emerald-300/60 bg-emerald-50 text-emerald-800 [&_.flash-icon]:bg-emerald-500"]
                               when :alert  then ["!", "border-red-300/60 bg-red-50 text-red-800 [&_.flash-icon]:bg-red-500"]
