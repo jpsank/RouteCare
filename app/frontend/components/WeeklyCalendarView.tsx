@@ -389,12 +389,28 @@ export function WeeklyCalendarView({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1 sm:space-y-2">
       {/* Compact toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         <button className="btn-primary btn-sm" onClick={() => onOptimize()} disabled={loading}>
           {loading ? "Optimizing..." : "Re-optimize"}
         </button>
+
+        {/* Mobile today/calendar toggle — inline in toolbar */}
+        <div className="flex items-center gap-0.5 sm:hidden">
+          <button
+            className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${mobileToday ? "bg-indigo-100 text-indigo-700" : "bg-transparent text-gray-400"}`}
+            onClick={() => setMobileToday(true)}
+          >
+            Today
+          </button>
+          <button
+            className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${!mobileToday ? "bg-indigo-100 text-indigo-700" : "bg-transparent text-gray-400"}`}
+            onClick={() => setMobileToday(false)}
+          >
+            Week
+          </button>
+        </div>
 
         {onUpdateAlert && (
           <InlineAlertSummary
@@ -405,7 +421,7 @@ export function WeeklyCalendarView({
         )}
 
         <button
-          className="flex items-center gap-1 rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium text-gray-500 shadow-none hover:bg-gray-100"
+          className="flex items-center gap-1 rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium text-gray-500 shadow-none hover:bg-gray-100 ml-auto sm:ml-0"
           onClick={() => setShowSettings(!showSettings)}
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -425,16 +441,16 @@ export function WeeklyCalendarView({
         ).length;
         if (unconfirmedCount === 0) return null;
         return (
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs sm:gap-3 sm:px-3 sm:py-2 sm:text-sm">
             <span className="text-amber-800">
-              <strong>{unconfirmedCount}</strong> visit{unconfirmedCount !== 1 ? "s" : ""} need confirmation
+              <strong>{unconfirmedCount}</strong> unconfirmed
             </span>
             <button
               className="btn-primary btn-sm ml-auto"
               onClick={() => onBulkConfirm()}
               disabled={loading}
             >
-              Send All Confirmations
+              Send All
             </button>
           </div>
         );
@@ -518,22 +534,6 @@ export function WeeklyCalendarView({
         </div>,
         document.body,
       )}
-
-      {/* Mobile today toggle */}
-      <div className="flex items-center gap-2 sm:hidden">
-        <button
-          className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${mobileToday ? "bg-indigo-100 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200"}`}
-          onClick={() => setMobileToday(true)}
-        >
-          Today
-        </button>
-        <button
-          className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${!mobileToday ? "bg-indigo-100 text-indigo-700 border-indigo-200" : "bg-white text-gray-500 border-gray-200"}`}
-          onClick={() => setMobileToday(false)}
-        >
-          Full Calendar
-        </button>
-      </div>
 
       {/* Mobile today view */}
       {mobileToday && (
