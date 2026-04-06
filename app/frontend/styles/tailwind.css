@@ -485,6 +485,14 @@
 .rc-event-patient-name:hover {
   text-decoration: underline;
 }
+@media (max-width: 639px) {
+  .rc-event-patient-name {
+    cursor: default;
+  }
+  .rc-event-patient-name:hover {
+    text-decoration: none;
+  }
+}
 
 /* Status accents — declined gets a strikethrough, pending gets reduced opacity */
 .fc .visit-status-declined {

@@ -1,20 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 const THRESHOLD = 80;
 
 /**
  * Enables swipe-down-to-close on a mobile bottom sheet.
- * Attach `handleRef` to the drag handle element, spread `handleProps`
- * onto it for start/end, and apply `sheetStyle` to the sheet container.
+ * Attach `handleRef` (callback ref) to the drag handle element and
+ * apply `sheetStyle` to the sheet container.
  *
- * Uses a native touchmove listener with { passive: false } so we can
- * preventDefault and block Safari's pull-to-refresh.
+ * Uses native touchmove with { passive: false } to block Safari
+ * pull-to-refresh during the drag.
  */
 export function useSwipeDown(onClose: () => void) {
   const startY = useRef(0);
   const [offsetY, setOffsetY] = useState(0);
   const dragging = useRef(false);
-  const handleRef = useRef<HTMLDivElement | null>(null);
+  const elRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   const onTouchStart = useCallback((e: TouchEvent) => {
     startY.current = e.touches[0].clientY;
@@ -25,7 +27,7 @@ export function useSwipeDown(onClose: () => void) {
     if (!dragging.current) return;
     const delta = e.touches[0].clientY - startY.current;
     if (delta > 0) {
-      e.preventDefault(); // block Safari pull-to-refresh
+      e.preventDefault();
       setOffsetY(delta);
     }
   }, []);
@@ -34,22 +36,24 @@ export function useSwipeDown(onClose: () => void) {
     if (!dragging.current) return;
     dragging.current = false;
     setOffsetY((prev) => {
-      if (prev > THRESHOLD) onClose();
+      if (prev > THRESHOLD) closeRef.current();
       return 0;
     });
-  }, [onClose]);
+  }, []);
 
-  useEffect(() => {
-    const el = handleRef.current;
-    if (!el) return;
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd, { passive: true });
-    return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
-    };
+  const handleRef = useCallback((node: HTMLDivElement | null) => {
+    const prev = elRef.current;
+    if (prev) {
+      prev.removeEventListener("touchstart", onTouchStart);
+      prev.removeEventListener("touchmove", onTouchMove);
+      prev.removeEventListener("touchend", onTouchEnd);
+    }
+    elRef.current = node;
+    if (node) {
+      node.addEventListener("touchstart", onTouchStart, { passive: true });
+      node.addEventListener("touchmove", onTouchMove, { passive: false });
+      node.addEventListener("touchend", onTouchEnd, { passive: true });
+    }
   }, [onTouchStart, onTouchMove, onTouchEnd]);
 
   const sheetStyle: React.CSSProperties = offsetY > 0
