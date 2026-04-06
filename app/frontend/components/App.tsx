@@ -101,6 +101,15 @@ export function App() {
     refreshData().catch(() => undefined);
   }, [refreshData]);
 
+  // Refresh data when the app regains focus (e.g. returning from Maps)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshData().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshData]);
+
   // Auto-complete setup for existing users who already have data
   useEffect(() => {
     if (clinicianProfile && !clinicianProfile.setup_completed_at && (clinicianProfile.home_latitude || patients.length > 0)) {
