@@ -551,18 +551,25 @@
     padding: 2px 1px !important;
     font-size: 9px !important;
   }
-  /* Shrink time axis */
+  /* Sideways time axis labels to save horizontal space */
   .fc .fc-timegrid-slot-label-cushion {
     font-size: 9px !important;
-    padding: 0 2px !important;
+    padding: 0 1px !important;
+    writing-mode: vertical-lr !important;
+    text-orientation: mixed !important;
+    white-space: nowrap !important;
   }
   .fc .fc-timegrid-axis-cushion {
     font-size: 9px !important;
   }
   /* Narrower time axis column */
   .fc .fc-timegrid-axis {
-    width: 36px !important;
-    min-width: 36px !important;
+    width: 24px !important;
+    min-width: 24px !important;
+  }
+  .fc .fc-timegrid-slot-label {
+    width: 24px !important;
+    min-width: 24px !important;
   }
   /* Taller slots = taller events */
   .fc .fc-timegrid-slot {

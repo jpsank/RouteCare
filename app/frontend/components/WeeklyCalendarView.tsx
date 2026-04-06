@@ -573,8 +573,7 @@ export function WeeklyCalendarView({
                 const visitId = Number(match[1]);
 
                 // Click on patient name → open patient editor directly
-                const nameEl = (target as HTMLElement).closest?.("[data-patient-id]")
-                  || (target as HTMLElement).querySelector?.("[data-patient-id]");
+                const nameEl = (target as HTMLElement).closest?.("[data-patient-id]");
                 if (nameEl) {
                   const patientId = Number(nameEl.getAttribute("data-patient-id"));
                   if (patientId) {

@@ -35,7 +35,7 @@ export function EventEditorPanel({
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const { handleProps, sheetStyle } = useSwipeDown(closeEditor);
+  const { handleRef, sheetStyle } = useSwipeDown(closeEditor);
 
   const isOpen = editorMode !== "none" || Boolean(selectedVisit);
 
@@ -71,7 +71,7 @@ export function EventEditorPanel({
   return (
     <div ref={panelRef} className={isMobile ? "fixed inset-x-0 bottom-0 z-[1000] p-3" : "rc-popover"} style={panelStyle} role="dialog" aria-modal="false">
       <div className={`${isMobile ? "rounded-t-2xl" : ""} rc-popover-card space-y-3`} style={isMobile ? sheetStyle : undefined}>
-        {isMobile && <div className="mx-auto mb-2 flex h-5 w-12 cursor-grab items-center justify-center" {...handleProps}><div className="h-1 w-8 rounded-full bg-gray-300" /></div>}
+        {isMobile && <div ref={handleRef} className="mx-auto mb-2 flex h-5 w-12 cursor-grab items-center justify-center"><div className="h-1 w-8 rounded-full bg-gray-300" /></div>}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {selectedVisit && (
