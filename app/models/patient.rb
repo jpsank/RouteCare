@@ -7,8 +7,12 @@ class Patient < ApplicationRecord
   validates :full_name, :phone, :address_line1, :city, :state, :postal_code, presence: true
   validates :required_visits_per_week, numericality: { greater_than: 0, less_than_or_equal_to: 7 }
   validates :visit_duration_minutes, numericality: { greater_than_or_equal_to: 15, less_than_or_equal_to: 240 }
+  validates :min_days_between_visits, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 6 }
+  validates :max_days_between_visits, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 7 }
+  validates :priority, numericality: { greater_than_or_equal_to: 0 }
   validates :email, format: { with: URI::MailTo::EMAIL_REGEXP }, allow_blank: true
   validates :latitude, :longitude, numericality: true, allow_nil: true
+  validate :min_days_not_greater_than_max_days
 
   before_save :geocode_address, if: :address_changed?
 
@@ -34,5 +38,12 @@ class Patient < ApplicationRecord
 
     self.latitude = result[:lat]
     self.longitude = result[:lng]
+  end
+
+  def min_days_not_greater_than_max_days
+    return if min_days_between_visits.blank? || max_days_between_visits.blank?
+    return if min_days_between_visits <= max_days_between_visits
+
+    errors.add(:min_days_between_visits, "must be less than or equal to max_days_between_visits")
   end
 end

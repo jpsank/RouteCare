@@ -14,6 +14,11 @@ class ClinicianProfile < ApplicationRecord
   validates :lunch_start_minute, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 1439 }
   validates :lunch_duration_minutes, numericality: { greater_than_or_equal_to: 15, less_than_or_equal_to: 60 }
   validates :lunch_window_minutes, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 180 }
+  validates :max_continuous_work_minutes, numericality: { greater_than_or_equal_to: 60, less_than_or_equal_to: 720 }
+  validates :required_break_minutes, numericality: { greater_than_or_equal_to: 5, less_than_or_equal_to: 60 }
+  validates :max_drive_minutes_per_day, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 720 }, allow_nil: true
+  validates :schedule_density, numericality: { greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0 }
+  validates :charting_buffer_minutes, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 60 }
   validate :workday_end_after_start
 
   def home_point

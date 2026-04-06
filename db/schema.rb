@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_05_182843) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_06_220828) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -81,6 +81,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_182843) do
 
   create_table "clinician_profiles", force: :cascade do |t|
     t.boolean "auto_send_enabled", default: false, null: false
+    t.integer "charting_buffer_minutes", default: 0, null: false
     t.datetime "created_at", null: false
     t.string "discipline", null: false
     t.string "display_name"
@@ -94,7 +95,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_182843) do
     t.integer "lunch_duration_minutes", default: 30, null: false
     t.integer "lunch_start_minute", default: 720, null: false
     t.integer "lunch_window_minutes", default: 90, null: false
+    t.integer "max_continuous_work_minutes", default: 480, null: false
+    t.integer "max_drive_minutes_per_day"
     t.string "phone"
+    t.integer "required_break_minutes", default: 15, null: false
+    t.float "schedule_density", default: 0.5, null: false
     t.datetime "setup_completed_at"
     t.string "timezone", default: "America/New_York", null: false
     t.datetime "updated_at", null: false
@@ -104,6 +109,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_182843) do
     t.integer "working_days_mask", default: 62, null: false
     t.index ["phone"], name: "index_clinician_profiles_on_phone"
     t.index ["user_id"], name: "index_clinician_profiles_on_user_id"
+    t.check_constraint "charting_buffer_minutes >= 0 AND charting_buffer_minutes <= 60", name: "chk_cp_charting_buffer"
+    t.check_constraint "max_continuous_work_minutes >= 60 AND max_continuous_work_minutes <= 720", name: "chk_cp_max_continuous_work"
+    t.check_constraint "max_drive_minutes_per_day IS NULL OR max_drive_minutes_per_day >= 0 AND max_drive_minutes_per_day <= 720", name: "chk_cp_max_drive"
+    t.check_constraint "required_break_minutes >= 5 AND required_break_minutes <= 60", name: "chk_cp_required_break"
+    t.check_constraint "schedule_density >= 0.0::double precision AND schedule_density <= 1.0::double precision", name: "chk_cp_schedule_density"
     t.check_constraint "workday_end_minute > workday_start_minute", name: "clinician_profiles_workday_end_after_start"
     t.check_constraint "workday_end_minute >= 1 AND workday_end_minute <= 1440", name: "clinician_profiles_valid_workday_end"
     t.check_constraint "workday_start_minute >= 0 AND workday_start_minute <= 1439", name: "clinician_profiles_valid_workday_start"
@@ -159,15 +169,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_05_182843) do
     t.string "full_name", null: false
     t.decimal "latitude", precision: 10, scale: 6
     t.decimal "longitude", precision: 10, scale: 6
+    t.integer "max_days_between_visits", default: 7, null: false
+    t.integer "min_days_between_visits", default: 1, null: false
     t.text "notes"
     t.string "phone", null: false
     t.string "postal_code", null: false
+    t.integer "priority", default: 0, null: false
     t.integer "required_visits_per_week", default: 1, null: false
     t.string "state", null: false
     t.datetime "updated_at", null: false
     t.integer "visit_duration_minutes", default: 60, null: false
     t.index ["clinician_profile_id", "active"], name: "index_patients_on_clinician_profile_id_and_active"
     t.index ["clinician_profile_id"], name: "index_patients_on_clinician_profile_id"
+    t.check_constraint "max_days_between_visits >= 1 AND max_days_between_visits <= 7", name: "chk_patients_max_days_between_visits"
+    t.check_constraint "min_days_between_visits <= max_days_between_visits", name: "chk_patients_min_max_days_consistency"
+    t.check_constraint "min_days_between_visits >= 1 AND min_days_between_visits <= 6", name: "chk_patients_min_days_between_visits"
+    t.check_constraint "priority >= 0", name: "chk_patients_priority"
     t.check_constraint "required_visits_per_week > 0", name: "patients_required_visits_positive"
     t.check_constraint "visit_duration_minutes > 0", name: "patients_duration_positive"
   end

@@ -33,3 +33,8 @@ production:
     class: VisitAutoCompleteJob
     schedule: "0 * * * *"
     description: "Mark past confirmed visits as completed"
+
+  nightly_ga_optimize:
+    class: NightlyGaOptimizeJob
+    schedule: "0 0 * * *"
+    description: "Run GA optimizer for all active users' pending schedules"
