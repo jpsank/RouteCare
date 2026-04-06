@@ -89,6 +89,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
       aria-modal="false"
     >
       <div className={`${isMobile ? "rounded-t-2xl" : ""} rc-popover-card space-y-3`} style={isMobile ? sheetStyle : undefined}>
+        {isMobile && <div ref={swipeRef} className="flex h-8 w-full cursor-grab items-center justify-center"><div className="h-1 w-10 rounded-full bg-gray-300" /></div>}
         <div
           className={`flex items-center justify-between select-none ${isMobile ? "" : "cursor-move"}`}
           onPointerDown={isMobile ? undefined : startDrag}
@@ -96,10 +97,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
           onPointerUp={isMobile ? undefined : endDrag}
           onPointerCancel={isMobile ? undefined : endDrag}
         >
-          <div>
-            {isMobile && <div ref={swipeRef} className="flex h-8 w-full cursor-grab items-center justify-center"><div className="h-1 w-10 rounded-full bg-gray-300" /></div>}
-            <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
-          </div>
+          <h3 className="text-sm font-semibold text-gray-900">Add Event</h3>
           <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label="Close">
             <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
