@@ -35,6 +35,9 @@ export type Patient = {
   notes?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  min_days_between_visits: number;
+  max_days_between_visits: number;
+  priority: number;
   availability_windows: AvailabilityWindow[];
 };
 
@@ -143,4 +146,9 @@ export type ClinicianProfile = {
   lunch_duration_minutes: number;
   lunch_window_minutes: number;
   setup_completed_at?: string | null;
+  max_continuous_work_minutes: number;
+  required_break_minutes: number;
+  max_drive_minutes_per_day?: number | null;
+  schedule_density: number;
+  charting_buffer_minutes: number;
 };

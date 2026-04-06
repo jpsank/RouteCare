@@ -276,6 +276,11 @@ export const api = {
         | "lunch_duration_minutes"
         | "lunch_window_minutes"
         | "setup_completed_at"
+        | "max_continuous_work_minutes"
+        | "required_break_minutes"
+        | "max_drive_minutes_per_day"
+        | "schedule_density"
+        | "charting_buffer_minutes"
       >
     >,
   ) =>

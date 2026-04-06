@@ -44,6 +44,7 @@ type Props = {
   onUpdateWorkingDays: (workingDays: number[]) => Promise<void>;
   onUpdateLunchSettings: (lunchStartMinute: number, lunchDurationMinutes: number, lunchWindowMinutes: number) => Promise<void>;
   onUpdateDisplayName: (displayName: string) => Promise<void>;
+  onUpdateSchedulingSettings: (settings: Record<string, unknown>) => Promise<void>;
   onSetHomeFromCurrentLocation: (latitude: number, longitude: number) => Promise<void>;
   onUpdateHomeLocation: (latitude: number, longitude: number) => Promise<void>;
   onCalendarRefresh: () => Promise<void>;
@@ -80,6 +81,7 @@ export function WeeklyCalendarView({
   onUpdateWorkingDays,
   onUpdateLunchSettings,
   onUpdateDisplayName,
+  onUpdateSchedulingSettings,
   onSetHomeFromCurrentLocation,
   onUpdateHomeLocation,
   onCalendarRefresh,
@@ -135,6 +137,7 @@ export function WeeklyCalendarView({
   const [mobileTodayInitialized, setMobileTodayInitialized] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [savingLunch, setSavingLunch] = useState(false);
+  const [savingSchedulingSettings, setSavingSchedulingSettings] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState("");
   const [savingDisplayName, setSavingDisplayName] = useState(false);
 
@@ -172,6 +175,11 @@ export function WeeklyCalendarView({
   const lunchStartMinute = clinicianProfile?.lunch_start_minute ?? 720;
   const lunchDurationMinutes = clinicianProfile?.lunch_duration_minutes ?? 30;
   const lunchWindowMinutes = clinicianProfile?.lunch_window_minutes ?? 90;
+  const chartingBufferMinutes = clinicianProfile?.charting_buffer_minutes ?? 0;
+  const scheduleDensity = clinicianProfile?.schedule_density ?? 0.5;
+  const maxDriveMinutesPerDay = clinicianProfile?.max_drive_minutes_per_day ?? null;
+  const maxContinuousWorkMinutes = clinicianProfile?.max_continuous_work_minutes ?? 480;
+  const requiredBreakMinutes = clinicianProfile?.required_break_minutes ?? 15;
 
   const updateLunch = async (startMin: number, duration: number, window: number) => {
     setSavingLunch(true);
@@ -179,6 +187,15 @@ export function WeeklyCalendarView({
       await onUpdateLunchSettings(startMin, duration, window);
     } finally {
       setSavingLunch(false);
+    }
+  };
+
+  const updateSchedulingSettings = async (settings: Record<string, unknown>) => {
+    setSavingSchedulingSettings(true);
+    try {
+      await onUpdateSchedulingSettings(settings);
+    } finally {
+      setSavingSchedulingSettings(false);
     }
   };
 
@@ -520,6 +537,13 @@ export function WeeklyCalendarView({
               onDisplayNameInputChange={setDisplayNameInput}
               onSaveDisplayName={saveDisplayName}
               savingDisplayName={savingDisplayName}
+              chartingBufferMinutes={chartingBufferMinutes}
+              scheduleDensity={scheduleDensity}
+              maxDriveMinutesPerDay={maxDriveMinutesPerDay}
+              maxContinuousWorkMinutes={maxContinuousWorkMinutes}
+              requiredBreakMinutes={requiredBreakMinutes}
+              onUpdateSchedulingSettings={updateSchedulingSettings}
+              savingSchedulingSettings={savingSchedulingSettings}
               calendarConnectionsProps={{
                 connectingProvider,
                 setConnectingProvider,

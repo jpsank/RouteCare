@@ -31,6 +31,11 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
       :lunch_duration_minutes,
       :lunch_window_minutes,
       :setup_completed_at,
+      :max_continuous_work_minutes,
+      :required_break_minutes,
+      :max_drive_minutes_per_day,
+      :schedule_density,
+      :charting_buffer_minutes,
       working_days: []
     )
   end
@@ -50,7 +55,12 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
       lunch_start_minute: profile.lunch_start_minute,
       lunch_duration_minutes: profile.lunch_duration_minutes,
       lunch_window_minutes: profile.lunch_window_minutes,
-      setup_completed_at: profile.setup_completed_at
+      setup_completed_at: profile.setup_completed_at,
+      max_continuous_work_minutes: profile.max_continuous_work_minutes,
+      required_break_minutes: profile.required_break_minutes,
+      max_drive_minutes_per_day: profile.max_drive_minutes_per_day,
+      schedule_density: profile.schedule_density,
+      charting_buffer_minutes: profile.charting_buffer_minutes
     }
   end
 end

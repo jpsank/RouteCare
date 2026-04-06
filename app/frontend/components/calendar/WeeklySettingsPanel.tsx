@@ -26,6 +26,19 @@ type Props = {
   onDisplayNameInputChange: (value: string) => void;
   onSaveDisplayName: () => void;
   savingDisplayName: boolean;
+  chartingBufferMinutes: number;
+  scheduleDensity: number;
+  maxDriveMinutesPerDay: number | null;
+  maxContinuousWorkMinutes: number;
+  requiredBreakMinutes: number;
+  onUpdateSchedulingSettings: (settings: {
+    charting_buffer_minutes?: number;
+    schedule_density?: number;
+    max_drive_minutes_per_day?: number | null;
+    max_continuous_work_minutes?: number;
+    required_break_minutes?: number;
+  }) => void;
+  savingSchedulingSettings: boolean;
   calendarConnectionsProps: ComponentProps<typeof CalendarConnectionsPanel>;
 };
 
@@ -53,6 +66,13 @@ export function WeeklySettingsPanel({
   onDisplayNameInputChange,
   onSaveDisplayName,
   savingDisplayName,
+  chartingBufferMinutes,
+  scheduleDensity,
+  maxDriveMinutesPerDay,
+  maxContinuousWorkMinutes,
+  requiredBreakMinutes,
+  onUpdateSchedulingSettings,
+  savingSchedulingSettings,
   calendarConnectionsProps,
 }: Props) {
   const hourOptions = useMemo(
@@ -196,6 +216,78 @@ export function WeeklySettingsPanel({
           </select>
         </div>
         {savingLunch && <span className="text-xs text-gray-400">Saving...</span>}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 pt-2.5">
+        <div className="rc-field">
+          <span className="rc-label">Charting buffer</span>
+          <select
+            className="w-20"
+            value={chartingBufferMinutes}
+            onChange={(e) => onUpdateSchedulingSettings({ charting_buffer_minutes: Number(e.target.value) })}
+            disabled={loading || savingSchedulingSettings}
+          >
+            {[0, 5, 10, 15, 20, 30].map((m) => (
+              <option key={m} value={m}>{m} min</option>
+            ))}
+          </select>
+        </div>
+        <div className="rc-field">
+          <span className="rc-label">Max drive/day</span>
+          <select
+            className="w-24"
+            value={maxDriveMinutesPerDay ?? ""}
+            onChange={(e) => onUpdateSchedulingSettings({ max_drive_minutes_per_day: e.target.value === "" ? null : Number(e.target.value) })}
+            disabled={loading || savingSchedulingSettings}
+          >
+            <option value="">No limit</option>
+            {[60, 90, 120, 150, 180, 240, 300, 360].map((m) => (
+              <option key={m} value={m}>{m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`}</option>
+            ))}
+          </select>
+        </div>
+        <div className="rc-field">
+          <span className="rc-label">Break after</span>
+          <select
+            className="w-20"
+            value={maxContinuousWorkMinutes}
+            onChange={(e) => onUpdateSchedulingSettings({ max_continuous_work_minutes: Number(e.target.value) })}
+            disabled={loading || savingSchedulingSettings}
+          >
+            {[120, 180, 240, 300, 360, 420, 480].map((m) => (
+              <option key={m} value={m}>{`${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`}</option>
+            ))}
+          </select>
+        </div>
+        <div className="rc-field">
+          <span className="rc-label">Break length</span>
+          <select
+            className="w-20"
+            value={requiredBreakMinutes}
+            onChange={(e) => onUpdateSchedulingSettings({ required_break_minutes: Number(e.target.value) })}
+            disabled={loading || savingSchedulingSettings}
+          >
+            {[5, 10, 15, 20, 30, 45, 60].map((m) => (
+              <option key={m} value={m}>{m} min</option>
+            ))}
+          </select>
+        </div>
+        <div className="rc-field">
+          <span className="rc-label">Schedule style</span>
+          <select
+            className="w-28"
+            value={scheduleDensity}
+            onChange={(e) => onUpdateSchedulingSettings({ schedule_density: Number(e.target.value) })}
+            disabled={loading || savingSchedulingSettings}
+          >
+            <option value={0}>Spread evenly</option>
+            <option value={0.25}>Slightly packed</option>
+            <option value={0.5}>Balanced</option>
+            <option value={0.75}>Mostly packed</option>
+            <option value={1}>Fewest days</option>
+          </select>
+        </div>
+        {savingSchedulingSettings && <span className="text-xs text-gray-400">Saving...</span>}
       </div>
 
       <CalendarConnectionsPanel {...calendarConnectionsProps} />

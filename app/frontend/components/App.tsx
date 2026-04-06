@@ -24,6 +24,9 @@ type PatientSavePayload = {
   notes?: string;
   latitude?: number;
   longitude?: number;
+  min_days_between_visits: number;
+  max_days_between_visits: number;
+  priority: number;
 };
 
 
@@ -273,6 +276,19 @@ export function App() {
     }
   };
 
+  const updateSchedulingSettings = async (settings: Record<string, unknown>) => {
+    startLoading();
+    setError(null);
+    try {
+      const response = await api.updateClinicianProfile(settings as Parameters<typeof api.updateClinicianProfile>[0]);
+      setClinicianProfile(response.clinician_profile);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      stopLoading();
+    }
+  };
+
   const sendMessage = async (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => {
     startLoading();
     setError(null);
@@ -437,6 +453,7 @@ export function App() {
               onUpdateWorkingDays={updateWorkingDays}
               onUpdateLunchSettings={updateLunchSettings}
               onUpdateDisplayName={updateDisplayName}
+              onUpdateSchedulingSettings={updateSchedulingSettings}
               onSetHomeFromCurrentLocation={updateHomeLocation}
               onUpdateHomeLocation={updateHomeLocation}
               onCalendarRefresh={refreshData}

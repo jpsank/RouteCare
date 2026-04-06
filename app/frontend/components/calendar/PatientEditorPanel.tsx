@@ -104,6 +104,26 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
             <span className="rc-label">Postal Code</span>
             <input value={form.postal_code} onChange={(e) => set("postal_code", e.target.value)} />
           </div>
+
+          <div className="sm:col-span-2 border-t border-gray-100 pt-2 mt-1">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Scheduling</span>
+          </div>
+          <div className="rc-field">
+            <span className="rc-label">Priority</span>
+            <select value={form.priority} onChange={(e) => set("priority", Number(e.target.value))}>
+              <option value={0}>Normal</option>
+              <option value={5}>High</option>
+              <option value={10}>Urgent</option>
+            </select>
+          </div>
+          <div className="rc-field">
+            <span className="rc-label">Min days between</span>
+            <input type="number" min={1} max={6} value={form.min_days_between_visits} onChange={(e) => set("min_days_between_visits", Number(e.target.value) || 1)} />
+          </div>
+          <div className="rc-field">
+            <span className="rc-label">Max days between</span>
+            <input type="number" min={1} max={7} value={form.max_days_between_visits} onChange={(e) => set("max_days_between_visits", Number(e.target.value) || 7)} />
+          </div>
         </div>
 
         <button className="btn-primary mt-3 w-full" onClick={handleSave} disabled={saving}>

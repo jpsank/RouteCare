@@ -29,6 +29,9 @@ export type PatientSavePayload = {
   notes?: string;
   latitude?: number;
   longitude?: number;
+  min_days_between_visits: number;
+  max_days_between_visits: number;
+  priority: number;
 };
 
 export type PatientForm = {
@@ -45,6 +48,9 @@ export type PatientForm = {
   notes: string;
   latitude: string;
   longitude: string;
+  min_days_between_visits: number;
+  max_days_between_visits: number;
+  priority: number;
 };
 
 export const EMPTY_PATIENT_FORM: PatientForm = {
@@ -61,6 +67,9 @@ export const EMPTY_PATIENT_FORM: PatientForm = {
   notes: "",
   latitude: "",
   longitude: "",
+  min_days_between_visits: 1,
+  max_days_between_visits: 7,
+  priority: 0,
 };
 
 export function asDateKey(value: string): string {
@@ -98,6 +107,9 @@ export function patientFormFromPatient(patient: Patient): PatientForm {
     notes: patient.notes || "",
     latitude: patient.latitude != null ? String(patient.latitude) : "",
     longitude: patient.longitude != null ? String(patient.longitude) : "",
+    min_days_between_visits: patient.min_days_between_visits ?? 1,
+    max_days_between_visits: patient.max_days_between_visits ?? 7,
+    priority: patient.priority ?? 0,
   };
 }
 
@@ -116,6 +128,9 @@ export function patientPayloadFromForm(form: PatientForm): PatientSavePayload {
     notes: form.notes.trim() || undefined,
     latitude: form.latitude.trim() ? Number(form.latitude) : undefined,
     longitude: form.longitude.trim() ? Number(form.longitude) : undefined,
+    min_days_between_visits: Number(form.min_days_between_visits),
+    max_days_between_visits: Number(form.max_days_between_visits),
+    priority: Number(form.priority),
   };
 }
 

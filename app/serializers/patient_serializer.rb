@@ -18,6 +18,9 @@ class PatientSerializer
         notes: patient.notes,
         latitude: patient.latitude,
         longitude: patient.longitude,
+        min_days_between_visits: patient.min_days_between_visits,
+        max_days_between_visits: patient.max_days_between_visits,
+        priority: patient.priority,
         availability_windows: patient.patient_availability_windows
           .order(:day_of_week, :start_minute)
           .map do |window|

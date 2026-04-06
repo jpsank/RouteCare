@@ -64,7 +64,8 @@ class Api::V1::PatientsController < Api::V1::BaseController
   def patient_params
     params.require(:patient).permit(
       :full_name, :phone, :email, :address_line1, :address_line2, :city, :state, :postal_code,
-      :required_visits_per_week, :visit_duration_minutes, :notes, :latitude, :longitude
+      :required_visits_per_week, :visit_duration_minutes, :notes, :latitude, :longitude,
+      :min_days_between_visits, :max_days_between_visits, :priority
     )
   end
 
