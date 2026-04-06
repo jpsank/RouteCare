@@ -107,6 +107,8 @@ class Api::V1::MessagesControllerTest < ActionDispatch::IntegrationTest
 
   test "select suggestion updates outbound follow up with chosen proposed time" do
     user, visit = build_message_context(email: "select-suggestion@example.com")
+    proposed_time = Time.find_zone!("America/New_York").parse("2026-04-08 13:00:00")
+    proposed_end = Time.find_zone!("America/New_York").parse("2026-04-08 13:45:00")
     message = user.patient_messages.create!(
       visit: visit,
       patient: visit.patient,
@@ -118,8 +120,8 @@ class Api::V1::MessagesControllerTest < ActionDispatch::IntegrationTest
       metadata: {
         suggested_visit_times: [
           {
-            "starts_at" => Time.zone.parse("2026-04-08 13:00:00").iso8601,
-            "ends_at" => Time.zone.parse("2026-04-08 13:45:00").iso8601,
+            "starts_at" => proposed_time.iso8601,
+            "ends_at" => proposed_end.iso8601,
             "label" => "Wednesday Apr 8 at 1:00 PM"
           }
         ]
@@ -131,7 +133,7 @@ class Api::V1::MessagesControllerTest < ActionDispatch::IntegrationTest
     post select_suggestion_api_v1_message_path(message), params: { suggestion_index: 0 }, as: :json
 
     assert_response :success
-    assert_equal Time.zone.parse("2026-04-08 13:00:00"), message.reload.proposed_starts_at
+    assert_equal proposed_time, message.reload.proposed_starts_at
     assert_match(/We can offer/, message.body)
   end
 
