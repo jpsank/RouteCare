@@ -241,10 +241,13 @@ module Scheduling
       else
         candidates.min_by do |candidate|
           spacing_penalty = spacing_score_for(candidate[:date], existing_patient_days, min_gap, patient.max_days_between_visits)
+          route_penalty = insertion_route_penalty(candidate: candidate, current_plan: current_plan)
+          # High-priority patients: minimize route penalty less, prefer earlier times more
+          route_penalty *= 0.1 if patient.priority > 0
           [
             (day_offset_for(candidate[:date]) - target_day_offset).abs,
             spacing_penalty,
-            insertion_route_penalty(candidate: candidate, current_plan: current_plan),
+            route_penalty,
             candidate[:date],
             candidate[:starts_at]
           ]
