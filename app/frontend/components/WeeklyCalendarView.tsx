@@ -710,7 +710,13 @@ export function WeeklyCalendarView({
                 prev.city !== payload.city ||
                 prev.state !== payload.state ||
                 prev.postal_code !== payload.postal_code);
-            if (addressChanged) {
+            const schedulingChanged =
+              prev && (prev.required_visits_per_week !== payload.required_visits_per_week ||
+                prev.visit_duration_minutes !== payload.visit_duration_minutes ||
+                prev.min_days_between_visits !== payload.min_days_between_visits ||
+                prev.max_days_between_visits !== payload.max_days_between_visits ||
+                prev.priority !== payload.priority);
+            if (addressChanged || schedulingChanged) {
               setEditorMode("none");
               setSelectedVisitId(null);
               setEditorPosition(null);

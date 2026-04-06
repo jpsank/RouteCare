@@ -282,6 +282,10 @@ export function App() {
     try {
       const response = await api.updateClinicianProfile(settings as Parameters<typeof api.updateClinicianProfile>[0]);
       setClinicianProfile(response.clinician_profile);
+      const optimized = await api.optimizeSchedule();
+      setSchedule(optimized.schedule);
+      const refreshedBlocks = await api.listCalendarBlocks();
+      setCalendarBlocks(refreshedBlocks.calendar_blocks);
     } catch (err) {
       setError((err as Error).message);
     } finally {

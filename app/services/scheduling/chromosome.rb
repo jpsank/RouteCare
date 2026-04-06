@@ -82,8 +82,9 @@ module Scheduling
     # Decode chromosome into day_routes using nearest-neighbor ordering + retimer
     # instances: [VisitInstance] — indexed by id
     # fixed_slots_by_date: { Date => [{ patient:, starts_at:, ends_at: }] }
+    # max_drive_minutes_per_day: Integer|nil — hard cap on daily drive time
     # Returns { day_routes: {Date => [slots]}, lunch_placements: {}, feasible: bool }
-    def decode(travel_matrix:, instances:, fixed_slots_by_date: {}, retimer_options: {})
+    def decode(travel_matrix:, instances:, fixed_slots_by_date: {}, retimer_options: {}, max_drive_minutes_per_day: nil)
       instance_index = instances.index_by(&:id)
 
       # Group free instances by assigned day
@@ -121,6 +122,29 @@ module Scheduling
         day_routes[date] = result[:slots] if result[:slots].any?
         lunch_placements[date.to_s] = result[:lunch] if result[:lunch]
         feasible = false unless result[:feasible]
+
+        # Check max drive time per day
+        if max_drive_minutes_per_day && result[:slots].any?
+          day_drive = estimate_day_drive(result[:slots], travel_matrix)
+          feasible = false if day_drive > max_drive_minutes_per_day
+        end
+      end
+
+      # Check min_days_between_visits (hard constraint)
+      patient_days = Hash.new { |h, k| h[k] = [] }
+      day_routes.each do |date, slots|
+        slots.each { |s| patient_days[s[:patient].id] << date }
+      end
+      patient_days.each do |patient_id, dates|
+        next if dates.size < 2
+
+        patient = instance_index.values.find { |i| i.patient_id == patient_id }&.patient
+        next unless patient
+
+        sorted = dates.sort
+        sorted.each_cons(2) do |d1, d2|
+          feasible = false if (d2 - d1).to_i < patient.min_days_between_visits
+        end
       end
 
       { day_routes: day_routes, lunch_placements: lunch_placements, feasible: feasible }
@@ -131,6 +155,15 @@ module Scheduling
     end
 
     private
+
+    def estimate_day_drive(slots, travel_matrix)
+      sorted = slots.sort_by { |s| s[:starts_at] }
+      total = 0
+      sorted.each_cons(2) do |prev_slot, next_slot|
+        total += (travel_matrix.dig(prev_slot[:patient].id, next_slot[:patient].id) || 0)
+      end
+      total
+    end
 
     def nearest_neighbor_order(slots, travel_matrix, start_point = nil)
       return slots if slots.size <= 1

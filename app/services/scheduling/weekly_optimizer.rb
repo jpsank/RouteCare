@@ -73,7 +73,8 @@ module Scheduling
           start_point: start_point_for_day,
           routing_client: routing_client,
           max_continuous_work_minutes: clinician_profile.max_continuous_work_minutes,
-          required_break_minutes: clinician_profile.required_break_minutes
+          required_break_minutes: clinician_profile.required_break_minutes,
+          charting_buffer_minutes: clinician_profile.charting_buffer_minutes
         )
         result = retimer.call(ordered_slots, date)
 
@@ -138,6 +139,7 @@ module Scheduling
 
       plan = []
       soft_constraint_count = 0
+      @charting_buffer = clinician_profile.charting_buffer_minutes
 
       # Sort by priority descending so high-acuity patients get first pick
       patients = clinician_profile.patients.active.includes(:patient_availability_windows).order(priority: :desc)
@@ -147,7 +149,7 @@ module Scheduling
         remaining_visits = patient.required_visits_per_week - locked_days.size
         next if remaining_visits <= 0
 
-        target_day_offsets = evenly_spaced_day_offsets(remaining_visits)
+        target_day_offsets = evenly_spaced_day_offsets(remaining_visits, patient: patient)
 
         remaining_visits.times do |visit_index|
           slot = find_best_slot(
@@ -170,21 +172,29 @@ module Scheduling
     def find_best_slot(patient:, blocked_ranges:, current_plan:, target_day_offset:, excluded_days: Set.new)
       candidates = []
       existing_patient_days = existing_days_for_patient(patient, current_plan)
+      # Effective duration includes charting buffer for spacing/overlap checks,
+      # but the visit itself is only visit_duration_minutes long.
+      slot_footprint = patient.visit_duration_minutes + @charting_buffer
+      min_gap = patient.min_days_between_visits
+      max_drive = clinician_profile.max_drive_minutes_per_day
 
       weekly_days.each do |date|
         next if excluded_days.include?(date)
         next if existing_patient_days.include?(date)
         next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
+        next if too_close_to_existing?(date, existing_patient_days, min_gap)
+        next if max_drive && day_drive_total(current_plan, date) >= max_drive
 
         patient_windows_for_day = preferred_windows_for(patient, date)
         window_set = patient_windows_for_day.presence || fallback_windows_for(date)
 
         window_set.each do |window|
-          each_possible_start_minute(window: window, duration_minutes: patient.visit_duration_minutes).each do |start_minute|
+          each_possible_start_minute(window: window, duration_minutes: slot_footprint).each do |start_minute|
             starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(start_minute)}")
+            footprint_end = starts_at + slot_footprint.minutes
             ends_at = starts_at + patient.visit_duration_minutes.minutes
-            next if overlaps_blocked?(starts_at, ends_at, blocked_ranges[date])
-            next if overlaps_plan?(starts_at, ends_at, current_plan, patient)
+            next if overlaps_blocked?(starts_at, footprint_end, blocked_ranges[date])
+            next if overlaps_plan?(starts_at, footprint_end, current_plan, patient)
 
             candidates << {
               patient: patient,
@@ -197,19 +207,22 @@ module Scheduling
         end
       end
 
+      # Relaxed pass: drop spacing constraints but still enforce one-patient-per-day
       if candidates.empty?
         weekly_days.each do |date|
+          next if existing_patient_days.include?(date)
           next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
 
           patient_windows_for_day = preferred_windows_for(patient, date)
           window_set = patient_windows_for_day.presence || fallback_windows_for(date)
 
           window_set.each do |window|
-            each_possible_start_minute(window: window, duration_minutes: patient.visit_duration_minutes).each do |start_minute|
+            each_possible_start_minute(window: window, duration_minutes: slot_footprint).each do |start_minute|
               starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(start_minute)}")
+              footprint_end = starts_at + slot_footprint.minutes
               ends_at = starts_at + patient.visit_duration_minutes.minutes
-              next if overlaps_blocked?(starts_at, ends_at, blocked_ranges[date])
-              next if overlaps_plan?(starts_at, ends_at, current_plan, patient)
+              next if overlaps_blocked?(starts_at, footprint_end, blocked_ranges[date])
+              next if overlaps_plan?(starts_at, footprint_end, current_plan, patient)
 
               candidates << {
                 patient: patient,
@@ -227,8 +240,10 @@ module Scheduling
         fallback_slot(patient:, blocked_ranges:, current_plan:)
       else
         candidates.min_by do |candidate|
+          spacing_penalty = spacing_score_for(candidate[:date], existing_patient_days, min_gap, patient.max_days_between_visits)
           [
             (day_offset_for(candidate[:date]) - target_day_offset).abs,
+            spacing_penalty,
             insertion_route_penalty(candidate: candidate, current_plan: current_plan),
             candidate[:date],
             candidate[:starts_at]
@@ -238,14 +253,17 @@ module Scheduling
     end
 
     def fallback_slot(patient:, blocked_ranges:, current_plan:)
+      slot_footprint = patient.visit_duration_minutes + @charting_buffer
+
       weekly_days.each do |date|
         next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
 
         start_minute = day_start_minute
-        while start_minute + patient.visit_duration_minutes <= day_end_minute
+        while start_minute + slot_footprint <= day_end_minute
           starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(start_minute)}")
+          footprint_end = starts_at + slot_footprint.minutes
           ends_at = starts_at + patient.visit_duration_minutes.minutes
-          unless overlaps_blocked?(starts_at, ends_at, blocked_ranges[date]) || overlaps_plan?(starts_at, ends_at, current_plan, patient)
+          unless overlaps_blocked?(starts_at, footprint_end, blocked_ranges[date]) || overlaps_plan?(starts_at, footprint_end, current_plan, patient)
             return {
               patient:,
               date:,
@@ -357,15 +375,24 @@ module Scheduling
       "%<hour>02d:%<minute>02d" % { hour: minute / 60, minute: minute % 60 }
     end
 
-    def evenly_spaced_day_offsets(required_visits_per_week)
+    def evenly_spaced_day_offsets(required_visits_per_week, patient: nil)
       visit_count = required_visits_per_week.to_i
       day_offsets = available_workday_offsets
       return [ 0 ] if day_offsets.empty?
       return [ day_offsets.first ] if visit_count <= 1
 
-      step = (day_offsets.length - 1).to_f / (visit_count - 1)
+      density = clinician_profile.schedule_density
+
+      # High density (→1): cluster visits into fewer days, use smaller step
+      # Low density (→0): spread evenly across all days
+      max_step = (day_offsets.length - 1).to_f / (visit_count - 1)
+      min_step = 1.0 # cluster as tight as possible
+      step = max_step - (density * (max_step - min_step))
+      step = [ step, 1.0 ].max
+
       (0...visit_count).map do |index|
-        day_offsets[(index * step).round]
+        idx = (index * step).round.clamp(0, day_offsets.length - 1)
+        day_offsets[idx]
       end
     end
 
@@ -384,11 +411,51 @@ module Scheduling
       current_plan.count { |slot| slot[:date] == date } + locked_count
     end
 
+    # Check if a candidate date is within min_gap days of any existing visit for this patient
+    def too_close_to_existing?(date, existing_days, min_gap)
+      return false if min_gap <= 1
+
+      existing_days.any? { |d| (date - d).to_i.abs < min_gap }
+    end
+
+    # Scoring penalty for spacing: prefer dates that respect min/max gap
+    def spacing_score_for(date, existing_days, min_gap, max_gap)
+      return 0 if existing_days.empty?
+
+      penalty = 0
+      existing_days.each do |d|
+        gap = (date - d).to_i.abs
+        penalty += (min_gap - gap) * 10 if gap < min_gap
+        penalty += (gap - max_gap) * 5 if gap > max_gap
+      end
+      penalty
+    end
+
+    # Estimate total drive minutes already scheduled on a day
+    def day_drive_total(current_plan, date)
+      same_day = current_plan.select { |slot| slot[:date] == date }
+      return 0 if same_day.empty?
+
+      total = 0
+      sorted = same_day.sort_by { |s| s[:starts_at] }
+      prev_id = nil
+      sorted.each do |slot|
+        if prev_id
+          total += (@transit_minutes_cache["#{prev_id}:#{slot[:patient].id}"] || 0)
+        end
+        prev_id = slot[:patient].id
+      end
+      total
+    end
+
     def existing_days_for_patient(patient, current_plan)
-      current_plan
+      plan_days = current_plan
         .select { |slot| slot[:patient].id == patient.id }
         .map { |slot| slot[:date] }
-        .uniq
+      locked_days = @locked_visits
+        .select { |v| v.patient_id == patient.id }
+        .map { |v| v.starts_at.to_date }
+      (plan_days + locked_days).uniq
     end
 
     def each_possible_start_minute(window:, duration_minutes:)

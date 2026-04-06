@@ -12,7 +12,8 @@ module Scheduling
       start_point: nil,
       routing_client: Integrations::RoutingClient.new,
       max_continuous_work_minutes: nil,
-      required_break_minutes: 15
+      required_break_minutes: 15,
+      charting_buffer_minutes: 0
     )
       @travel_matrix = travel_matrix
       @locked_visits = locked_visits
@@ -23,6 +24,7 @@ module Scheduling
       @routing_client = routing_client
       @max_continuous_work_minutes = max_continuous_work_minutes
       @required_break_minutes = required_break_minutes
+      @charting_buffer_minutes = charting_buffer_minutes
     end
 
     # Assigns concrete start/end times to an ordered list of slots for a single day.
@@ -84,8 +86,10 @@ module Scheduling
           starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(earliest_start)}")
           ends_at = starts_at + duration.minutes
           retimed << slot.merge(starts_at: starts_at, ends_at: ends_at)
-          accumulated_work += duration + transit
-          current_minute = earliest_start + duration
+          # Advance past visit + charting buffer so the next visit is spaced correctly
+          slot_footprint = duration + @charting_buffer_minutes
+          accumulated_work += slot_footprint + transit
+          current_minute = earliest_start + slot_footprint
         end
 
         previous_patient_id = patient.id

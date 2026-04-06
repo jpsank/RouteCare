@@ -84,7 +84,8 @@ module Scheduling
             travel_matrix: @travel_matrix,
             instances: @instances,
             fixed_slots_by_date: @fixed_slots_by_date,
-            retimer_options: @retimer_options
+            retimer_options: @retimer_options,
+            max_drive_minutes_per_day: @clinician_profile.max_drive_minutes_per_day
           )
           next unless decoded[:feasible]
 
@@ -157,7 +158,8 @@ module Scheduling
         travel_matrix: @travel_matrix,
         instances: @instances,
         fixed_slots_by_date: @fixed_slots_by_date,
-        retimer_options: @retimer_options
+        retimer_options: @retimer_options,
+        max_drive_minutes_per_day: @clinician_profile.max_drive_minutes_per_day
       )
 
       {
@@ -203,7 +205,8 @@ module Scheduling
         start_point: start_pt,
         routing_client: @routing_client,
         max_continuous_work_minutes: @clinician_profile.max_continuous_work_minutes,
-        required_break_minutes: @clinician_profile.required_break_minutes
+        required_break_minutes: @clinician_profile.required_break_minutes,
+        charting_buffer_minutes: @clinician_profile.charting_buffer_minutes
       }
 
       @fitness_fn = Scheduling::FitnessFunction.new(
