@@ -715,6 +715,7 @@ export function WeeklyCalendarView({
               selectedVisitId={selectedVisitId}
               setSelectedVisitId={setSelectedVisitId}
               homeOrigin={homeOrigin}
+              returnHomeMinutes={returnHomeMinutes}
             />
           </div>
         )}
