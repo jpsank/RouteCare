@@ -6,9 +6,9 @@ module Messaging
     }.freeze
 
     TIME_OF_DAY_RANGES = {
-      "morning"   => { start_minute: 8 * 60, end_minute: 12 * 60 },
+      "morning" => { start_minute: 8 * 60, end_minute: 12 * 60 },
       "afternoon" => { start_minute: 12 * 60, end_minute: 17 * 60 },
-      "evening"   => { start_minute: 17 * 60, end_minute: 20 * 60 }
+      "evening" => { start_minute: 17 * 60, end_minute: 20 * 60 }
     }.freeze
 
     DEFAULT_START_MINUTE = 8 * 60
@@ -88,15 +88,16 @@ module Messaging
       return nil if str.blank?
 
       cleaned = str.to_s.strip.downcase
-      if cleaned =~ /\A(\d{1,2})(?::(\d{2}))?\s*(am|pm)\z/
-        hour = $1.to_i
-        minute = ($2 || "0").to_i
-        period = $3
-        hour = 0 if hour == 12 && period == "am"
-        hour += 12 if hour != 12 && period == "pm"
-        total = hour * 60 + minute
-        total.between?(0, 1440) ? total : nil
-      end
+      match = cleaned.match(/\A(?<h>\d{1,2})(?::(?<m>\d{2}))?\s*(?<p>am|pm)\z/)
+      return nil unless match
+
+      hour = match[:h].to_i
+      minute = (match[:m] || "0").to_i
+      period = match[:p]
+      hour = 0 if hour == 12 && period == "am"
+      hour += 12 if hour != 12 && period == "pm"
+      total = hour * 60 + minute
+      total.between?(0, 1440) ? total : nil
     end
   end
 end
