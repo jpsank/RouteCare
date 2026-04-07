@@ -99,8 +99,9 @@ def solve(
                 time=t,
             )
 
-    # Parameters
-    model.set_parameters(time_limit=time_budget)
+    # Parameters — use HGS upper bound if provided to prune BCP search tree
+    ub = int(upper_bound.fitness) if upper_bound and upper_bound.fitness > 0 else 1000000
+    model.set_parameters(time_limit=time_budget, upper_bound=ub)
 
     # Solve
     model.solve()
