@@ -5,16 +5,19 @@ module Scheduling
   # a SolverOutputData struct. The SchedulePersister handles DB persistence.
   #
   # Implementations:
-  #   Scheduling::Solvers::Greedy  — regret insertion + ALNS (fast, on-demand)
-  #   Scheduling::Solvers::Ga      — genetic algorithm (slower, nightly)
-  #   (future) Scheduling::Solvers::Hgs   — HGS via Python microservice
-  #   (future) Scheduling::Solvers::Bcp   — Branch-Cut-and-Price via PyVRP
+  #   :greedy   — Regret insertion + ALNS (Ruby, fast, on-demand)
+  #   :ga       — Genetic algorithm with HGS-inspired education (Ruby, nightly)
+  #   :hgs      — PyVRP Hybrid Genetic Search (Python microservice, near-optimal)
+  #   :bcp      — VRPSolverEasy Branch-Cut-and-Price (Python microservice, exact)
+  #   :pipeline — HGS first, then BCP with upper bound (Python microservice, nightly)
   #
   module Solver
     def self.solve(input, backend: :greedy, **options)
       solver = case backend
-               when :greedy then Solvers::Greedy.new(input, **options)
-               when :ga     then Solvers::Ga.new(input, **options)
+               when :greedy   then Solvers::Greedy.new(input, **options)
+               when :hgs      then Solvers::Hgs.new(input, **options)
+               when :bcp      then Solvers::Bcp.new(input, **options)
+               when :pipeline then Solvers::Pipeline.new(input, **options)
                else raise ArgumentError, "Unknown solver backend: #{backend}"
                end
       solver.solve
