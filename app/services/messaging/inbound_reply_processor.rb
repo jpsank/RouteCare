@@ -36,6 +36,10 @@ module Messaging
         visit.update!(status: :declined)
       when :reschedule
         visit.update!(status: :pending_patient_confirmation)
+        Messaging::AvailabilityWindowUpdater.new(
+          patient: visit.patient,
+          proposed_windows: parsed.proposed_windows
+        ).call
         Alert.create!(
           user: user,
           category: "patient_reply_attention",
