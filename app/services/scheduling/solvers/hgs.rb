@@ -11,7 +11,7 @@ module Scheduling
         response = HTTParty.post(
           "#{solver_url}/solve",
           query: { backend: "hgs", time_budget: @time_budget },
-          body: serialize_input(@input),
+          body: request_body,
           headers: { "Content-Type" => "application/json" },
           timeout: @time_budget + 30,
           format: :json
@@ -28,6 +28,10 @@ module Scheduling
 
       def solver_url
         ENV.fetch("PYTHON_SOLVER_URL", "http://localhost:8000")
+      end
+
+      def request_body
+        serialize_input(@input)
       end
 
       def serialize_input(input)

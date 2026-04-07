@@ -8,6 +8,7 @@ module Scheduling
   #   :greedy   — Regret insertion + ALNS (Ruby, fast, on-demand)
   #   :ga       — Genetic algorithm with HGS-inspired education (Ruby, nightly)
   #   :hgs      — PyVRP Hybrid Genetic Search (Python microservice, near-optimal)
+  #   :cpsat    — CP-SAT decomposed solver (Python microservice, full constraints)
   #   :bcp      — VRPSolverEasy Branch-Cut-and-Price (Python microservice, exact)
   #   :pipeline — HGS first, then BCP with upper bound (Python microservice, nightly)
   #
@@ -16,6 +17,7 @@ module Scheduling
       solver = case backend
       when :greedy   then Solvers::Greedy.new(input, **options)
       when :hgs      then Solvers::Hgs.new(input, **options)
+      when :cpsat    then Solvers::Cpsat.new(input, **options)
       when :bcp      then Solvers::Bcp.new(input, **options)
       when :pipeline then Solvers::Pipeline.new(input, **options)
       else raise ArgumentError, "Unknown solver backend: #{backend}"

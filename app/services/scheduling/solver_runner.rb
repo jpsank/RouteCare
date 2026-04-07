@@ -5,6 +5,10 @@ module Scheduling
   # Usage:
   #   Scheduling::SolverRunner.run(user:, week_start_on:, backend: :greedy)
   #
+  # CP-SAT: pass +upper_bound:+ (SolverOutputData) for a warm-started re-solve, or
+  # +warm_start_from_schedule: true+ with +backend: :cpsat+ to build upper_bound from
+  # the existing WeeklySchedule when instance ids align with persisted visits.
+  #
   class SolverRunner
     def self.run(user:, week_start_on:, start_point: nil, backend: :greedy, **options)
       new(user:, week_start_on:, start_point:, backend:, **options).run
@@ -20,7 +24,13 @@ module Scheduling
 
     def run
       input = SolverInput.build(user: @user, week_start_on: @week_start_on, start_point: @start_point)
-      output = Solver.solve(input, backend: @backend, **@options)
+      opts = @options.dup
+      if @backend == :cpsat && opts.delete(:warm_start_from_schedule)
+        opts[:upper_bound] ||= WarmStartOutput.from_schedule(
+          user: @user, week_start_on: @week_start_on, input: input
+        )
+      end
+      output = Solver.solve(input, backend: @backend, **opts)
       persist(input, output)
     end
 

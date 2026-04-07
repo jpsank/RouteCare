@@ -1,7 +1,7 @@
 """FastAPI solver service — dispatches to HGS (PyVRP) or BCP (VRPSolverEasy)."""
 
 from fastapi import FastAPI, HTTPException, Query
-from models import SolverInput, SolverOutput
+from models import SolverInput, SolverOutput, SolveRequest
 import solvers
 
 app = FastAPI(title="RouteCare Solver Service", version="0.1.0")
@@ -14,11 +14,14 @@ def health():
 
 @app.post("/solve", response_model=SolverOutput)
 def solve(
-    input: SolverInput,
+    body: SolveRequest,
     backend: str = Query("cpsat", pattern="^(hgs|bcp|cpsat|pipeline)$"),
     time_budget: int = Query(30, ge=1, le=7200),
 ):
     """Solve a VRP instance.
+
+    Body may include optional ``upper_bound`` (full SolverOutput) for CP-SAT warm-start when
+    instances match. Other backends ignore it.
 
     Backends:
       - cpsat: OR-Tools CP-SAT with full healthcare constraints (default)
@@ -27,8 +30,12 @@ def solve(
       - pipeline: HGS first, then BCP with HGS upper bound
     """
     try:
+        input_payload = body.model_dump(exclude={"upper_bound"})
+        input = SolverInput.model_validate(input_payload)
+        upper_bound = body.upper_bound
+
         if backend == "cpsat":
-            return solvers.cpsat_solve(input, time_budget=time_budget)
+            return solvers.cpsat_solve(input, time_budget=time_budget, upper_bound=upper_bound)
 
         elif backend == "hgs":
             return solvers.hgs_solve(input, time_budget=time_budget)

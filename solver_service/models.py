@@ -84,3 +84,9 @@ class SolverOutput(BaseModel):
     lunch_placements: dict[str, dict]  # date_string → {start_minute, end_minute}
     fitness: float = 0.0
     metadata: dict = {}
+
+
+class SolveRequest(SolverInput):
+    """POST /solve body: full SolverInput fields plus optional prior solution for warm-start."""
+
+    upper_bound: SolverOutput | None = None

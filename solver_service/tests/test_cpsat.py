@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from collections import Counter
 from datetime import datetime
 from models import (
-    SolverInput, ClinicianData, PatientData, VisitInstanceData,
+    SolverInput, SolverOutput, ClinicianData, PatientData, VisitInstanceData,
     LockedVisitData, CalendarBlockData, Location,
 )
 
@@ -88,6 +88,101 @@ def test_cpsat_produces_valid_output():
     # Lunch placements should cover all working days
     for day in input.working_days:
         assert day in output.lunch_placements, f"Missing lunch for {day}"
+
+
+def test_cpsat_re_solve_with_upper_bound():
+    """Second solve with upper_bound from same input seeds hints and completes."""
+    from solvers.cpsat import solve
+
+    inp = make_test_input()
+    first = solve(inp, time_budget=10)
+    second = solve(inp, time_budget=10, upper_bound=first)
+
+    assert second.metadata["optimizer_type"] == "cpsat"
+    input_ids = {inst.id for inst in inp.instances}
+    output_ids = {v.instance_id for v in second.planned_visits}
+    assert output_ids == input_ids
+    for day in inp.working_days:
+        assert day in second.lunch_placements
+
+    assert second.metadata.get("upper_bound_provided") is True
+    assert second.metadata.get("upper_bound_accepted") is True
+    assert second.metadata.get("warm_start_used") is True
+
+
+def test_upper_bound_valid_for_warm_start_accepts_solver_output():
+    from solvers.cpsat import solve, upper_bound_valid_for_warm_start, _build_context
+
+    inp = make_test_input()
+    out = solve(inp, time_budget=10)
+    ctx = _build_context(inp)
+    assert upper_bound_valid_for_warm_start(inp, ctx, out)
+
+
+def test_upper_bound_valid_rejects_two_visits_same_patient_same_day():
+    from solvers.cpsat import solve, upper_bound_valid_for_warm_start, _build_context
+
+    inp = make_test_input()
+    good = solve(inp, time_budget=10)
+    ctx = _build_context(inp)
+    visits = list(good.planned_visits)
+    v0 = visits[0]
+    same_patient_other = next(
+        v for v in visits
+        if v.patient_id == v0.patient_id and v.instance_id != v0.instance_id
+    )
+    moved = same_patient_other.model_copy(update={
+        "date": v0.date,
+        "starts_at": v0.starts_at,
+        "ends_at": v0.ends_at,
+    })
+    patched = [moved if v.instance_id == same_patient_other.instance_id else v for v in visits]
+    bad = SolverOutput(
+        planned_visits=patched,
+        lunch_placements=dict(good.lunch_placements),
+        fitness=good.fitness,
+        metadata=dict(good.metadata),
+    )
+    assert not upper_bound_valid_for_warm_start(inp, ctx, bad)
+
+
+def test_cpsat_ignores_invalid_upper_bound_gracefully():
+    """Corrupt upper_bound must not break solve (warm-start skipped)."""
+    from solvers.cpsat import solve, upper_bound_valid_for_warm_start, _build_context
+
+    inp = make_test_input()
+    good = solve(inp, time_budget=10)
+    ctx = _build_context(inp)
+    visits = list(good.planned_visits)
+    v0 = visits[0]
+    same_patient_other = next(
+        v for v in visits
+        if v.patient_id == v0.patient_id and v.instance_id != v0.instance_id
+    )
+    moved = same_patient_other.model_copy(update={
+        "date": v0.date,
+        "starts_at": v0.starts_at,
+        "ends_at": v0.ends_at,
+    })
+    patched = [moved if v.instance_id == same_patient_other.instance_id else v for v in visits]
+    bad = SolverOutput(
+        planned_visits=patched,
+        lunch_placements=dict(good.lunch_placements),
+        fitness=good.fitness,
+        metadata=dict(good.metadata),
+    )
+    assert not upper_bound_valid_for_warm_start(inp, ctx, bad)
+    second = solve(inp, time_budget=10, upper_bound=bad)
+    assert second.metadata["optimizer_type"] == "cpsat"
+    assert len(second.planned_visits) == len(inp.instances)
+
+
+def test_normalized_assignment_signature_stable():
+    from solvers.cpsat import _normalized_assignment_signature
+
+    a = {0: [1, 2], 3: [0]}
+    b = {3: [0], 0: [1, 2]}
+    assert _normalized_assignment_signature(a, 5) == _normalized_assignment_signature(b, 5)
 
 
 def test_cpsat_empty_input():
@@ -539,6 +634,9 @@ def test_cpsat_metadata_fields():
     assert "iteration_log" in meta
     assert "route_winners" in meta
     assert meta["iterations"] >= 1
+    assert meta.get("warm_start_used") is False
+    assert meta.get("upper_bound_provided") is False
+    assert meta.get("upper_bound_accepted") is False
 
 
 def test_cpsat_iteration_log_uniform_schema():
@@ -584,6 +682,17 @@ def test_cpsat_converged_log_carries_last_metrics(monkeypatch):
     conv = [e for e in output.metadata["iteration_log"] if e.get("converged")]
     assert conv, "stub should force identical assignment on iteration 1"
     assert "drive" in conv[0] and "fitness" in conv[0] and "placed" in conv[0]
+
+
+def test_cpsat_assign_time_skews_iteration_zero():
+    """Iteration 0 CP-SAT should get a larger max_time than later iterations (same total pool)."""
+    from solvers import cpsat as m
+
+    pool = max(3, 60 // 2)
+    t0 = m._cp_sat_assign_seconds(0, 60, 3)
+    t1 = m._cp_sat_assign_seconds(1, 60, 3)
+    assert t0 >= t1 >= 1
+    assert t0 + 2 * t1 <= pool + 2  # integer rounding slack
 
 
 def test_cpsat_zero_home_legs_still_schedules():

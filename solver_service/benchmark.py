@@ -1,15 +1,18 @@
-"""Benchmark: CP-SAT decomposed solver vs HGS vs greedy baseline.
+"""Benchmark: CP-SAT decomposed solver (optional comparison with HGS).
 
-Runs all solvers on identical inputs at multiple scales and compares:
+Runs on identical inputs at multiple scales and compares:
   - Solution quality (total drive time, constraint violations)
   - Runtime
   - Feasibility (all visits placed?)
 
 Usage:
   cd solver_service
-  python3 benchmark.py
+  python3 benchmark.py                 # CP-SAT only (default)
+  python3 benchmark.py --with-hgs      # also run PyVRP HGS baseline
+  python3 benchmark.py --re-solve    # CP-SAT cold + warm re-solve timing on each scenario
 """
 
+import argparse
 import sys
 import os
 import time
@@ -303,7 +306,7 @@ def _to_minute(dt_str: str) -> int:
     return dt.hour * 60 + dt.minute
 
 
-def run_benchmark():
+def run_benchmark(with_hgs: bool = False, re_solve: bool = False) -> None:
     scenarios = [
         ("Small (3 patients, 5 visits)", make_scenario_small()),
         ("Medium (8 patients, 15 visits)", make_scenario_medium()),
@@ -317,17 +320,25 @@ def run_benchmark():
         from solvers.cpsat import solve as cpsat_solve
         backends.append(("CP-SAT", cpsat_solve, 10))
     except ImportError as e:
-        print(f"  CP-SAT unavailable: {e}")
+        print(f"CP-SAT unavailable: {e}", file=sys.stderr)
 
-    # HGS (PyVRP)
-    try:
-        from solvers.hgs import solve as hgs_solve
-        backends.append(("HGS", hgs_solve, 5))
-    except ImportError as e:
-        print(f"  HGS unavailable: {e}")
+    # HGS (PyVRP) — opt-in; not loaded unless --with-hgs
+    if with_hgs:
+        try:
+            from solvers.hgs import solve as hgs_solve
+            backends.append(("HGS", hgs_solve, 5))
+        except ImportError as e:
+            print(f"HGS unavailable (--with-hgs): {e}", file=sys.stderr)
+
+    if not backends:
+        print("No solvers available; fix imports and retry.", file=sys.stderr)
+        sys.exit(1)
 
     print("=" * 90)
-    print("BENCHMARK: CP-SAT Decomposed vs HGS")
+    title = "BENCHMARK: CP-SAT Decomposed"
+    if with_hgs and len(backends) > 1:
+        title += " vs HGS"
+    print(title)
     print("=" * 90)
 
     for scenario_name, input_data in scenarios:
@@ -354,6 +365,17 @@ def run_benchmark():
                       f"{metrics['spacing_violations']:>7} {metrics['one_per_day_violations']:>6} "
                       f"{metrics['avail_violations']:>7} {metrics['block_violations']:>7} "
                       f"{metrics['fitness']:>10.0f}")
+
+                if re_solve and name == "CP-SAT":
+                    t1 = time.perf_counter()
+                    warm = solver_fn(input_data, time_budget=budget, upper_bound=output)
+                    warm_elapsed = time.perf_counter() - t1
+                    wm = evaluate_output(warm, input_data)
+                    print(f"  {'CP-SAT warm':<12} {warm_elapsed:>7.2f}s {wm['visits_placed']:>7} "
+                          f"{wm['unscheduled']:>8} {wm['total_drive']:>7} "
+                          f"{wm['spacing_violations']:>7} {wm['one_per_day_violations']:>6} "
+                          f"{wm['avail_violations']:>7} {wm['block_violations']:>7} "
+                          f"{wm['fitness']:>10.0f}")
             except Exception as e:
                 print(f"  {name:<12} {'ERROR':>8} — {e}")
 
@@ -369,4 +391,16 @@ def run_benchmark():
 
 
 if __name__ == "__main__":
-    run_benchmark()
+    parser = argparse.ArgumentParser(description="Compare scheduling solver backends.")
+    parser.add_argument(
+        "--with-hgs",
+        action="store_true",
+        help="Also run the PyVRP HGS solver (default: CP-SAT only).",
+    )
+    parser.add_argument(
+        "--re-solve",
+        action="store_true",
+        help="After each CP-SAT run, time a second solve with upper_bound set (warm start).",
+    )
+    args = parser.parse_args()
+    run_benchmark(with_hgs=args.with_hgs, re_solve=args.re_solve)
