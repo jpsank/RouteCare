@@ -3,7 +3,8 @@ module Scheduling
     SPECIATION_THRESHOLD = 0.3
     TOURNAMENT_SIZE = 3
     ELITE_COUNT = 5
-    STAGNATION_LIMIT = 20
+    STAGNATION_LIMIT = 50
+    DIVERSITY_RESTART_THRESHOLD = 15  # Inject diversity after this many stagnant generations
 
     def initialize(user:, week_start_on:, time_budget: 45, population_size: 50, start_point: nil)
       @user = user
@@ -125,18 +126,27 @@ module Scheduling
         # Speciate
         species = speciate(scored)
 
-        elapsed_now = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
-        Rails.logger.info(
-          "[GA] gen=#{generation} best=#{best_fitness.round(2)} " \
-          "feasible=#{scored.size}/#{population.size} species=#{species.size} " \
-          "mutation=#{mutation_rate.round(3)} elapsed=#{elapsed_now.round(1)}s"
-        )
+        # Diversity injection: when stagnating, replace part of the population
+        # with random individuals to break homogeneity
+        if stagnation > 0 && (stagnation % DIVERSITY_RESTART_THRESHOLD).zero?
+          mutation_rate = [ mutation_rate * 2.0, 0.5 ].min # Boost mutation temporarily
+        end
 
         # Build next generation
         next_gen = []
 
-        # Elitism: carry forward top individuals
-        next_gen.concat(scored.first(ELITE_COUNT).map { |s| s[:chromosome].dup })
+        # Elitism: keep best, but also keep the most diverse individuals
+        elites = scored.first(ELITE_COUNT).map { |s| s[:chromosome].dup }
+        next_gen.concat(elites)
+
+        # Diversity survivors: from remaining, pick individuals most different from elites
+        remaining_scored = scored.drop(ELITE_COUNT)
+        if remaining_scored.size > 2
+          diverse = remaining_scored.sort_by do |s|
+            -elites.map { |e| s[:chromosome].structural_distance(e) }.min
+          end
+          next_gen.concat(diverse.first(2).map { |s| s[:chromosome].dup })
+        end
 
         # Fill remaining with offspring
         while next_gen.size < @population_size
@@ -145,15 +155,24 @@ module Scheduling
 
           child = parent_a.crossover(parent_b)
           child.mutate!(@working_days, rate: mutation_rate)
-
-          # Education: local search on the child before adding to population
           child = educate(child)
 
           next_gen << child
         end
 
+        # Inject fresh random individuals when stagnating
+        if stagnation > 0 && (stagnation % DIVERSITY_RESTART_THRESHOLD).zero?
+          inject_count = (@population_size * 0.3).ceil
+          inject_count.times do
+            random = Chromosome.random_perturbation(best_chromosome, @working_days, swap_count: (best_chromosome.genes.size * 0.5).ceil)
+            random = educate(random)
+            next_gen.pop # Remove last offspring to make room
+            next_gen << random
+          end
+        end
+
         population = next_gen
-        mutation_rate *= 0.95 # Cool
+        mutation_rate = [ mutation_rate * 0.97, 0.05 ].max # Slower cooling
       end
 
       # Decode best if we haven't yet
