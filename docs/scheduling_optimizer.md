@@ -187,58 +187,75 @@ where:
 
 ---
 
-## Primary Implementation: CP-SAT (Python)
+## Primary Implementation: Decomposed CP-SAT + Routing (Python)
 
-### OR-Tools CP-SAT — Constraint Programming Solver
+### Architecture: Assignment ↔ Routing Decomposition
 
-[OR-Tools](https://github.com/google/or-tools) CP-SAT is a constraint programming solver with SAT-based search. Unlike VRP-specific solvers (PyVRP, BaPCod), it models arbitrary constraints natively — making it ideal for healthcare scheduling where domain constraints (spacing, availability, breaks) go far beyond standard vehicle routing.
+The scheduling problem has two fundamentally different sub-problems:
+- **Assignment** (combinatorial): which visits go on which days — governed by spacing, availability, priority, density constraints
+- **Routing** (spatial): given a day's visits, find optimal order and timing — governed by travel times, lunch, breaks, calendar blocks
 
-**Key advantages over VRP solvers:**
-- All constraints enforced *during* search, not post-hoc
-- Can prove optimality (or return best-found within time budget)
-- No binary licensing issues — pure Python, installs via `pip install ortools`
-- Single solver replaces HGS + BCP + Ruby greedy
+Each sub-problem is solved by the right tool:
 
-**Model structure:**
+```
+CP-SAT (assignment)                     Day Router (routing + timing)
+  ├ assign[i, d] — instance to day       ├ Enumerate all permutations (≤5! = 120)
+  ├ One patient per day                   ├ Nearest-neighbor + timing for each
+  ├ Min/max spacing                       ├ Lunch break insertion within window
+  ├ Availability windows                  ├ Max continuous work / break enforcement
+  ├ Max visits per day                    ├ Calendar block avoidance
+  ├ Target day offsets (even spread)      ├ Locked visit avoidance
+  ├ Schedule density                      ├ Availability window placement
+  ├ Patient priority                      ├ Charting buffer + transit buffer
+  └ Approximate travel cost per day       └ Returns: times, lunch, drive cost
+```
 
-Decision variables:
-- `day_var[i]` — which working day each visit instance is assigned to (or "unscheduled")
-- `start_time[i]` — minute-of-day when visit starts (constrained to 15-min intervals)
-- `position[i][d]` — sequencing order within a day
-- `assign[i][d]` — binary: is instance i assigned to day d?
-- `lunch_start_var[d]` — lunch start time on each day (within lunch window)
+### Iterative Feedback Loop
+
+CP-SAT needs travel cost to make good day assignments, but exact cost depends on routing. Solved by iterating:
+
+```
+1. CP-SAT assigns days using approximate cost (avg home-leg distances)
+2. Day router routes each day → returns actual drive costs
+3. Feed actual costs back as updated marginal costs per instance per day
+4. Re-assign → re-route → converge (3 iterations)
+```
+
+### CP-SAT Assignment Model
+
+Variables: `day_var[i]` (which day), `assign[i,d]` (binary), `scheduled[i]` (bool)
+
+No routing variables — no position, start_time, or pairwise ordering. Model size is O(n × d) instead of O(n² × d).
 
 Hard constraints:
 - One patient per day (including locked visits)
 - Max 5 visits per day (including locked visits)
-- Visit sequencing: `start[j] >= start[i] + duration[i] + travel(i→j) + transit_buffer`
-- Calendar blocks: no temporal overlap with blocked ranges
-- Locked visits: time ranges blocked, patient-day excluded
-- Workday boundaries: all visits within [workday_start, workday_end]
-- 15-minute slot granularity
-- **Lunch break:** no visit may overlap `[lunch_start, lunch_start + lunch_duration]` on any day; lunch_start is a variable within the lunch window, optimized during search
-- **Max continuous work:** total visit duration on each side of lunch ≤ `max_continuous_work_minutes`; lunch resets the work accumulator (matching Ruby Retimer behavior)
 
-Soft constraints (penalty variables in objective):
+Soft constraints (penalty variables):
 - **Unscheduled:** 10,000 × (priority + 1) per unplaced visit
 - **Min spacing:** 100 per day short of `min_days_between_visits`
 - **Max spacing:** 50 per day over `max_days_between_visits`
-- **Availability windows:** 150 per visit outside patient's preferred time-of-day
-- **Max drive per day:** 50 per minute over `max_drive_minutes_per_day`
-- **Lunch drift:** 1 per minute of lunch deviation from target
-- **Target day offset:** 10 per day of deviation from ideal evenly-spaced day
-- **Schedule density:** spread/cluster penalty based on clinician preference
+- **Availability windows:** 150 if patient has no windows on assigned day-of-week
+- **Max drive per day:** 50 per minute over limit (approximate)
+- **Target day offset:** 10 per day deviation from ideal evenly-spaced day
+- **Schedule density:** spread/cluster penalty
 
-Objective:
-```
-minimize:
-  total_travel (home→visits→home, all days)
-  + Σ soft_constraint_penalties
-```
+### Day Router
 
-**Lunch placement:** Lunch is a first-class constraint during optimization. The solver finds the optimal lunch time within the configured window while ensuring no visit overlaps it. Lunch times are extracted directly from the model solution.
+For ≤5 visits (MAX_VISITS_PER_DAY), the router **exhaustively enumerates all permutations** (5! = 120) and picks the lowest-cost feasible ordering. This is exact — no heuristic approximation.
 
-**Performance:** Solves 5-visit/5-day problems in <5s. Scales to ~50 visits across 5-7 days within 30s time budget. Proves optimality on small instances.
+Each permutation is evaluated with full retiming:
+- 15-minute slot granularity
+- Transit time + 5-minute buffer between visits
+- Lunch break insertion within the configured window
+- Max continuous work enforcement (break insertion)
+- Calendar block and locked visit avoidance
+- Patient availability window placement
+- Charting buffer after each visit
+
+Falls back to nearest-neighbor if all permutations are infeasible.
+
+**Performance:** Assignment solves in <1s. Routing evaluates 120 permutations per day in microseconds. Total: <2s for 5 patients × 5 days (vs ~5s for the previous monolithic CP-SAT).
 
 ---
 
