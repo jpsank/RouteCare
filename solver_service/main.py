@@ -39,18 +39,22 @@ def solve(
 
             hgs_result = solvers.hgs_solve(input, time_budget=hgs_budget)
 
-            # Feed HGS result to BCP
-            bcp_result = solvers.bcp_solve(
-                input,
-                time_budget=bcp_budget,
-                upper_bound=hgs_result,
-            )
+            # Try BCP with HGS upper bound; fall back to HGS if BCP unavailable
+            try:
+                bcp_result = solvers.bcp_solve(
+                    input,
+                    time_budget=bcp_budget,
+                    upper_bound=hgs_result,
+                )
 
-            # Return BCP if it improved or proved optimal; otherwise HGS
-            if bcp_result.metadata.get("proven_optimal"):
-                return bcp_result
-            if bcp_result.fitness < hgs_result.fitness and bcp_result.planned_visits:
-                return bcp_result
+                # Return BCP if it improved or proved optimal; otherwise HGS
+                if bcp_result.metadata.get("proven_optimal"):
+                    return bcp_result
+                if bcp_result.fitness < hgs_result.fitness and bcp_result.planned_visits:
+                    return bcp_result
+            except Exception:
+                pass  # BCP unavailable or failed — fall back to HGS
+
             return hgs_result
 
     except ImportError as e:
