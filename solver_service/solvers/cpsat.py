@@ -21,6 +21,10 @@ Architecture:
     2. Route each day → get actual costs
     3. Feed actual costs back, re-assign
     4. Converge in 2-3 iterations
+
+  Env:
+    CPSAT_NUM_WORKERS — OR-Tools worker threads (default: min(CPU, 8))
+    CPSAT_HGS_MAX_SECONDS — max PyVRP time per day-route (default: 0.5)
 """
 
 from __future__ import annotations
@@ -56,6 +60,8 @@ TRANSIT_BUFFER = 5
 # Pipeline
 MAX_ITERATIONS = 3
 NUM_WORKERS = int(os.environ.get("CPSAT_NUM_WORKERS", min(os.cpu_count() or 4, 8)))
+# Cap for PyVRP per-day routing (seconds); floor still scales with n inside _hgs_route_order.
+HGS_MAX_SECONDS = float(os.environ.get("CPSAT_HGS_MAX_SECONDS", "0.5"))
 
 
 def solve(
@@ -64,20 +70,28 @@ def solve(
     upper_bound: SolverOutput | None = None,
 ) -> SolverOutput:
     """Decomposed solve: CP-SAT assignment → day routing → feedback loop."""
+    _ = upper_bound  # API parity / future warm-start from a prior SolverOutput
+
     if not input.instances:
         return _empty_output(input)
 
     ctx = _build_context(input)
     patients_by_id = {p.id: p for p in input.patients}
     num_instances = len(input.instances)
-    num_days = len(input.working_days)
 
-    # Initial per-instance home-leg costs (constant across days)
-    home_costs: dict[int, int] = {}
+    # Static home-leg proxy for "if this instance were the only stop on a day"
+    home_leg: dict[int, int] = {}
     for i, inst in enumerate(input.instances):
         t_out = ctx["travel"]("home", str(inst.patient_id))
         t_back = ctx["travel"](str(inst.patient_id), "home")
-        home_costs[i] = (t_out + t_back) // 2
+        home_leg[i] = (t_out + t_back) // 2
+
+    # Per (day, instance) marginal cost for CP-SAT travel objective.
+    # Iteration 0: all equal to home_leg[i]; later: routed share for placed days, else home_leg.
+    num_days = len(input.working_days)
+    day_marginal_costs: dict[int, dict[int, int]] = {
+        d: {i: home_leg[i] for i in range(num_instances)} for d in range(num_days)
+    }
 
     best_output = None
     best_fitness = float("inf")
@@ -89,8 +103,10 @@ def solve(
         assign_budget = max(1, time_budget // (MAX_ITERATIONS * 2))
 
         # 1. CP-SAT: assign instances to days
-        # On iteration 0 use home-leg + pairwise; on 1+ use actual route costs only
-        assignments, status = _assign_days(input, ctx, home_costs, assign_budget, iteration)
+        # Iter 0: per-day marginals (== home leg) + pairwise; iter 1+: marginals from last route per (d,i)
+        assignments, status = _assign_days(
+            input, ctx, day_marginal_costs, home_leg, assign_budget, iteration
+        )
         cp_sat_status = status
         if assignments is None:
             break
@@ -118,15 +134,19 @@ def solve(
             if route_result.get("winner"):
                 route_winners[date] = route_result["winner"]
 
-        # 3. Update home_costs from actual routing for next iteration
+        # 3. Update per-(day, instance) marginals from actual routing for next CP-SAT pass
         for d in range(num_days):
             assigned_on_d = set(assignments.get(d, []))
             base_cost = actual_day_costs.get(d, 0)
             count = max(len(assigned_on_d), 1)
-            for i in assigned_on_d:
-                home_costs[i] = base_cost // count
+            share = base_cost // count
+            for i in range(num_instances):
+                if i in assigned_on_d:
+                    day_marginal_costs[d][i] = share
+                else:
+                    day_marginal_costs[d][i] = home_leg[i]
 
-        # 4. Compute fitness: drive + weighted unscheduled + soft violations
+        # 4. Compute fitness: drive + weighted unscheduled + soft violations + CP-SAT-aligned proxies
         total_drive = sum(actual_day_costs.values())
         placed_ids = {v.instance_id for v in all_planned}
         unsched_penalty = 0
@@ -139,8 +159,19 @@ def solve(
 
         # Spacing violations from routed result
         spacing_penalty = _compute_spacing_penalty(all_planned, patients_by_id, input)
+        density_penalty = _compute_density_fitness_penalty(assignments, ctx, input)
+        offset_penalty = _compute_day_offset_fitness_penalty(
+            all_planned, patients_by_id, input, ctx
+        )
 
-        fitness = total_drive + unsched_penalty + soft_penalty + spacing_penalty
+        fitness = (
+            total_drive
+            + unsched_penalty
+            + soft_penalty
+            + spacing_penalty
+            + density_penalty
+            + offset_penalty
+        )
         completed_iterations = iteration + 1
 
         iteration_log.append({
@@ -149,6 +180,8 @@ def solve(
             "unsched_penalty": unsched_penalty,
             "soft_penalty": soft_penalty,
             "spacing_penalty": spacing_penalty,
+            "density_penalty": density_penalty,
+            "offset_penalty": offset_penalty,
             "fitness": fitness,
             "placed": len(all_planned),
         })
@@ -206,6 +239,8 @@ def solve(
                     "max_drive": input.clinician.max_drive_minutes_per_day,
                 })
 
+    schedule_status = "FEASIBLE" if not unschedulable else "PARTIAL"
+
     return SolverOutput(
         planned_visits=planned_visits,
         lunch_placements=lunch_placements,
@@ -214,7 +249,7 @@ def solve(
             "optimizer_type": "cpsat",
             "proven_optimal": False,
             "cp_sat_status": cp_sat_status,
-            "status": "FEASIBLE",
+            "status": schedule_status,
             "iterations": completed_iterations,
             "iteration_log": iteration_log,
             "route_winners": route_winners,
@@ -238,12 +273,14 @@ def _compute_spacing_penalty(
 
     penalty = 0
     for pid, dates in patient_dates.items():
-        if len(dates) < 2:
+        # Unique calendar days only — duplicates would create bogus 0-day gaps
+        unique_days = sorted(set(dates))
+        if len(unique_days) < 2:
             continue
         patient = patients_by_id.get(pid)
         if not patient:
             continue
-        sorted_dates = sorted(dates)
+        sorted_dates = unique_days
         for i in range(len(sorted_dates) - 1):
             gap = (datetime.fromisoformat(sorted_dates[i + 1]) -
                    datetime.fromisoformat(sorted_dates[i])).days
@@ -254,6 +291,76 @@ def _compute_spacing_penalty(
     return penalty
 
 
+def _compute_density_fitness_penalty(
+    assignments: dict[int, list[int]],
+    ctx: dict,
+    input: SolverInput,
+) -> int:
+    """Mirror CP-SAT schedule_density penalties using realized assignment counts."""
+    num_days = len(input.working_days)
+    if num_days <= 1:
+        return 0
+    density = input.clinician.schedule_density
+    locked_by_day = ctx["locked_count_by_day"]
+    counts = [
+        len(assignments.get(d, [])) + locked_by_day.get(d, 0) for d in range(num_days)
+    ]
+    if density < 0.5:
+        w = int(2 * (1.0 - density))
+        return w * (max(counts) - min(counts)) if w > 0 else 0
+    w = int(2 * density)
+    if w <= 0:
+        return 0
+    active = sum(1 for c in counts if c > 0)
+    return w * active
+
+
+def _compute_day_offset_fitness_penalty(
+    planned: list[PlannedVisit],
+    patients_by_id: dict,
+    input: SolverInput,
+    ctx: dict,
+) -> int:
+    """Approximate CP-SAT target day-offset penalty from placed visits."""
+    if not planned:
+        return 0
+    date_to_idx = {d: i for i, d in enumerate(input.working_days)}
+    inst_day: dict[str, int] = {}
+    for v in planned:
+        di = date_to_idx.get(v.date)
+        if di is not None:
+            inst_day[v.instance_id] = di
+
+    instances_by_patient = ctx["instances_by_patient"]
+    inst_idx_map = {inst.id: i for i, inst in enumerate(input.instances)}
+    num_days = len(input.working_days)
+    clinician = input.clinician
+    penalty = 0
+
+    for pid, insts in instances_by_patient.items():
+        patient = patients_by_id.get(pid)
+        if not patient or len(insts) <= 1:
+            continue
+        n_visits = len(insts)
+        min_gap_p = patient.min_days_between_visits
+        max_step = (num_days - 1) / max(n_visits - 1, 1)
+        min_step = max(float(min_gap_p), 1.0)
+        step = max_step - (clinician.schedule_density * (max_step - min_step))
+        step = max(step, min_step)
+        targets = [min(round(k * step), num_days - 1) for k in range(n_visits)]
+
+        inst_indices = sorted(inst_idx_map[inst.id] for inst in insts)
+        for k, gi in enumerate(inst_indices):
+            inst = input.instances[gi]
+            if inst.id not in inst_day:
+                continue
+            actual_d = inst_day[inst.id]
+            target = targets[k] if k < len(targets) else targets[-1]
+            penalty += PENALTY_DAY_OFFSET * abs(actual_d - target)
+
+    return penalty
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # CP-SAT Assignment Model (no routing variables)
 # ═══════════════════════════════════════════════════════════════════════
@@ -261,16 +368,16 @@ def _compute_spacing_penalty(
 def _assign_days(
     input: SolverInput,
     ctx: dict,
-    home_costs: dict[int, int],
+    day_marginal_costs: dict[int, dict[int, int]],
+    home_leg: dict[int, int],
     time_budget: int,
     iteration: int = 0,
 ) -> tuple[dict[int, list[int]] | None, str]:
     """CP-SAT model for day assignment only.
 
     Returns (assignments, status_string).
-    On iteration 0: uses home-leg + pairwise costs (geographic clustering).
-    On iteration 1+: uses updated home_costs from actual routing (no pairwise,
-    since actual route costs already include inter-patient travel).
+    On iteration 0: per-(day, instance) marginals (initially home leg) + pairwise.
+    On iteration 1+: marginals from last route per (day, instance); no pairwise.
     """
     clinician = input.clinician
     patients_by_id = {p.id: p for p in input.patients}
@@ -406,22 +513,31 @@ def _assign_days(
                 # Patient has windows defined but none for this day → penalize assignment
                 penalties.append((assign[(i, d)], PENALTY_AVAILABILITY))
 
-    # 7. Max drive per day (approximate using per-instance home-leg costs)
+    # 7. Max drive per day (approximate using per-(day, instance) marginals)
     if clinician.max_drive_minutes_per_day:
         max_drive = clinician.max_drive_minutes_per_day
+        max_marginal = 0
+        for d in day_indices:
+            for i in range(num_instances):
+                max_marginal = max(
+                    max_marginal,
+                    day_marginal_costs.get(d, {}).get(i, home_leg.get(i, 0)),
+                )
+        # Tight-enough UB: at most MAX_VISITS_PER_DAY routed legs contribute per day
+        drive_day_ub = max_marginal * MAX_VISITS_PER_DAY
         for d in day_indices:
             drive_terms = []
             for i in range(num_instances):
-                cost = home_costs.get(i, 0)
+                cost = day_marginal_costs.get(d, {}).get(i, home_leg.get(i, 0))
                 if cost > 0:
                     c = model.new_int_var(0, cost, f"dc_{i}_{d}")
                     model.add(c == cost).only_enforce_if(assign[(i, d)])
                     model.add(c == 0).only_enforce_if(assign[(i, d)].negated())
                     drive_terms.append(c)
             if drive_terms:
-                total = model.new_int_var(0, 10000, f"td_{d}")
+                total = model.new_int_var(0, drive_day_ub, f"td_{d}")
                 model.add(total == sum(drive_terms))
-                over = model.new_int_var(0, 10000, f"do_{d}")
+                over = model.new_int_var(0, drive_day_ub, f"do_{d}")
                 model.add(over >= total - max_drive)
                 model.add(over >= 0)
                 penalties.append((over, PENALTY_DRIVE_OVER))
@@ -488,18 +604,18 @@ def _assign_days(
     travel_terms = []
     travel_fn = ctx["travel"]
 
-    # Home-leg costs: per-instance cost when scheduled (day-independent)
-    for i in range(num_instances):
-        cost = home_costs.get(i, 0)
-        if cost > 0:
-            c = model.new_int_var(0, cost, f"hc_{i}")
-            model.add(c == cost).only_enforce_if(scheduled[i])
-            model.add(c == 0).only_enforce_if(scheduled[i].negated())
-            travel_terms.append(c)
+    # Per-(day, instance) marginal routing cost (equals home_leg[i] for every day on iter 0).
+    for d in day_indices:
+        for i in range(num_instances):
+            cost = day_marginal_costs.get(d, {}).get(i, home_leg.get(i, 0))
+            if cost > 0:
+                c = model.new_int_var(0, cost, f"m_{d}_{i}")
+                model.add(c == cost).only_enforce_if(assign[(i, d)])
+                model.add(c == 0).only_enforce_if(assign[(i, d)].negated())
+                travel_terms.append(c)
 
     # Pairwise inter-patient costs (iteration 0 only — teaches geographic clustering).
-    # On later iterations, home_costs already reflect actual routing costs which
-    # include inter-patient travel, so pairwise would double-count.
+    # On later iterations, per-day marginals come from routing; pairwise would double-count.
     if iteration == 0:
         for i in range(num_instances):
             for j in range(i + 1, num_instances):
@@ -543,13 +659,16 @@ def _assign_days(
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None, status_name
 
-    # Extract assignments
+    # Extract assignments (sorted instance indices per day for stable routing I/O)
     result: dict[int, list[int]] = defaultdict(list)
     for i in range(num_instances):
         if solver.value(scheduled[i]):
             d = solver.value(day_var[i])
             if d < num_days:
                 result[d].append(i)
+
+    for d_key in result:
+        result[d_key].sort()
 
     return dict(result), status_name
 
@@ -578,16 +697,16 @@ def _route_day(
     """
     clinician = input.clinician
     travel = ctx["travel"]
-    blocked = ctx["blocked_ranges_by_day"]
-    day_idx = _day_index(date, input.working_days)
 
-    # Lunch config
+    # Lunch config (match ClinicianProfile#lunch_range; guard misconfig)
     half_w = clinician.lunch_window_minutes // 2
     lunch_earliest = max(clinician.lunch_start_minute - half_w, clinician.workday_start_minute)
     lunch_latest = min(
         clinician.lunch_start_minute + half_w,
         clinician.workday_end_minute - clinician.lunch_duration_minutes,
     )
+    if lunch_latest < lunch_earliest:
+        lunch_latest = lunch_earliest
     lunch_dur = clinician.lunch_duration_minutes
     lunch_target = clinician.lunch_start_minute
 
@@ -756,16 +875,18 @@ def _hgs_route_order(
                 model.add_edge(clients[i], clients[j], distance=t, duration=t)
 
         workday_dur = clinician.workday_end_minute - clinician.workday_start_minute
+        max_dist = clinician.max_drive_minutes_per_day or 999_999
         model.add_vehicle_type(
             num_available=1,
             capacity=[MAX_VISITS_PER_DAY],
             shift_duration=workday_dur,
+            max_distance=max_dist,
             tw_early=clinician.workday_start_minute,
             tw_late=clinician.workday_end_minute,
         )
 
-        # Scale time budget with problem size
-        hgs_seconds = max(0.05, min(0.5, n * 0.02))
+        # Scale time budget with problem size; cap via CPSAT_HGS_MAX_SECONDS
+        hgs_seconds = max(0.05, min(HGS_MAX_SECONDS, n * 0.02))
         result = model.solve(stop=MaxRuntime(hgs_seconds), seed=42, display=False)
 
         if not result.is_feasible():
@@ -838,7 +959,8 @@ def _evaluate_route(
     for idx in perm:
         inst = instances[idx]
         pid_key = str(inst.patient_id)
-        visit_dur = inst.duration - charting  # actual visit time (what shows on calendar)
+        # Patient-facing duration on calendar; duration field includes charting in API
+        visit_dur = max(0, inst.duration - charting)
         footprint = inst.duration  # visit + charting buffer (duration includes charting)
 
         # Transit to this floating visit
@@ -846,8 +968,10 @@ def _evaluate_route(
         transit_buf = TRANSIT_BUFFER if prev_key != "home" else 0
         raw_start = current_time + transit + transit_buf
 
-        # Mandatory break check
-        if max_cont and max_cont > 0 and accumulated_work + footprint > max_cont:
+        # Mandatory break: max continuous work (drive + on-site time) since last break.
+        # If driving to this visit and completing it would exceed the legal limit, take a
+        # break before starting the visit (footprint = visit + charting).
+        if max_cont and max_cont > 0 and accumulated_work + transit + footprint > max_cont:
             raw_start += break_dur
             accumulated_work = 0
 
@@ -873,7 +997,7 @@ def _evaluate_route(
             transit = travel(prev_key, pid_key)
             transit_buf = TRANSIT_BUFFER
             raw_start = current_time + transit + transit_buf
-            if max_cont and max_cont > 0 and accumulated_work + footprint > max_cont:
+            if max_cont and max_cont > 0 and accumulated_work + transit + footprint > max_cont:
                 raw_start += break_dur
                 accumulated_work = 0
             earliest_start = _round_up(raw_start, SLOT_STEP)
@@ -952,7 +1076,7 @@ def _evaluate_route(
             soft_constraint_override=soft_override,
         ))
 
-        accumulated_work += footprint
+        accumulated_work += transit + footprint
         current_time = earliest_start + footprint
         prev_key = pid_key
 

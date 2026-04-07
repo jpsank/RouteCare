@@ -68,9 +68,35 @@ class Scheduling::RetimerTest < ActiveSupport::TestCase
     end
   end
 
+  test "mandatory break before visit when drive plus that visit exceeds max continuous work" do
+    Time.use_zone("America/New_York") do
+      slots = [
+        { patient: @patient_a, duration: 45 },
+        { patient: @patient_b, duration: 60 }
+      ]
+      # After A: accumulated = 45 + 0 transit. B: 45 + 20 transit + 60 visit = 125 > 100.
+      # Without counting the upcoming visit, 45 + 20 = 65 would not trigger a break.
+      result = build_retimer(
+        max_continuous_work_minutes: 100,
+        required_break_minutes: 15
+      ).call(slots, @date)
+
+      assert result[:feasible]
+      gap_min = (result[:slots][1][:starts_at] - result[:slots][0][:ends_at]) / 60.0
+      assert gap_min >= 40.0, "Expected break + transit + buffer (>= 40m), gap was #{gap_min}m"
+    end
+  end
+
   private
 
-  def build_retimer(day_start_minute: 480, day_end_minute: 1080, lunch_config: nil)
+  def build_retimer(
+    day_start_minute: 480,
+    day_end_minute: 1080,
+    lunch_config: nil,
+    max_continuous_work_minutes: nil,
+    required_break_minutes: 15,
+    charting_buffer_minutes: 0
+  )
     Scheduling::Retimer.new(
       travel_matrix: @travel_matrix,
       locked_visits: [],
@@ -78,7 +104,9 @@ class Scheduling::RetimerTest < ActiveSupport::TestCase
       day_start_minute: day_start_minute,
       day_end_minute: day_end_minute,
       start_point: nil,
-      max_continuous_work_minutes: nil
+      max_continuous_work_minutes: max_continuous_work_minutes,
+      required_break_minutes: required_break_minutes,
+      charting_buffer_minutes: charting_buffer_minutes
     )
   end
 end

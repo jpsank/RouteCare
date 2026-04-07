@@ -44,12 +44,14 @@ module Scheduling
       ordered_slots.each do |slot|
         patient = slot[:patient]
         duration = slot[:duration] || patient.visit_duration_minutes
+        slot_footprint = duration + @charting_buffer_minutes
 
         transit = compute_transit(previous_patient_id, patient)
         raw_start = current_minute + transit + (previous_patient_id.nil? ? 0 : TRANSIT_BUFFER_MINUTES)
 
-        # Mandatory break check
-        if @max_continuous_work_minutes && accumulated_work + transit > @max_continuous_work_minutes
+        # Mandatory break: if drive + completing this visit would exceed max continuous work,
+        # take a break before starting the visit (same duty window as slot_footprint below).
+        if @max_continuous_work_minutes && accumulated_work + transit + slot_footprint > @max_continuous_work_minutes
           raw_start += @required_break_minutes
           accumulated_work = 0
         end
@@ -87,7 +89,6 @@ module Scheduling
           ends_at = starts_at + duration.minutes
           retimed << slot.merge(starts_at: starts_at, ends_at: ends_at)
           # Advance past visit + charting buffer so the next visit is spaced correctly
-          slot_footprint = duration + @charting_buffer_minutes
           accumulated_work += slot_footprint + transit
           current_minute = earliest_start + slot_footprint
         end

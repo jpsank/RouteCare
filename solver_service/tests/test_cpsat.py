@@ -416,6 +416,71 @@ def test_cpsat_break_enforcement():
     )
 
 
+def test_cpsat_mandatory_break_counts_drive_between_visits():
+    """Break before a visit if drive + that visit would exceed max continuous work."""
+    from solvers.cpsat import solve
+
+    # After visit 1: accumulated = home→1 (10) + footprint (20) = 30. To patient 2: 75 min
+    # drive + 20 min visit ⇒ 30 + 75 + 20 > 100 ⇒ mandatory break before visit 2.
+    # If the upcoming visit were omitted from the check, we might skip the break illegally.
+    patients = [
+        PatientData(id=1, name="Near", location=Location(lat=36.0, lng=-94.0),
+                    visit_duration_minutes=20, required_visits_per_week=1,
+                    min_days_between_visits=1, max_days_between_visits=7),
+        PatientData(id=2, name="Far", location=Location(lat=36.5, lng=-94.0),
+                    visit_duration_minutes=20, required_visits_per_week=1,
+                    min_days_between_visits=1, max_days_between_visits=7),
+    ]
+    instances = [
+        VisitInstanceData(id="patient_1_visit_0", patient_id=1,
+                          location=patients[0].location, duration=20),
+        VisitInstanceData(id="patient_2_visit_0", patient_id=2,
+                          location=patients[1].location, duration=20),
+    ]
+    clinician = ClinicianData(
+        home_location=Location(lat=36.0, lng=-94.0),
+        workday_start_minute=480,
+        workday_end_minute=1080,
+        max_continuous_work_minutes=100,
+        required_break_minutes=15,
+        lunch_start_minute=960,
+        lunch_duration_minutes=30,
+        lunch_window_minutes=60,
+    )
+    tm = {
+        "home": {"1": 10, "2": 10},
+        "1": {"home": 10, "2": 75},
+        "2": {"home": 10, "1": 75},
+    }
+    input = make_test_input(
+        patients=patients,
+        instances=instances,
+        clinician=clinician,
+        working_days=["2026-04-06"],
+        travel_matrix=tm,
+    )
+    output = solve(input, time_budget=15)
+
+    day_visits = sorted(
+        [v for v in output.planned_visits if v.date == "2026-04-06"],
+        key=lambda v: v.starts_at,
+    )
+    assert len(day_visits) == 2
+
+    def minutes(iso: str) -> int:
+        dt = datetime.fromisoformat(iso)
+        return dt.hour * 60 + dt.minute
+
+    v0_end = minutes(day_visits[0].ends_at)
+    v1_start = minutes(day_visits[1].starts_at)
+    gap = v1_start - v0_end
+    # 75 drive + 5 inter-stop buffer + 15 mandatory break ⇒ ≥ 90 (slot rounding)
+    assert gap >= 90, (
+        f"Gap between visits is {gap} min; expected ≥90 when break must follow "
+        f"long drive (got visits {day_visits[0].instance_id} then {day_visits[1].instance_id})"
+    )
+
+
 def test_cpsat_day_spreading():
     """Visits for a patient should be spread across days, not clustered."""
     from solvers.cpsat import solve
