@@ -67,7 +67,7 @@ Optional:
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — enables calendar sync
 
 **Scheduling / Python CP-SAT microservice** (`PYTHON_SOLVER_URL`, default `http://localhost:8000`):
-- **Railway:** deploy `solver_service/` as a second service (root directory `solver_service`, config `solver_service/railway.toml`), assign it a domain, then set `PYTHON_SOLVER_URL` on the Rails service to that base URL (see comments in repo `railway.toml`). Both `railway.toml` files set **watch paths** so solver-only vs Rails-only commits don’t rebuild the other service.
+- **Railway:** deploy `solver_service/` as a second service (root directory `solver_service`, config `solver_service/railway.toml`), assign it a domain, then set `PYTHON_SOLVER_URL` on the Rails service to that base URL (see comments in repo `railway.toml`). Both `railway.toml` files set **watch paths** so solver-only vs Rails-only commits don’t rebuild the other service. From the repo root, `bin/railway-add-solver-service` runs `railway add --repo …` to create that service; you still set **Root Directory** and **config path** in the dashboard (CLI cannot set those yet).
 - `ROUTECARE_SCHEDULER_BACKEND` — `greedy` (default Ruby optimizer) or `cpsat` (Python OR-Tools pipeline). On CP-SAT transport/HTTP failures, falls back to greedy and sets `optimization_summary.scheduler_fallback`.
 - `ROUTECARE_CPSAT_TIME_BUDGET` — CP-SAT wall time in seconds (10–7200). If set, overrides the quality preset below.
 - `ROUTECARE_SCHEDULE_QUALITY` — when `ROUTECARE_CPSAT_TIME_BUDGET` is unset: `fast` (30s), `balanced` (60s), `deep` (120s).

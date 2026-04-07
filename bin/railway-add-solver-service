@@ -1,0 +1,33 @@
+#!/usr/bin/env sh
+# Add the Python solver as a second Railway service (same GitHub repo as RouteCare).
+#
+# Prerequisites:
+#   - railway login
+#   - This repo linked to your project from the repo root: railway link
+#   - GitHub ↔ Railway connected so the repo can be selected as a source
+#
+# The CLI cannot set monorepo "Root Directory" or custom config path; do those in the dashboard
+# after this command (see output below).
+#
+# Override defaults:
+#   RAILWAY_MONOREPO_REPO=owner/repo RAILWAY_SOLVER_SERVICE_NAME=MySolver ./bin/railway-add-solver-service
+
+set -eu
+
+REPO="${RAILWAY_MONOREPO_REPO:-jpsank/RouteCare}"
+NAME="${RAILWAY_SOLVER_SERVICE_NAME:-RouteCareSolver}"
+
+echo "Adding GitHub service \"${NAME}\" from ${REPO} to the linked Railway project..."
+railway add --repo "${REPO}" -s "${NAME}"
+
+echo ""
+printf '%s\n' \
+  "Finish in the Railway dashboard (service \"${NAME}\"):" \
+  "  • Settings → Source: ensure branch is correct" \
+  "  • Settings → Root Directory: solver_service" \
+  "  • Settings → Config-as-code path: /solver_service/railway.toml" \
+  "  • Settings → Networking → Public Networking → Generate Domain" \
+  "" \
+  "On your Rails (RouteCare) service, set:" \
+  "  PYTHON_SOLVER_URL=https://<solver-service-host>" \
+  "(base URL only; the app calls /solve on the client.)"
