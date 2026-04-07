@@ -65,3 +65,9 @@ Optional:
 - `ROUTECARE_TELNYX_API_KEY`, `ROUTECARE_TELNYX_FROM_NUMBER` — enables SMS
 - `ROUTECARE_LLM_API_KEY` — enables AI-drafted messages
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — enables calendar sync
+
+**Scheduling / Python CP-SAT microservice** (`PYTHON_SOLVER_URL`, default `http://localhost:8000`):
+- `ROUTECARE_SCHEDULER_BACKEND` — `greedy` (default Ruby optimizer) or `cpsat` (Python OR-Tools pipeline). On CP-SAT transport/HTTP failures, falls back to greedy and sets `optimization_summary.scheduler_fallback`.
+- `ROUTECARE_CPSAT_TIME_BUDGET` — CP-SAT wall time in seconds (10–7200). If set, overrides the quality preset below.
+- `ROUTECARE_SCHEDULE_QUALITY` — when `ROUTECARE_CPSAT_TIME_BUDGET` is unset: `fast` (30s), `balanced` (60s), `deep` (120s).
+- Test-only: `ROUTECARE_TEST_CPSAT_FAIL=1` with `RAILS_ENV=test` forces a simulated `RemoteSolverError` to exercise fallback.

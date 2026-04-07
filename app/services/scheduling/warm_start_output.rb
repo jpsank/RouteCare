@@ -3,9 +3,9 @@
 module Scheduling
   # Builds a SolverOutputData from an existing WeeklySchedule so the CP-SAT service can warm-start.
   #
-  # Maps each +patient_{id}_visit_{i}+ instance to the +i+th floating (non-locked) visit for that
-  # patient when visits are ordered by +starts_at+. If visit order and instance indices disagree,
-  # warm-start is skipped or CP-SAT may reject the prior plan.
+  # Prefer matching by persisted +Visit#instance_id+ when every floating visit has one and IDs align
+  # with +input.instances+. Otherwise falls back to ordering +patient_{id}_visit_{i}+ by +starts_at+
+  # per patient (legacy).
   class WarmStartOutput
     # Returns nil if the schedule cannot be aligned to +input.instances+ (missing visits, etc.).
     def self.from_schedule(user:, week_start_on:, input:)
@@ -13,8 +13,41 @@ module Scheduling
       return nil unless schedule
 
       locked = schedule.visits.where(status: %w[confirmed completed])
-      floating = schedule.visits.where.not(id: locked.select(:id)).order(:starts_at)
-      by_patient = floating.group_by(&:patient_id).transform_values { |vs| vs.sort_by(&:starts_at) }
+      floating = schedule.visits.where.not(id: locked.select(:id))
+
+      planned = match_by_instance_id(floating, input)
+      planned ||= match_by_visit_index(floating, input)
+
+      return nil unless planned
+      return nil unless planned.size == input.instances.size
+
+      build_output(schedule, planned)
+    end
+
+    def self.match_by_instance_id(floating, input)
+      list = floating.to_a
+      return nil unless list.size == input.instances.size
+      return nil unless list.all? { |v| v.instance_id.present? }
+
+      by_instance = list.index_by(&:instance_id)
+      return nil unless by_instance.size == input.instances.size
+
+      planned = []
+      input.instances.each do |inst|
+        v = by_instance[inst.id]
+        return nil unless v && v.patient_id == inst.patient_id
+
+        planned << planned_visit_from_record(inst, v)
+      end
+
+      planned
+    end
+    private_class_method :match_by_instance_id
+
+    def self.match_by_visit_index(floating, input)
+      by_patient = floating.order(:starts_at).group_by(&:patient_id).transform_values do |vs|
+        vs.sort_by(&:starts_at)
+      end
 
       planned = []
       input.instances.each do |inst|
@@ -25,18 +58,26 @@ module Scheduling
         return nil unless visits && visits[idx]
 
         v = visits[idx]
-        planned << PlannedVisit.new(
-          instance_id: inst.id,
-          patient_id: inst.patient_id,
-          date: v.starts_at.to_date,
-          starts_at: v.starts_at,
-          ends_at: v.ends_at,
-          soft_constraint_override: v.soft_constraint_override
-        )
+        planned << planned_visit_from_record(inst, v)
       end
 
-      return nil unless planned.size == input.instances.size
+      planned
+    end
+    private_class_method :match_by_visit_index
 
+    def self.planned_visit_from_record(inst, v)
+      PlannedVisit.new(
+        instance_id: inst.id,
+        patient_id: inst.patient_id,
+        date: v.starts_at.to_date,
+        starts_at: v.starts_at,
+        ends_at: v.ends_at,
+        soft_constraint_override: v.soft_constraint_override
+      )
+    end
+    private_class_method :planned_visit_from_record
+
+    def self.build_output(schedule, planned)
       summary = schedule.optimization_summary || {}
       lunch = summary["lunch_breaks"] || {}
       lunch = lunch.transform_keys(&:to_s) if lunch.respond_to?(:transform_keys)
@@ -52,5 +93,6 @@ module Scheduling
         metadata: meta.symbolize_keys
       )
     end
+    private_class_method :build_output
   end
 end

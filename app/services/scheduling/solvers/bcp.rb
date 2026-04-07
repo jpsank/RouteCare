@@ -9,19 +9,10 @@ module Scheduling
       end
 
       def solve
-        response = HTTParty.post(
-          "#{solver_url}/solve",
+        response = solver_post(
           query: { backend: @backend, time_budget: @time_budget },
-          body: serialize_input(@input),
-          headers: { "Content-Type" => "application/json" },
-          timeout: @time_budget + 60,
-          format: :json
+          timeout: @time_budget + 60
         )
-
-        unless response.success?
-          raise "Python solver returned #{response.code}: #{response.body}"
-        end
-
         deserialize_output(response.parsed_response)
       end
     end
@@ -34,19 +25,10 @@ module Scheduling
       end
 
       def solve
-        response = HTTParty.post(
-          "#{solver_url}/solve",
+        response = solver_post(
           query: { backend: "pipeline", time_budget: @time_budget },
-          body: serialize_input(@input),
-          headers: { "Content-Type" => "application/json" },
-          timeout: @time_budget + 60,
-          format: :json
+          timeout: @time_budget + 60
         )
-
-        unless response.success?
-          raise "Python solver returned #{response.code}: #{response.body}"
-        end
-
         deserialize_output(response.parsed_response)
       end
     end

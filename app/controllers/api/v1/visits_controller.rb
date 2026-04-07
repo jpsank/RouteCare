@@ -101,6 +101,7 @@ class Api::V1::VisitsController < Api::V1::BaseController
   def serialize_visit(visit)
     {
       id: visit.id,
+      instance_id: visit.instance_id,
       patient_id: visit.patient_id,
       patient_name: visit.patient.full_name,
       patient_address: visit.patient.address,

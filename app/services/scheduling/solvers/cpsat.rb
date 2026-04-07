@@ -10,19 +10,11 @@ module Scheduling
       end
 
       def solve
-        response = HTTParty.post(
-          "#{solver_url}/solve",
+        response = solver_post(
           query: { backend: "cpsat", time_budget: @time_budget },
-          body: request_body,
-          headers: { "Content-Type" => "application/json" },
           timeout: @time_budget + 30,
-          format: :json
+          body: request_body
         )
-
-        unless response.success?
-          raise "Python solver returned #{response.code}: #{response.body}"
-        end
-
         deserialize_output(response.parsed_response)
       end
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_06_220828) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_07_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -355,6 +355,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_06_220828) do
     t.integer "duration_minutes", null: false
     t.datetime "ends_at", null: false
     t.string "external_calendar_event_id"
+    t.string "instance_id"
     t.bigint "patient_id", null: false
     t.integer "position_in_day", null: false
     t.boolean "soft_constraint_override", default: false, null: false
@@ -365,6 +366,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_06_220828) do
     t.bigint "weekly_schedule_id", null: false
     t.index ["patient_id", "starts_at"], name: "index_visits_on_patient_id_and_starts_at"
     t.index ["patient_id"], name: "index_visits_on_patient_id"
+    t.index ["weekly_schedule_id", "instance_id"], name: "index_visits_on_schedule_and_instance_id_unique", unique: true, where: "(instance_id IS NOT NULL)"
     t.index ["weekly_schedule_id", "starts_at", "patient_id"], name: "idx_on_weekly_schedule_id_starts_at_patient_id_b8c791696f", unique: true
     t.index ["weekly_schedule_id", "starts_at"], name: "index_visits_on_weekly_schedule_id_and_starts_at"
     t.index ["weekly_schedule_id"], name: "index_visits_on_weekly_schedule_id"

@@ -9,11 +9,11 @@ class Api::V1::SchedulesController < Api::V1::BaseController
   def optimize
     week_start_on = parsed_week_start(params[:week_start_on])
     schedule = Time.use_zone(request_timezone) do
-      optimized_schedule = Scheduling::WeeklyOptimizer.new(
+      optimized_schedule = Scheduling::OptimizeDispatch.call(
         user: current_user,
         week_start_on: week_start_on,
         start_point: optimization_start_point
-      ).call
+      )
       Alerts::Generator.new(user: current_user).run!
       optimized_schedule
     end

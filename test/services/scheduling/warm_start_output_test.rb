@@ -31,6 +31,11 @@ class Scheduling::WarmStartOutputTest < ActiveSupport::TestCase
       assert_equal input.instances.size, prior.planned_visits.size
       assert prior.planned_visits.all? { |pv| pv.instance_id.match?(/\Apatient_\d+_visit_\d+\z/) }
       assert prior.fitness >= 0
+
+      schedule = @user.weekly_schedules.find_by!(week_start_on: week_start)
+      instance_ids = schedule.visits.order(:starts_at).filter_map(&:instance_id)
+      assert_equal input.instances.map(&:id).sort, instance_ids.sort,
+        "optimizer visits should persist instance_id for CP-SAT warm-start"
     end
   end
 end

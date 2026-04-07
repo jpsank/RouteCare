@@ -76,7 +76,8 @@ module Scheduling
               position_in_day: index,
               drive_from_previous_minutes: drive_minutes,
               soft_constraint_override: slot[:soft_constraint_override] || false,
-              source: "optimizer"
+              source: "optimizer",
+              instance_id: slot[:instance_id].presence
             )
           end
 

@@ -863,7 +863,30 @@ def _assign_days(
         if w > 0:
             penalty_terms.append(var * w)
 
-    total_penalty = model.new_int_var(0, 10_000_000, "tp")
+    # Tight objective domain from penalty structure (OR-Tools var repr includes our name prefixes).
+    drive_over_ub = 0
+    if clinician.max_drive_minutes_per_day and marginal_var:
+        max_marg = max((cost for (_, cost) in marginal_var.values()), default=0)
+        drive_over_ub = max_marg * MAX_VISITS_PER_DAY
+
+    penalty_cap = 0
+    for var, wt in penalties:
+        w = int(wt)
+        if w <= 0:
+            continue
+        label = str(var)
+        if "do_" in label:
+            penalty_cap += w * drive_over_ub
+        elif any(x in label for x in ("mv_", "xv_", "dd_", "ds_")):
+            penalty_cap += w * num_days
+        elif any(x in label for x in ("(mx(", "(mn(", "(sp(", " mx(", " mn(", " sp(")):
+            penalty_cap += w * MAX_VISITS_PER_DAY
+        else:
+            penalty_cap += w
+
+    penalty_cap = max(penalty_cap, 1)
+    penalty_cap = min(penalty_cap, 500_000_000)
+    total_penalty = model.new_int_var(0, penalty_cap, "tp")
     model.add(total_penalty == sum(penalty_terms)) if penalty_terms else model.add(total_penalty == 0)
 
     model.minimize(total_travel + total_penalty)

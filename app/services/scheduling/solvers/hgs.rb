@@ -8,23 +8,44 @@ module Scheduling
       end
 
       def solve
-        response = HTTParty.post(
-          "#{solver_url}/solve",
+        response = solver_post(
           query: { backend: "hgs", time_budget: @time_budget },
-          body: request_body,
-          headers: { "Content-Type" => "application/json" },
-          timeout: @time_budget + 30,
-          format: :json
+          timeout: @time_budget + 30
         )
-
-        unless response.success?
-          raise "Python solver returned #{response.code}: #{response.body}"
-        end
-
         deserialize_output(response.parsed_response)
       end
 
       private
+
+      # POST /solve; raises Scheduling::RemoteSolverError on connection/HTTP/invalid JSON.
+      def solver_post(query:, timeout:, body: nil)
+        payload = body || request_body
+        response =
+          begin
+            HTTParty.post(
+              "#{solver_url}/solve",
+              query: query,
+              body: payload,
+              headers: { "Content-Type" => "application/json" },
+              timeout: timeout,
+              format: :json
+            )
+          rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ETIMEDOUT,
+                 SocketError, Net::OpenTimeout, Net::ReadTimeout => e
+            raise RemoteSolverError, "solver connection failed: #{e.message}"
+          end
+
+        unless response.success?
+          raise RemoteSolverError,
+            "Python solver HTTP #{response.code}: #{response.body.to_s.truncate(500)}"
+        end
+
+        unless response.parsed_response.is_a?(Hash)
+          raise RemoteSolverError, "Python solver returned non-JSON or empty body"
+        end
+
+        response
+      end
 
       def solver_url
         ENV.fetch("PYTHON_SOLVER_URL", "http://localhost:8000")
