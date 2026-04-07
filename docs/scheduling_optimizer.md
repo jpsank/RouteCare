@@ -18,61 +18,61 @@ These dimensions are coupled: spatial decisions (which patients to group on a da
 
 ## Architecture
 
-### Three-Tier Solver Architecture
+### Solver Architecture
 
 ```
-Tier 1: BCP (nightly, exact)                    ← VRPSolverEasy
-  Finds the provably optimal schedule for the week.
-  Uses HGS solution as upper bound for faster pruning.
-  Falls back to HGS result if BCP times out.
+Primary: CP-SAT (default, on-demand)             ← Google OR-Tools
+  Constraint programming model with all domain constraints.
+  Enforces spacing, availability, breaks, blocks during search.
+  Proves optimality or returns best-found within time budget.
+  Replaces both Ruby greedy optimizer and VRP-only solvers.
 
-Tier 2: HGS (on-demand, near-optimal)           ← PyVRP
-  Re-optimizes when structure changes (new patient, calendar update).
-  5-30 seconds. Uses last BCP/HGS solution as warm start.
+Legacy: HGS (travel-only, near-optimal)          ← PyVRP
+  Hybrid Genetic Search for pure VRP.
+  Fast but does not enforce healthcare constraints.
+  Selectable via ?backend=hgs.
 
-Tier 3: Greedy + ALNS (instant, on-demand)       ← Ruby (current)
+Legacy: BCP (travel-only, exact)                  ← VRPSolverEasy / BaPCod
+  Branch-Cut-and-Price exact VRP solver.
+  Requires BaPCod binary (academic license).
+  Selectable via ?backend=bcp.
+
+Legacy: Greedy + ALNS (Ruby, in-app)              ← WeeklyOptimizer
   Regret-based insertion + adaptive large neighborhood search.
-  Runs when user clicks Re-optimize. <1 second.
+  Full constraint support but heuristic-only (no optimality proof).
+  Still used by the Rails controller; being replaced by CP-SAT.
 
 Future: NCO (real-time, <100ms)
   Neural model for mid-day tactical adjustments.
   Patient cancels, clinician running late, traffic changes.
 ```
 
-### Nightly Pipeline
+### Solver Flow
 
 ```
-1. HGS (PyVRP) → near-optimal solution in 30-60s
-2. Feed HGS solution as upper bound to BCP (VRPSolverEasy)
-3. BCP either proves optimality or improves the solution
-4. If BCP times out → HGS solution is used (still excellent)
-5. Store as "master plan" for the week
-```
+User clicks Re-optimize:
+  → Rails calls Python solver service (/solve?backend=cpsat)
+  → CP-SAT builds model with all constraints
+  → Returns optimal/near-optimal schedule in 5-30s
+  → Rails persists result
 
-### Real-Time Flow
-
-```
-Structural change (new patient, settings change):
-  → Greedy (instant) for immediate display
-  → HGS (background, 5-30s) for improved solution
-  → Suggest improvement if found
-
-Mid-day disruption (cancellation, delay):
-  → NCO (<100ms) for instant route adjustment (future)
-  → HGS (background) for better weekly re-optimization
+Pipeline mode (?backend=pipeline):
+  1. HGS (PyVRP) → near-optimal VRP solution
+  2. Feed HGS upper bound to BCP (VRPSolverEasy)
+  3. Return best result (travel-only, no domain constraints)
 ```
 
 ### Solver Abstraction Layer
 
-All solvers receive `SolverInputData` (plain data, no ActiveRecord) and return `SolverOutputData`. The `SolverRunner` builds input from the database, dispatches to the selected backend, and persists the result.
+The Python solver service receives `SolverInput` (JSON) via HTTP POST and returns `SolverOutput`. The Rails app builds the input from the database and persists the result.
 
 ```
-SolverInput.build(user:, week_start_on:)   → SolverInputData
-Solver.solve(input, backend: :greedy)      → SolverOutputData
-SolverRunner.run(user:, ..., backend:)     → WeeklySchedule (persisted)
+Rails:  SolverInput.build(user:, week_start_on:) → JSON
+Python: POST /solve?backend=cpsat               → SolverOutput (JSON)
+Rails:  SchedulePersister.persist(output)        → WeeklySchedule
 ```
 
-Backends: `:greedy`, `:ga`, `:hgs` (future), `:bcp` (future), `:nco` (future)
+Backends: `cpsat` (default), `hgs`, `bcp`, `pipeline`
 
 ---
 
@@ -187,11 +187,66 @@ where:
 
 ---
 
-## Current Implementation (Ruby)
+## Primary Implementation: CP-SAT (Python)
 
-### Greedy Optimizer — Regret Insertion + ALNS
+### OR-Tools CP-SAT — Constraint Programming Solver
 
-The on-demand optimizer triggered by the Re-optimize button.
+[OR-Tools](https://github.com/google/or-tools) CP-SAT is a constraint programming solver with SAT-based search. Unlike VRP-specific solvers (PyVRP, BaPCod), it models arbitrary constraints natively — making it ideal for healthcare scheduling where domain constraints (spacing, availability, breaks) go far beyond standard vehicle routing.
+
+**Key advantages over VRP solvers:**
+- All constraints enforced *during* search, not post-hoc
+- Can prove optimality (or return best-found within time budget)
+- No binary licensing issues — pure Python, installs via `pip install ortools`
+- Single solver replaces HGS + BCP + Ruby greedy
+
+**Model structure:**
+
+Decision variables:
+- `day_var[i]` — which working day each visit instance is assigned to (or "unscheduled")
+- `start_time[i]` — minute-of-day when visit starts (constrained to 15-min intervals)
+- `position[i][d]` — sequencing order within a day
+- `assign[i][d]` — binary: is instance i assigned to day d?
+- `lunch_start_var[d]` — lunch start time on each day (within lunch window)
+
+Hard constraints:
+- One patient per day (including locked visits)
+- Max 5 visits per day (including locked visits)
+- Visit sequencing: `start[j] >= start[i] + duration[i] + travel(i→j) + transit_buffer`
+- Calendar blocks: no temporal overlap with blocked ranges
+- Locked visits: time ranges blocked, patient-day excluded
+- Workday boundaries: all visits within [workday_start, workday_end]
+- 15-minute slot granularity
+- **Lunch break:** no visit may overlap `[lunch_start, lunch_start + lunch_duration]` on any day; lunch_start is a variable within the lunch window, optimized during search
+- **Max continuous work:** total visit duration on each side of lunch ≤ `max_continuous_work_minutes`; lunch resets the work accumulator (matching Ruby Retimer behavior)
+
+Soft constraints (penalty variables in objective):
+- **Unscheduled:** 10,000 × (priority + 1) per unplaced visit
+- **Min spacing:** 100 per day short of `min_days_between_visits`
+- **Max spacing:** 50 per day over `max_days_between_visits`
+- **Availability windows:** 150 per visit outside patient's preferred time-of-day
+- **Max drive per day:** 50 per minute over `max_drive_minutes_per_day`
+- **Lunch drift:** 1 per minute of lunch deviation from target
+- **Target day offset:** 10 per day of deviation from ideal evenly-spaced day
+- **Schedule density:** spread/cluster penalty based on clinician preference
+
+Objective:
+```
+minimize:
+  total_travel (home→visits→home, all days)
+  + Σ soft_constraint_penalties
+```
+
+**Lunch placement:** Lunch is a first-class constraint during optimization. The solver finds the optimal lunch time within the configured window while ensuring no visit overlaps it. Lunch times are extracted directly from the model solution.
+
+**Performance:** Solves 5-visit/5-day problems in <5s. Scales to ~50 visits across 5-7 days within 30s time budget. Proves optimality on small instances.
+
+---
+
+## Legacy Implementations
+
+### Ruby Greedy Optimizer (WeeklyOptimizer)
+
+The original on-demand optimizer, still used by the Rails controller.
 
 **Construction (regret insertion):**
 1. Build travel matrix (Mapbox Matrix API, haversine fallback) including home node
@@ -206,121 +261,24 @@ The on-demand optimizer triggered by the Re-optimize button.
 - 30 iterations of destroy/repair
 - 5 destroy strategies: worst-cost, geographic cluster, random, same-patient, full-day
 - Adaptive weights: strategies that produce improvements get used more
-- Repair: regret-based re-insertion with rebuilt blocked ranges
-- Only accepts improvements, rejects plans that violate hard constraints or drop visits
 
-**Route ordering (per day):**
-- Nearest-neighbor using travel matrix
-- True 2-opt: reverse subsequences to reduce round-trip cost (including return home)
+**Route ordering:** Nearest-neighbor + true 2-opt per day.
 
-**Retiming:**
-- Assigns concrete start/end times respecting transit gaps, charting buffer, lunch window, mandatory breaks, locked visit ranges
-- Rounds to 15-minute intervals
+**Retiming:** Assigns concrete times respecting transit gaps, charting buffer, lunch window, mandatory breaks, locked visit ranges. Rounds to 15-minute intervals.
 
-**Max drive enforcement:**
-- Hard constraint during day assignment (projected drive including new visit)
-- Soft warning on final routes (report violations, never drop visits)
+### Python HGS (PyVRP) — Travel-Only VRP
 
-### GA Optimizer — HGS-Inspired Genetic Algorithm
+[PyVRP](https://github.com/PyVRP/PyVRP) — Hybrid Genetic Search. Fast near-optimal VRP solver. **Does not enforce** healthcare constraints (spacing, availability, breaks, calendar blocks). Useful as a travel-time baseline.
 
-Nightly optimizer via Solid Queue. ~11-16% improvement over greedy.
+### Python BCP (VRPSolverEasy / BaPCod) — Travel-Only Exact
 
-**Population:** 30-50 individuals, seeded with 1 greedy solution + random perturbations
-
-**Crossover:** Route-segment crossover — randomly assign each day to a parent, inherit all visits for that day as a unit. Preserves geographic clusters.
-
-**Mutation:** Move visit to different day, or swap two visits between days. Cooling rate 0.97x per generation.
-
-**Education (HGS-inspired):** After crossover+mutation, each child undergoes local search (relocate + swap moves on day assignments) before entering the population. Every individual is a local optimum.
-
-**Diversity management:**
-- Speciation by structural distance (fraction of differing day assignments)
-- Diversity-based survivor selection: keep most structurally different individuals alongside elites
-- Diversity injection every 15 stagnant generations: inject 30% random individuals + boost mutation
-
-**Feasibility:** Decode via nearest-neighbor + retimer. Check one-patient-per-day, min spacing, max drive. Infeasible chromosomes rejected.
-
-**Termination:** Time budget (default 45s nightly, 10s for testing) or 50 generations of stagnation.
+[VRPSolverEasy](https://github.com/inria-UFF/VRPSolverEasy) — Branch-Cut-and-Price exact solver. Requires BaPCod binary (academic license, not bundled in Docker). Same limitation as HGS: travel-only, no domain constraints.
 
 ---
 
-## Future: Python Solver Microservice
+## Future: NCO — Neural Combinatorial Optimization
 
-A sidecar Python service that the Rails app calls via HTTP through the solver abstraction.
-
-### PyVRP — HGS (Tier 2)
-
-[PyVRP](https://github.com/PyVRP/PyVRP) — Hybrid Genetic Search for VRP. State-of-the-art metaheuristic. Consistently wins academic VRP competitions. Handles CVRP, VRPTW, heterogeneous fleet, multi-depot.
-
-```python
-from pyvrp import Model, solve
-
-model = Model()
-model.add_depot(x=home_lng, y=home_lat)
-for patient in patients:
-    model.add_client(x=patient.lng, y=patient.lat,
-                     tw_early=window_start, tw_late=window_end,
-                     service_duration=visit_duration)
-for day in working_days:
-    model.add_vehicle_type(capacity=MAX_VISITS, max_duration=max_drive)
-
-result = solve(model, stop=MaxRuntime(30))
-```
-
-### VRPSolverEasy — BCP (Tier 1)
-
-[VRPSolverEasy](https://github.com/inria-UFF/VRPSolverEasy) — Branch-Cut-and-Price exact solver from INRIA. Finds provably optimal solutions. Based on BaPCod solver + COIN-OR CLP.
-
-```python
-import VRPSolverEasy as vrpse
-
-model = vrpse.Model()
-model.add_depot(id=0, x=home_lng, y=home_lat)
-for patient in patients:
-    model.add_customer(id=patient.id, x=patient.lng, y=patient.lat,
-                       demand=1, tw_begin=start, tw_end=end)
-model.add_vehicle_type(id=1, capacity=MAX_VISITS,
-                       max_number=len(working_days))
-model.set_parameters(time_limit=3600)
-
-# Warm start with HGS solution as upper bound
-model.set_initial_solution(hgs_routes, hgs_cost)
-
-model.solve()
-```
-
-**Performance:** Provably optimal for ~100 customers. Some 200-customer instances solvable. Performance improves significantly with HGS upper bound.
-
-### NCO — Neural Combinatorial Optimization (Tier 3, future)
-
-Attention-based model trained on historical schedule data for real-time adjustments.
-
-```
-Training data:
-  Input:  (patient locations, time windows, current partial route, disruption type)
-  Output: (next action: insert, swap, skip, defer)
-
-Architecture: Transformer encoder for problem state,
-              autoregressive decoder for route sequence
-
-Training: REINFORCE with baseline, reward = -route_cost
-```
-
-Produces route adjustments in <100ms. Trained on data specific to each clinician's patient geography and scheduling patterns.
-
-### Multi-Objective Support
-
-**BCP (nightly):** Run with different weight vectors, each run is exact for its combination:
-```
-Run 1: minimize 0.8*drive_time + 0.2*workload_balance
-Run 2: minimize 0.5*drive_time + 0.5*workload_balance
-Run 3: minimize 0.2*drive_time + 0.8*workload_balance
-→ Present Pareto front of trade-off schedules
-```
-
-**HGS:** Multi-objective via Pareto dominance in population. Non-dominated individuals form the front. Single run produces multiple trade-off solutions.
-
-**NCO:** Conditional generation — objective weights as model input. Clinician adjusts a preference slider, model generates matching solution in milliseconds.
+Attention-based model trained on historical schedule data for real-time mid-day adjustments (<100ms). Patient cancels, clinician running late, traffic changes.
 
 ---
 
@@ -379,29 +337,33 @@ Run 3: minimize 0.2*drive_time + 0.8*workload_balance
 ## File Layout
 
 ```
-app/services/scheduling/
-  solver_input.rb              # SolverInputData — AR-free data structs
-  solver.rb                    # Backend dispatch (greedy, ga, hgs, bcp)
-  solver_runner.rb             # Build input → solve → persist
+solver_service/                     # Python solver microservice
+  main.py                           # FastAPI app, /solve endpoint
+  models.py                         # Pydantic models (SolverInput, SolverOutput)
+  Dockerfile                        # python:3.11-slim, uvicorn
+  requirements.txt                  # ortools, pyvrp, fastapi, etc.
   solvers/
-    greedy.rb                  # Regret insertion + ALNS (AR-free)
-  weekly_optimizer.rb          # Legacy greedy (AR-coupled, still used by controller)
-  ga_optimizer.rb              # GA with education + diversity (AR-coupled)
-  chromosome.rb                # GA encoding: route-segment crossover, mutation
-  fitness_function.rb          # Weighted multi-objective scoring
-  feasibility_checker.rb       # Hard constraint validation
-  retimer.rb                   # Assign concrete times within a day
-  visit_instance.rb            # VisitInstance data struct
-  visit_instance_builder.rb    # Build instances from patients + locked visits
-  schedule_persister.rb        # Persist solver output to DB
-  travel_time_matrix_builder.rb # Mapbox Matrix API + haversine fallback
-  calendar_constraints.rb      # Blocked time ranges from calendar events
-  conflict_detector.rb         # Post-optimization conflict audit
-  rescheduler.rb               # Manual single-visit reschedule
-  time_window.rb               # Simple (start_minute, end_minute) data class
+    __init__.py                      # Exports: cpsat_solve, hgs_solve, bcp_solve
+    cpsat.py                         # CP-SAT solver (primary, all constraints)
+    hgs.py                           # PyVRP HGS solver (legacy, travel-only)
+    bcp.py                           # VRPSolverEasy BCP solver (legacy, travel-only)
+    base.py                          # Shared utilities (lunch, return-home, spacing)
+  tests/
+    test_cpsat.py                    # 11 tests covering all constraint types
+    test_hgs.py                      # HGS basic tests
+
+app/services/scheduling/             # Ruby (legacy, being replaced)
+  weekly_optimizer.rb                # Greedy + ALNS (still used by controller)
+  fitness_function.rb                # Weighted multi-objective scoring
+  retimer.rb                         # Assign concrete times within a day
+  visit_instance_builder.rb          # Build instances from patients + locked visits
+  schedule_persister.rb              # Persist solver output to DB
+  travel_time_matrix_builder.rb      # Mapbox Matrix API + haversine fallback
+  calendar_constraints.rb            # Blocked time ranges from calendar events
+  conflict_detector.rb               # Post-optimization conflict audit
+  rescheduler.rb                     # Manual single-visit reschedule
+  time_window.rb                     # Simple (start_minute, end_minute) data class
 
 app/services/integrations/
-  routing_client.rb            # Mapbox Matrix API + haversine fallback
-
-config/recurring.yml           # Nightly GA job at midnight
+  routing_client.rb                  # Mapbox Matrix API + haversine fallback
 ```

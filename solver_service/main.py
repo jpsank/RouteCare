@@ -15,18 +15,22 @@ def health():
 @app.post("/solve", response_model=SolverOutput)
 def solve(
     input: SolverInput,
-    backend: str = Query("hgs", pattern="^(hgs|bcp|pipeline)$"),
+    backend: str = Query("cpsat", pattern="^(hgs|bcp|cpsat|pipeline)$"),
     time_budget: int = Query(30, ge=1, le=7200),
 ):
     """Solve a VRP instance.
 
     Backends:
-      - hgs: PyVRP Hybrid Genetic Search (fast, near-optimal)
-      - bcp: VRPSolverEasy Branch-Cut-and-Price (slow, exact)
+      - cpsat: OR-Tools CP-SAT with full healthcare constraints (default)
+      - hgs: PyVRP Hybrid Genetic Search (fast, near-optimal, travel-only)
+      - bcp: VRPSolverEasy Branch-Cut-and-Price (slow, exact, travel-only)
       - pipeline: HGS first, then BCP with HGS upper bound
     """
     try:
-        if backend == "hgs":
+        if backend == "cpsat":
+            return solvers.cpsat_solve(input, time_budget=time_budget)
+
+        elif backend == "hgs":
             return solvers.hgs_solve(input, time_budget=time_budget)
 
         elif backend == "bcp":
