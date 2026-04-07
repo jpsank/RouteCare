@@ -140,12 +140,15 @@ module Scheduling
 
         # Fill remaining with offspring
         while next_gen.size < @population_size
-          # Tournament selection
           parent_a = tournament_select(species)
           parent_b = tournament_select(species)
 
           child = parent_a.crossover(parent_b)
           child.mutate!(@working_days, rate: mutation_rate)
+
+          # Education: local search on the child before adding to population
+          child = educate(child)
+
           next_gen << child
         end
 
@@ -235,10 +238,108 @@ module Scheduling
     end
 
     def tournament_select(species)
-      # Flatten all species for selection pool
       pool = species.flatten
       tournament = pool.sample(TOURNAMENT_SIZE)
       tournament.min_by { |s| s[:fitness] }[:chromosome]
+    end
+
+    # HGS-inspired education: local search on a child's day assignments.
+    # Tries relocate and swap moves, keeping improvements. Makes every
+    # individual a local optimum before it enters the population.
+    def educate(chromosome)
+      instance_index = @instances.index_by(&:id)
+      genes = chromosome.genes
+      ids = genes.keys
+
+      improved = true
+      max_passes = 3
+      pass = 0
+
+      while improved && pass < max_passes
+        improved = false
+        pass += 1
+
+        # Relocate: try moving each visit to a better day
+        ids.each do |visit_id|
+          current_day = genes[visit_id]
+          current_cost = day_gene_cost(genes, current_day, instance_index)
+          patient_id = instance_index[visit_id]&.patient_id
+
+          @working_days.each do |candidate_day|
+            next if candidate_day == current_day
+            # One-patient-per-day check
+            next if genes.any? { |vid, d| d == candidate_day && instance_index[vid]&.patient_id == patient_id && vid != visit_id }
+
+            # Try the move
+            old_candidate_cost = day_gene_cost(genes, candidate_day, instance_index)
+            genes[visit_id] = candidate_day
+            new_from_cost = day_gene_cost(genes, current_day, instance_index)
+            new_to_cost = day_gene_cost(genes, candidate_day, instance_index)
+
+            if (new_from_cost + new_to_cost) < (current_cost + old_candidate_cost)
+              current_day = candidate_day
+              current_cost = new_to_cost
+              improved = true
+            else
+              genes[visit_id] = current_day # revert
+            end
+          end
+        end
+
+        # Swap: try exchanging two visits between different days
+        ids.each_with_index do |id_a, i|
+          ((i + 1)...ids.size).each do |j|
+            id_b = ids[j]
+            day_a = genes[id_a]
+            day_b = genes[id_b]
+            next if day_a == day_b
+
+            pid_a = instance_index[id_a]&.patient_id
+            pid_b = instance_index[id_b]&.patient_id
+
+            # Check one-patient-per-day after swap
+            next if genes.any? { |vid, d| d == day_b && instance_index[vid]&.patient_id == pid_a && vid != id_a && vid != id_b }
+            next if genes.any? { |vid, d| d == day_a && instance_index[vid]&.patient_id == pid_b && vid != id_a && vid != id_b }
+
+            old_cost = day_gene_cost(genes, day_a, instance_index) + day_gene_cost(genes, day_b, instance_index)
+            genes[id_a] = day_b
+            genes[id_b] = day_a
+            new_cost = day_gene_cost(genes, day_a, instance_index) + day_gene_cost(genes, day_b, instance_index)
+
+            if new_cost < old_cost
+              improved = true
+            else
+              genes[id_a] = day_a
+              genes[id_b] = day_b
+            end
+          end
+        end
+      end
+
+      chromosome
+    end
+
+    # Route cost for a day based on chromosome genes (no decoding needed)
+    def day_gene_cost(genes, date, instance_index)
+      patient_ids = genes.select { |_, d| d == date }.filter_map { |vid, _| instance_index[vid]&.patient_id }
+      return 0.0 if patient_ids.empty?
+
+      # Nearest-neighbor order using travel matrix
+      ordered = []
+      remaining = patient_ids.dup
+      current_id = :home
+
+      while remaining.any?
+        closest = remaining.min_by { |pid| @travel_matrix.dig(current_id, pid) || Float::INFINITY }
+        ordered << closest
+        remaining.delete_at(remaining.index(closest))
+        current_id = closest
+      end
+
+      cost = @travel_matrix.dig(:home, ordered.first) || 0
+      ordered.each_cons(2) { |a, b| cost += (@travel_matrix.dig(a, b) || 0) }
+      cost += (@travel_matrix.dig(ordered.last, :home) || 0)
+      cost.to_f
     end
 
     def working_days_for_week
