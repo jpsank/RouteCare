@@ -541,6 +541,77 @@ def test_cpsat_metadata_fields():
     assert meta["iterations"] >= 1
 
 
+def test_cpsat_iteration_log_uniform_schema():
+    """Every iteration_log row should include the same metric keys (incl. after convergence)."""
+    from solvers.cpsat import solve
+
+    required = {
+        "iteration",
+        "drive",
+        "unsched_penalty",
+        "soft_penalty",
+        "spacing_penalty",
+        "density_penalty",
+        "offset_penalty",
+        "fitness",
+        "placed",
+    }
+    output = solve(make_test_input(), time_budget=15)
+    for entry in output.metadata["iteration_log"]:
+        assert required <= set(entry.keys()), f"Missing keys in {entry!r}"
+
+
+def test_cpsat_converged_log_carries_last_metrics(monkeypatch):
+    """Early convergence should log full metrics, not only {iteration, converged}."""
+    import solvers.cpsat as cpsat_mod
+
+    real_assign = cpsat_mod._assign_days
+    ncalls = {"n": 0}
+    cached = {}
+
+    def wrapper(*args, **kwargs):
+        ncalls["n"] += 1
+        if ncalls["n"] >= 2:
+            return (cached["assignments"], "FEASIBLE")
+        result = real_assign(*args, **kwargs)
+        cached["assignments"] = result[0]
+        return result
+
+    monkeypatch.setattr(cpsat_mod, "_assign_days", wrapper)
+    monkeypatch.setattr(cpsat_mod, "MAX_ITERATIONS", 4)
+
+    output = cpsat_mod.solve(make_test_input(), time_budget=20)
+    conv = [e for e in output.metadata["iteration_log"] if e.get("converged")]
+    assert conv, "stub should force identical assignment on iteration 1"
+    assert "drive" in conv[0] and "fitness" in conv[0] and "placed" in conv[0]
+
+
+def test_cpsat_zero_home_legs_still_schedules():
+    """median home_leg=0 must not set pairwise threshold to 0 (would drop all t>0 pairs)."""
+    from solvers.cpsat import solve
+
+    patients = [
+        PatientData(id=k, name=f"P{k}", location=Location(lat=36.0, lng=-94.0),
+                    visit_duration_minutes=30, required_visits_per_week=1,
+                    min_days_between_visits=1, max_days_between_visits=7)
+        for k in range(1, 4)
+    ]
+    instances = [
+        VisitInstanceData(id=f"patient_{k}_visit_0", patient_id=k,
+                          location=patients[k - 1].location, duration=30)
+        for k in range(1, 4)
+    ]
+    tm = {
+        "home": {"1": 0, "2": 0, "3": 0},
+        "1": {"home": 0, "2": 10, "3": 10},
+        "2": {"home": 0, "1": 10, "3": 10},
+        "3": {"home": 0, "1": 10, "2": 10},
+    }
+    input = make_test_input(patients=patients, instances=instances, travel_matrix=tm)
+    output = solve(input, time_budget=15)
+    assert len(output.planned_visits) == 3
+
+
 def test_cpsat_locked_visit_drive_cost():
     """Drive cost should include travel to/from locked visits."""
     from solvers.cpsat import solve

@@ -28,6 +28,8 @@ Architecture:
     CPSAT_ROUTE_DAY_WORKERS — thread pool size for routing multiple days in parallel
       (default: min(CPSAT_NUM_WORKERS, num_working_days); set 1 to disable)
     CPSAT_SKIP_PERM_ENUM_FOR_N5 — if true, n=5 days use HGS+NN only (skip 5! permutations)
+    CPSAT_PAIRWISE_PRUNE_MULT — iteration-0 pairwise pruning: drop pair if travel exceeds
+      max(1, median_home_leg)×this multiplier (default 3; median 0 would otherwise prune everything)
 """
 
 from __future__ import annotations
@@ -80,7 +82,7 @@ def solve(
         return _empty_output(input)
 
     ctx = _build_context(input)
-    patients_by_id = {p.id: p for p in input.patients}
+    patients_by_id = ctx["patients_by_id"]
     num_instances = len(input.instances)
 
     # Static home-leg proxy for "if this instance were the only stop on a day"
@@ -102,6 +104,8 @@ def solve(
     completed_iterations = 0
     cp_sat_status = "NOT_RUN"
     iteration_log = []
+    prev_assignments: dict[int, list[int]] | None = None
+    last_full_iteration_log: dict | None = None
 
     for iteration in range(MAX_ITERATIONS):
         assign_budget = max(1, time_budget // (MAX_ITERATIONS * 2))
@@ -109,10 +113,24 @@ def solve(
         # 1. CP-SAT: assign instances to days
         # Iter 0: per-day marginals (== home leg) + pairwise; iter 1+: marginals from last route per (d,i)
         assignments, status = _assign_days(
-            input, ctx, day_marginal_costs, home_leg, assign_budget, iteration
+            input, ctx, day_marginal_costs, home_leg, assign_budget, iteration,
+            prev_assignments=prev_assignments,
         )
         cp_sat_status = status
         if assignments is None:
+            break
+
+        # Early termination: if assignment didn't change, costs won't change either
+        if prev_assignments is not None and assignments == prev_assignments:
+            if last_full_iteration_log is not None:
+                iteration_log.append({
+                    **last_full_iteration_log,
+                    "iteration": iteration,
+                    "converged": True,
+                })
+            else:
+                iteration_log.append({"iteration": iteration, "converged": True})
+            completed_iterations = iteration + 1
             break
 
         # 2. Route each day (parallel across days when workers > 1)
@@ -197,8 +215,7 @@ def solve(
         )
         completed_iterations = iteration + 1
 
-        iteration_log.append({
-            "iteration": iteration,
+        last_full_iteration_log = {
             "drive": total_drive,
             "unsched_penalty": unsched_penalty,
             "soft_penalty": soft_penalty,
@@ -207,11 +224,14 @@ def solve(
             "offset_penalty": offset_penalty,
             "fitness": fitness,
             "placed": len(all_planned),
-        })
+        }
+        iteration_log.append({"iteration": iteration, **last_full_iteration_log})
 
         if fitness < best_fitness:
             best_fitness = fitness
             best_output = (all_planned, all_lunch, actual_day_costs, route_winners)
+
+        prev_assignments = assignments
 
     if best_output is None:
         return _empty_output(input)
@@ -347,7 +367,7 @@ def _compute_day_offset_fitness_penalty(
     """Approximate CP-SAT target day-offset penalty from placed visits."""
     if not planned:
         return 0
-    date_to_idx = {d: i for i, d in enumerate(input.working_days)}
+    date_to_idx = ctx["date_to_idx"]
     inst_day: dict[str, int] = {}
     for v in planned:
         di = date_to_idx.get(v.date)
@@ -355,7 +375,7 @@ def _compute_day_offset_fitness_penalty(
             inst_day[v.instance_id] = di
 
     instances_by_patient = ctx["instances_by_patient"]
-    inst_idx_map = {inst.id: i for i, inst in enumerate(input.instances)}
+    inst_idx_map = ctx["inst_idx_map"]
     num_days = len(input.working_days)
     clinician = input.clinician
     penalty = 0
@@ -395,6 +415,7 @@ def _assign_days(
     home_leg: dict[int, int],
     time_budget: int,
     iteration: int = 0,
+    prev_assignments: dict[int, list[int]] | None = None,
 ) -> tuple[dict[int, list[int]] | None, str]:
     """CP-SAT model for day assignment only.
 
@@ -403,7 +424,8 @@ def _assign_days(
     On iteration 1+: marginals from last route per (day, instance); no pairwise.
     """
     clinician = input.clinician
-    patients_by_id = {p.id: p for p in input.patients}
+    patients_by_id = ctx["patients_by_id"]
+    inst_idx_map = ctx["inst_idx_map"]
     working_days = input.working_days
     num_days = len(working_days)
     num_instances = len(input.instances)
@@ -413,9 +435,6 @@ def _assign_days(
     locked_patient_days = ctx["locked_patient_days"]
     locked_count_by_day = ctx["locked_count_by_day"]
     day_wdays = ctx["day_wdays"]
-
-    # Pre-compute instance index map: inst → index (avoid O(n) .index() calls)
-    inst_idx_map: dict[str, int] = {inst.id: i for i, inst in enumerate(input.instances)}
 
     model = cp_model.CpModel()
 
@@ -536,27 +555,25 @@ def _assign_days(
                 # Patient has windows defined but none for this day → penalize assignment
                 penalties.append((assign[(i, d)], PENALTY_AVAILABILITY))
 
-    # 7. Max drive per day (approximate using per-(day, instance) marginals)
+    # 7. Pre-compute per-(day, instance) marginal cost vars (shared by drive constraint + objective)
+    marginal_var: dict[tuple[int, int], tuple] = {}  # (d, i) → (cp_var, cost_value)
+    max_marginal = 0
+    for d in day_indices:
+        for i in range(num_instances):
+            cost = day_marginal_costs.get(d, {}).get(i, home_leg.get(i, 0))
+            if cost > 0:
+                c = model.new_int_var(0, cost, f"mc_{i}_{d}")
+                model.add(c == cost).only_enforce_if(assign[(i, d)])
+                model.add(c == 0).only_enforce_if(assign[(i, d)].negated())
+                marginal_var[(d, i)] = (c, cost)
+                max_marginal = max(max_marginal, cost)
+
+    # Max drive per day (approximate using shared marginal cost vars)
     if clinician.max_drive_minutes_per_day:
         max_drive = clinician.max_drive_minutes_per_day
-        max_marginal = 0
-        for d in day_indices:
-            for i in range(num_instances):
-                max_marginal = max(
-                    max_marginal,
-                    day_marginal_costs.get(d, {}).get(i, home_leg.get(i, 0)),
-                )
-        # Tight-enough UB: at most MAX_VISITS_PER_DAY routed legs contribute per day
         drive_day_ub = max_marginal * MAX_VISITS_PER_DAY
         for d in day_indices:
-            drive_terms = []
-            for i in range(num_instances):
-                cost = day_marginal_costs.get(d, {}).get(i, home_leg.get(i, 0))
-                if cost > 0:
-                    c = model.new_int_var(0, cost, f"dc_{i}_{d}")
-                    model.add(c == cost).only_enforce_if(assign[(i, d)])
-                    model.add(c == 0).only_enforce_if(assign[(i, d)].negated())
-                    drive_terms.append(c)
+            drive_terms = [mv[0] for i in range(num_instances) if (mv := marginal_var.get((d, i)))]
             if drive_terms:
                 total = model.new_int_var(0, drive_day_ub, f"td_{d}")
                 model.add(total == sum(drive_terms))
@@ -627,19 +644,19 @@ def _assign_days(
     travel_terms = []
     travel_fn = ctx["travel"]
 
-    # Per-(day, instance) marginal routing cost (equals home_leg[i] for every day on iter 0).
-    for d in day_indices:
-        for i in range(num_instances):
-            cost = day_marginal_costs.get(d, {}).get(i, home_leg.get(i, 0))
-            if cost > 0:
-                c = model.new_int_var(0, cost, f"m_{d}_{i}")
-                model.add(c == cost).only_enforce_if(assign[(i, d)])
-                model.add(c == 0).only_enforce_if(assign[(i, d)].negated())
-                travel_terms.append(c)
+    # Per-(day, instance) marginal routing cost — reuse shared vars from step 7
+    for (d, i), (var, _cost) in marginal_var.items():
+        travel_terms.append(var)
 
     # Pairwise inter-patient costs (iteration 0 only — teaches geographic clustering).
     # On later iterations, per-day marginals come from routing; pairwise would double-count.
+    # Pruning: skip pairs where travel exceeds max(1, median home-leg) × mult (median 0 must
+    # not yield threshold 0, or every t>0 pair would be dropped).
     if iteration == 0:
+        prune_mult = max(1, int(os.environ.get("CPSAT_PAIRWISE_PRUNE_MULT", "3")))
+        home_vals = sorted(home_leg.values())
+        median_home = home_vals[len(home_vals) // 2] if home_vals else 0
+        pairwise_threshold = max(1, median_home) * prune_mult
         for i in range(num_instances):
             for j in range(i + 1, num_instances):
                 pid_i = str(input.instances[i].patient_id)
@@ -647,7 +664,7 @@ def _assign_days(
                 if pid_i == pid_j:
                     continue
                 t = travel_fn(pid_i, pid_j)
-                if t == 0:
+                if t == 0 or t > pairwise_threshold:
                     continue
                 for d in day_indices:
                     both = model.new_bool_var(f"pw_{i}_{j}_{d}")
@@ -670,6 +687,22 @@ def _assign_days(
     model.add(total_penalty == sum(penalty_terms)) if penalty_terms else model.add(total_penalty == 0)
 
     model.minimize(total_travel + total_penalty)
+
+    # ── Warm-start from previous iteration's assignment ──────────────
+    if prev_assignments is not None:
+        prev_inst_day = {}
+        for d, inst_list in prev_assignments.items():
+            for i in inst_list:
+                prev_inst_day[i] = d
+        for i in range(num_instances):
+            if i in prev_inst_day:
+                model.add_hint(day_var[i], prev_inst_day[i])
+                model.add_hint(scheduled[i], 1)
+                for d in day_indices:
+                    model.add_hint(assign[(i, d)], 1 if d == prev_inst_day[i] else 0)
+            else:
+                model.add_hint(scheduled[i], 0)
+                model.add_hint(day_var[i], num_days)
 
     # ── Solve ──────────────────────────────────────────────────────────
 
@@ -979,8 +1012,9 @@ def _evaluate_route(
     visits = []
     drive_cost = 0
 
-    # Queue of locked stops to interleave (sorted by start_min)
+    # Queue of locked stops to interleave (sorted by start_min); use index cursor (not pop(0))
     pending_locked = list(locked_stops or [])
+    locked_cursor = 0
 
     # Pre-compute day-of-week for availability window checks
     dt_date = datetime.fromisoformat(date)
@@ -1009,8 +1043,9 @@ def _evaluate_route(
 
         # Before placing this floating visit, handle any locked stops that
         # occur before earliest_start (travel to locked, wait, travel from)
-        while pending_locked and pending_locked[0]["start_min"] <= earliest_start:
-            ls = pending_locked.pop(0)
+        while locked_cursor < len(pending_locked) and pending_locked[locked_cursor]["start_min"] <= earliest_start:
+            ls = pending_locked[locked_cursor]
+            locked_cursor += 1
             ls_pid = str(ls["patient_id"])
             ls_end = ls["start_min"] + ls["duration"] + ls["charting"]
 
@@ -1111,7 +1146,7 @@ def _evaluate_route(
         prev_key = pid_key
 
     # Handle any remaining locked stops after all floating visits
-    for ls in pending_locked:
+    for ls in pending_locked[locked_cursor:]:
         ls_pid = str(ls["patient_id"])
         drive_cost += travel(prev_key, ls_pid)
         prev_key = ls_pid
@@ -1149,13 +1184,13 @@ def _nearest_neighbor(
     travel,
 ) -> tuple[int, ...]:
     """Nearest-neighbor ordering as fallback."""
-    remaining = list(range(len(instances)))
+    remaining = set(range(len(instances)))
     order = []
     current = "home"
     while remaining:
         best_idx = min(remaining, key=lambda i: travel(current, str(instances[i].patient_id)))
         order.append(best_idx)
-        remaining.remove(best_idx)
+        remaining.discard(best_idx)
         current = str(instances[best_idx].patient_id)
     return tuple(order)
 
@@ -1206,6 +1241,10 @@ def _build_context(input: SolverInput) -> dict:
     def travel_fn(from_key: str, to_key: str) -> int:
         return matrix.get(from_key, {}).get(to_key, 0)
 
+    patients_by_id = {p.id: p for p in input.patients}
+    inst_idx_map = {inst.id: i for i, inst in enumerate(input.instances)}
+    date_to_idx = {d: i for i, d in enumerate(input.working_days)}
+
     return {
         "day_wdays": day_wdays,
         "blocked_ranges_by_day": dict(blocked_ranges_by_day),
@@ -1213,6 +1252,9 @@ def _build_context(input: SolverInput) -> dict:
         "locked_count_by_day": dict(locked_count_by_day),
         "instances_by_patient": dict(instances_by_patient),
         "travel": travel_fn,
+        "patients_by_id": patients_by_id,
+        "inst_idx_map": inst_idx_map,
+        "date_to_idx": date_to_idx,
     }
 
 
