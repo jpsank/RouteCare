@@ -46,3 +46,17 @@ vendor/bundle
 
 /vendor/bundle
 .claude/
+
+# macOS metadata
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.python-version
+
+# Generated graph/dot files
+*.dot
+
+# Test artifacts
+solver_service/test_model*.json
