@@ -25,6 +25,9 @@ Architecture:
   Env:
     CPSAT_NUM_WORKERS — OR-Tools worker threads (default: min(CPU, 8))
     CPSAT_HGS_MAX_SECONDS — max PyVRP time per day-route (default: 0.5)
+    CPSAT_ROUTE_DAY_WORKERS — thread pool size for routing multiple days in parallel
+      (default: min(CPSAT_NUM_WORKERS, num_working_days); set 1 to disable)
+    CPSAT_SKIP_PERM_ENUM_FOR_N5 — if true, n=5 days use HGS+NN only (skip 5! permutations)
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import itertools
 import logging
 import os
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from ortools.sat.python import cp_model
@@ -111,23 +115,42 @@ def solve(
         if assignments is None:
             break
 
-        # 2. Route each day
+        # 2. Route each day (parallel across days when workers > 1)
         all_planned = []
         all_lunch = {}
         actual_day_costs: dict[int, int] = {}
         route_winners: dict[str, str] = {}
 
+        route_workers = int(os.environ.get("CPSAT_ROUTE_DAY_WORKERS", str(min(NUM_WORKERS, num_days))))
+        route_workers = max(1, route_workers)
+
+        if route_workers == 1:
+            results_by_d: dict[int, dict] = {}
+            for d in range(num_days):
+                date = input.working_days[d]
+                day_instances = [input.instances[i] for i in assignments.get(d, [])]
+                results_by_d[d] = _route_day(
+                    date=date, instances=day_instances, input=input, ctx=ctx,
+                )
+        else:
+            results_by_d = {}
+            with ThreadPoolExecutor(max_workers=route_workers) as pool:
+                future_to_d = {
+                    pool.submit(
+                        _route_day,
+                        input.working_days[d],
+                        [input.instances[i] for i in assignments.get(d, [])],
+                        input,
+                        ctx,
+                    ): d
+                    for d in range(num_days)
+                }
+                for fut in as_completed(future_to_d):
+                    results_by_d[future_to_d[fut]] = fut.result()
+
         for d in range(num_days):
             date = input.working_days[d]
-            day_instances = [input.instances[i] for i in assignments.get(d, [])]
-
-            route_result = _route_day(
-                date=date,
-                instances=day_instances,
-                input=input,
-                ctx=ctx,
-            )
-
+            route_result = results_by_d[d]
             all_planned.extend(route_result["visits"])
             all_lunch[date] = route_result["lunch"]
             actual_day_costs[d] = route_result["drive_cost"]
@@ -766,18 +789,25 @@ def _route_day(
             seen.add(order)
             candidate_orders.append((source, order))
 
-    # 1. HGS ordering
-    hgs_order = _hgs_route_order(instances, travel, clinician)
-    if hgs_order is not None:
-        _add_candidate("hgs", hgs_order)
+    n = len(instances)
+    # Full enumeration covers all orders for n≤5; HGS only adds PyVRP overhead then.
+    # If CPSAT_SKIP_PERM_ENUM_FOR_N5, n=5 skips 5! evals and needs HGS for a strong order.
+    skip_perm_n5 = os.environ.get("CPSAT_SKIP_PERM_ENUM_FOR_N5", "").lower() in ("1", "true", "yes")
+    enumerate_all_orders = n <= 4 or (n == 5 and not skip_perm_n5)
+    run_hgs = n >= 2 and not enumerate_all_orders
+
+    # 1. HGS when n is large (or n=5 fast mode without full perm enumeration)
+    if run_hgs:
+        hgs_order = _hgs_route_order(instances, travel, clinician)
+        if hgs_order is not None:
+            _add_candidate("hgs", hgs_order)
 
     # 2. Nearest-neighbor ordering
     nn_order = _nearest_neighbor(instances, travel)
     _add_candidate("nn", nn_order)
 
-    # 3. Exhaustive permutations for small instance counts
-    n = len(instances)
-    if n <= 5:
+    # 3. Exhaustive permutations for n≤5 (exact w.r.t. visit order); redundant with HGS when n≤5
+    if enumerate_all_orders and n >= 2:
         for perm in itertools.permutations(range(n)):
             _add_candidate("perm", perm)
 
