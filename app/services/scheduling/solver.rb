@@ -14,12 +14,12 @@ module Scheduling
   module Solver
     def self.solve(input, backend: :greedy, **options)
       solver = case backend
-               when :greedy   then Solvers::Greedy.new(input, **options)
-               when :hgs      then Solvers::Hgs.new(input, **options)
-               when :bcp      then Solvers::Bcp.new(input, **options)
-               when :pipeline then Solvers::Pipeline.new(input, **options)
-               else raise ArgumentError, "Unknown solver backend: #{backend}"
-               end
+      when :greedy   then Solvers::Greedy.new(input, **options)
+      when :hgs      then Solvers::Hgs.new(input, **options)
+      when :bcp      then Solvers::Bcp.new(input, **options)
+      when :pipeline then Solvers::Pipeline.new(input, **options)
+      else raise ArgumentError, "Unknown solver backend: #{backend}"
+      end
       solver.solve
     end
   end
