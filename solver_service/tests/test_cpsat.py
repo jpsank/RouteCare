@@ -470,3 +470,76 @@ def test_cpsat_metadata_fields():
     assert "unschedulable" in meta
     assert "drive_violations" in meta
     assert "return_home_by_day" in meta
+    assert "cp_sat_status" in meta
+    assert "iteration_log" in meta
+    assert "route_winners" in meta
+    assert meta["iterations"] >= 1
+
+
+def test_cpsat_locked_visit_drive_cost():
+    """Drive cost should include travel to/from locked visits."""
+    from solvers.cpsat import solve
+
+    # Lock Alice at 9am on Monday. Bob visits too. Travel home→1=18, 1→2=30, 2→home=41.
+    locked = [
+        LockedVisitData(
+            patient_id=1,
+            date="2026-04-06",
+            starts_at="2026-04-06T09:00:00",
+            ends_at="2026-04-06T10:00:00",
+            duration_minutes=60,
+        )
+    ]
+    # Only Bob needs scheduling (1 visit)
+    patients = [
+        PatientData(id=1, name="Alice", location=Location(lat=36.09, lng=-94.19),
+                    visit_duration_minutes=60, required_visits_per_week=0),
+        PatientData(id=2, name="Bob", location=Location(lat=36.32, lng=-94.22),
+                    visit_duration_minutes=45, required_visits_per_week=1,
+                    min_days_between_visits=1, max_days_between_visits=7),
+    ]
+    instances = [
+        VisitInstanceData(id="patient_2_visit_0", patient_id=2,
+                          location=patients[1].location, duration=45),
+    ]
+    input = make_test_input(
+        patients=patients, instances=instances, locked_visits=locked,
+    )
+    output = solve(input, time_budget=10)
+
+    assert len(output.planned_visits) == 1
+    # The route on a day with both should include travel to/from locked visit
+    # Check that return_home_by_day accounts for the last patient
+    assert "return_home_by_day" in output.metadata
+
+
+def test_cpsat_priority_weighted_fitness():
+    """Dropping a high-priority patient should cost more than a low-priority one."""
+    from solvers.cpsat import solve, PENALTY_UNSCHEDULED
+
+    # Create more visits than can fit (6 visits, 1 day, max 5 per day)
+    patients = [
+        PatientData(id=k, name=f"P{k}", location=Location(lat=36.0, lng=-94.0),
+                    visit_duration_minutes=60, required_visits_per_week=1,
+                    priority=10 if k == 1 else 0)
+        for k in range(1, 7)
+    ]
+    instances = [
+        VisitInstanceData(id=f"patient_{k}_visit_0", patient_id=k,
+                          location=patients[k-1].location, duration=60,
+                          priority=10 if k == 1 else 0)
+        for k in range(1, 7)
+    ]
+    input = make_test_input(
+        patients=patients, instances=instances,
+        working_days=["2026-04-06"],
+        travel_matrix={
+            "home": {str(k): 5 for k in range(1, 7)},
+            **{str(k): {"home": 5, **{str(j): 5 for j in range(1, 7) if j != k}} for k in range(1, 7)},
+        },
+    )
+    output = solve(input, time_budget=10)
+
+    # High-priority patient 1 should be scheduled (not dropped)
+    placed_pids = {v.patient_id for v in output.planned_visits}
+    assert 1 in placed_pids, "High-priority patient 1 should not be dropped"

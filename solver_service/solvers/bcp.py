@@ -59,7 +59,6 @@ def solve(
         id_map[vrpse_id] = inst.id
         pid_map[vrpse_id] = inst.patient_id
 
-        # Time window: use workday bounds (availability windows handled in post-processing)
         model.add_customer(
             id=vrpse_id,
             name=inst.id,
@@ -100,6 +99,8 @@ def solve(
     model.set_parameters(time_limit=time_budget, upper_bound=ub)
 
     # Solve
+    # Note: BaPCod packing sets cannot enforce one-patient-per-route because
+    # they require same elementarity set. We use post-solve redistribution instead.
     model.solve()
     status = model.status if hasattr(model, "status") else -1
     solution = model.solution
@@ -156,8 +157,17 @@ def solve(
 
         routes_by_day[date] = day_patient_ids
 
-    # Post-process: enforce one-patient-per-day by moving duplicates to other days
-    planned_visits = redistribute_same_day_duplicates(planned_visits, working_days, clinician)
+    # BaPCod packing sets can't group different customers (idCustomer must match),
+    # so we redistribute same-patient duplicates across days post-solve
+    from collections import Counter
+    needs_redistribution = False
+    for date in working_days:
+        pids = [v.patient_id for v in planned_visits if v.date == date]
+        if len(pids) != len(set(pids)):
+            needs_redistribution = True
+            break
+    if needs_redistribution:
+        planned_visits = redistribute_same_day_duplicates(planned_visits, working_days, clinician)
     planned_visits = validate_spacing(planned_visits, patients_by_id)
     lunch = build_lunch_placements(input)
 
