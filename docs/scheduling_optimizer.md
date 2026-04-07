@@ -6,7 +6,7 @@ A living design document for the route-optimized scheduling algorithm.
 
 ## Overview
 
-The scheduler solves a variant of the **Vehicle Routing Problem with Time Windows (VRPTW)** — assigning home visits to days and times such that total drive time is minimized and all constraints are satisfied.
+The scheduler solves a variant of the **Multi-Period Vehicle Routing Problem with Time Windows (MP-VRPTW)** — assigning home visits to days and times such that total drive time is minimized and all constraints are satisfied.
 
 The problem has two fundamental dimensions:
 - **Space** — physical locations of patient homes and travel times between them
@@ -16,25 +16,63 @@ These dimensions are coupled: spatial decisions (which patients to group on a da
 
 ---
 
-## Two-Optimizer Architecture
+## Architecture
 
-Two complementary optimizers handle different use cases:
+### Three-Tier Solver Architecture
 
-### GA Optimizer (Global)
-- Runs nightly at midnight via Solid Queue scheduled job
-- Full global optimization over the entire week
-- Can rearrange any visit that is not locked (i.e. pending visits only)
-- Slow is acceptable — has hours to run
-- Uses a genetic algorithm with NEAT-inspired crossover
+```
+Tier 1: BCP (nightly, exact)                    ← VRPSolverEasy
+  Finds the provably optimal schedule for the week.
+  Uses HGS solution as upper bound for faster pruning.
+  Falls back to HGS result if BCP times out.
 
-### Greedy Optimizer (Local)
-- Runs on-demand when a patient is added or a visit is manually changed
-- Takes the existing schedule as context
-- Re-solves a constrained subproblem: confirmed visits fixed, all pending + new visits free
-- Must be fast — user is waiting
-- Uses an insertion heuristic: finds the best slot for new/displaced visits one at a time
+Tier 2: HGS (on-demand, near-optimal)           ← PyVRP
+  Re-optimizes when structure changes (new patient, calendar update).
+  5-30 seconds. Uses last BCP/HGS solution as warm start.
 
-Both optimizers share the same graph representation, feasibility check, and fitness function. They differ only in search strategy.
+Tier 3: Greedy + ALNS (instant, on-demand)       ← Ruby (current)
+  Regret-based insertion + adaptive large neighborhood search.
+  Runs when user clicks Re-optimize. <1 second.
+
+Future: NCO (real-time, <100ms)
+  Neural model for mid-day tactical adjustments.
+  Patient cancels, clinician running late, traffic changes.
+```
+
+### Nightly Pipeline
+
+```
+1. HGS (PyVRP) → near-optimal solution in 30-60s
+2. Feed HGS solution as upper bound to BCP (VRPSolverEasy)
+3. BCP either proves optimality or improves the solution
+4. If BCP times out → HGS solution is used (still excellent)
+5. Store as "master plan" for the week
+```
+
+### Real-Time Flow
+
+```
+Structural change (new patient, settings change):
+  → Greedy (instant) for immediate display
+  → HGS (background, 5-30s) for improved solution
+  → Suggest improvement if found
+
+Mid-day disruption (cancellation, delay):
+  → NCO (<100ms) for instant route adjustment (future)
+  → HGS (background) for better weekly re-optimization
+```
+
+### Solver Abstraction Layer
+
+All solvers receive `SolverInputData` (plain data, no ActiveRecord) and return `SolverOutputData`. The `SolverRunner` builds input from the database, dispatches to the selected backend, and persists the result.
+
+```
+SolverInput.build(user:, week_start_on:)   → SolverInputData
+Solver.solve(input, backend: :greedy)      → SolverOutputData
+SolverRunner.run(user:, ..., backend:)     → WeeklySchedule (persisted)
+```
+
+Backends: `:greedy`, `:ga`, `:hgs` (future), `:bcp` (future), `:nco` (future)
 
 ---
 
@@ -43,34 +81,25 @@ Both optimizers share the same graph representation, feasibility check, and fitn
 ### Given
 
 ```
-# Places
 P = {p_0, p_1, ..., p_n}
   p_0                       = home (start and end of every route)
   p_1..p_n                  = visit instances
                               patient a needing k visits → instances p_a1..p_ak
                               all at the same (lat, lon), independent time positions
 
-# Distance matrix
-T[i,j] = travel_time(p_i, p_j)    # symmetric, in minutes
-                                    # T[ai, aj] = 0 for same-patient instances
+T[i,j] = travel_time(p_i, p_j)    # from Mapbox Matrix API or haversine fallback
 
-# Days
 D = {1, ..., d}                    # working days in the week
 
-# Fixed skeleton (pre-assigned before optimization)
 F_k ⊂ P  ∀ k ∈ D                  # confirmed visits and calendar blocks on day k
-                                    # each node in F_k has a locked (time, duration)
 
-# Per-node parameters
 duration(p_i)   = visit_duration_minutes + charting_buffer_minutes
-window(p_i, k)  = [earliest_i_on_day_k, latest_i_on_day_k]   # availability window
-priority(p_i)   = int              # lower = schedule earlier
+window(p_i, k)  = [earliest_i_on_day_k, latest_i_on_day_k]
+priority(p_i)   = int
 
-# Per-patient spacing parameters
 min_gap(a)      = minimum days between any two instances of patient a
 max_gap(a)      = maximum days between any two instances of patient a
 
-# Physician parameters
 [ws, we]        = workday window in minutes from midnight
 max_continuous  = max continuous work minutes before mandatory break
 break_duration  = length of mandatory break in minutes
@@ -108,14 +137,14 @@ minimize  F(R) =
   + ε * Σ_k  |lunch_start_k - lunch_target|                   # lunch timing
 
 where:
-  spacing_penalty(a, i, j) = max(0, min_gap(a) - |day_i - day_j|)   # too close
-                            + max(0, |day_i - day_j| - max_gap(a))   # too far
+  spacing_penalty(a, i, j) = max(0, min_gap(a) - |day_i - day_j|)
+                            + max(0, |day_i - day_j| - max_gap(a))
 
   window_penalty(p_i, k)   = max(0, window(p_i,k).earliest - arrival(p_i))
                             + max(0, arrival(p_i) - window(p_i,k).latest)
 
-  density_penalty(R)        = density * Σ_k 1[|S_k| > 0]            # penalize spreading
-                            + (1-density) * variance(|S_k| across k) # penalize unevenness
+  density_penalty(R)        = density * Σ_k 1[|S_k| > 0]
+                            + (1-density) * variance(|S_k| across k)
 ```
 
 ### Subject To (Hard Constraints)
@@ -144,7 +173,7 @@ where:
   arrival(p_i) ≥ ws
   departure(p_i) ≤ we
 
-# 7. Max drive time per day
+# 7. Max drive time per day (soft during final enforcement, hard during day assignment)
 ∀ k:  Σ_(i,j) ∈ R_k  T[i,j]  ≤  max_drive_k
 
 # 8. Mandatory break after max continuous work
@@ -158,211 +187,140 @@ where:
 
 ---
 
-## Graph Representation
+## Current Implementation (Ruby)
 
-A schedule is a **path through spacetime** — each visit is a point with both a physical location and a time position. The graph unifies spatial and temporal information into a single structure.
+### Greedy Optimizer — Regret Insertion + ALNS
 
-### Node
+The on-demand optimizer triggered by the Re-optimize button.
 
-```
-Node = {
-  id:          string
-  type:        visit | block | lunch | break | home | transit
+**Construction (regret insertion):**
+1. Build travel matrix (Mapbox Matrix API, haversine fallback) including home node
+2. Build all visit instances with target day offsets (respects `schedule_density` and `min_gap`)
+3. Iteratively place the visit with highest *regret* (gap between best and second-best day)
+   - Priority and time-window tightness boost regret
+   - Day scoring: target day proximity + spacing penalty − geographic cluster bonus
+   - Strict pass first (spacing/drive as hard filters), relaxed pass if no candidates (as penalties)
+4. Block placed visit's full footprint (duration + charting buffer) in time ranges
 
-  # Spatial
-  location:    (lat, lon) | null     # null for non-spatial nodes
+**Post-optimization (ALNS):**
+- 30 iterations of destroy/repair
+- 5 destroy strategies: worst-cost, geographic cluster, random, same-patient, full-day
+- Adaptive weights: strategies that produce improvements get used more
+- Repair: regret-based re-insertion with rebuilt blocked ranges
+- Only accepts improvements, rejects plans that violate hard constraints or drop visits
 
-  # Temporal
-  time_start:  fixed(int) | free(domain: [min, max])
-  time_end:    fixed(int) | derived(time_start + duration)
-  duration:    int                   # minutes
+**Route ordering (per day):**
+- Nearest-neighbor using travel matrix
+- True 2-opt: reverse subsequences to reduce round-trip cost (including return home)
 
-  # Constraint metadata
-  hard:        bool                  # if true, optimizer cannot move this node
-  soft_cost:   (actual_time) → float # penalty function for soft constraints
-}
-```
+**Retiming:**
+- Assigns concrete start/end times respecting transit gaps, charting buffer, lunch window, mandatory breaks, locked visit ranges
+- Rounds to 15-minute intervals
 
-**Node types and freedom:**
+**Max drive enforcement:**
+- Hard constraint during day assignment (projected drive including new visit)
+- Soft warning on final routes (report violations, never drop visits)
 
-| Type            | Space    | Time                          |
-|-----------------|----------|-------------------------------|
-| Home            | fixed    | fixed (workday start/end)     |
-| Calendar block  | none     | fixed (hard)                  |
-| Lunch           | none     | semi-fixed (soft window)      |
-| Mandatory break | none     | derived (triggered by work accumulation) |
-| Visit           | fixed    | free (optimizer controls)     |
-| Transit         | derived  | derived (from adjacent nodes) |
+### GA Optimizer — HGS-Inspired Genetic Algorithm
 
-Transit nodes have no independent existence — they are derived from the spatial edge between two adjacent visit/home nodes and computed on the fly during edge evaluation.
+Nightly optimizer via Solid Queue. ~11-16% improvement over greedy.
 
-### Edge
+**Population:** 30-50 individuals, seeded with 1 greedy solution + random perturbations
 
-An edge between two nodes means "this node is followed directly by that node."
+**Crossover:** Route-segment crossover — randomly assign each day to a parent, inherit all visits for that day as a unit. Preserves geographic clusters.
 
-```
-Edge = {
-  from:         Node
-  to:           Node
-  spatial_cost: travel_time(from.location, to.location)
-  temporal_gap: to.time_start - from.time_end
-  feasible:     temporal_gap >= spatial_cost
-}
-```
+**Mutation:** Move visit to different day, or swap two visits between days. Cooling rate 0.97x per generation.
 
-The feasibility condition `temporal_gap >= spatial_cost` is where the two dimensions are unified — you cannot arrive somewhere before you have had time to travel there.
+**Education (HGS-inspired):** After crossover+mutation, each child undergoes local search (relocate + swap moves on day assignments) before entering the population. Every individual is a local optimum.
 
-### Multi-Instance Patient Encoding
+**Diversity management:**
+- Speciation by structural distance (fraction of differing day assignments)
+- Diversity-based survivor selection: keep most structurally different individuals alongside elites
+- Diversity injection every 15 stagnant generations: inject 30% random individuals + boost mutation
 
-If a patient requires N visits per week, they are represented as N independent nodes in the graph, all sharing the same physical location but with independent time positions:
+**Feasibility:** Decode via nearest-neighbor + retimer. Check one-patient-per-day, min spacing, max drive. Infeasible chromosomes rejected.
 
-```
-patient_A_visit_1, patient_A_visit_2, patient_A_visit_3
-  — all at location (lat, lon) of patient A
-  — independent time_start domains
-  — spacing constraint edges between instances
-```
-
-The one-visit-per-patient-per-day hard constraint prevents instances from being placed on the same day. Spacing penalty edges between instances discourage clustering.
-
-### The Three Underlying Graphs
-
-The unified graph is composed of three conceptual layers:
-
-**G_s — Spatial graph (static)**
-- Nodes: all physical locations (home + all patients)
-- Edges: every pair, undirected, weight = travel time
-- Built once per optimization run, never changes
-- Used as a lookup table by G_t edge weights
-
-**G_t — Temporal graph (dynamic)**
-- Nodes: all events (visits, calendar blocks, lunch, breaks, transits)
-- Edges: ordering and constraint relationships
-- Fixed nodes (calendar blocks) carve out forbidden intervals
-- Free nodes (visits) are what the optimizer manipulates
-
-**G_w — Weekly spacing graph**
-- Nodes: patients
-- Edges: temporal relationships between visit instances of the same patient across days
-- Weight: spacing penalty based on days between visits
-- Encodes min/max interval constraints
-
-**Total fitness of a schedule:**
-
-```
-F(S) = α * Σ spatial_cost(u,v) for all edges in S       # minimize drive time
-     + β * Σ spacing_penalty for all visit pairs in S   # enforce regular intervals
-     + γ * Σ soft_constraint_violations in S            # availability, lunch timing, etc.
-     + ∞ * Σ hard_constraint_violations in S            # infeasible schedules discarded
-```
+**Termination:** Time budget (default 45s nightly, 10s for testing) or 50 generations of stagnation.
 
 ---
 
-## Visit Status and Locking
+## Future: Python Solver Microservice
 
-Visits have two relevant statuses for the optimizer:
+A sidecar Python service that the Rails app calls via HTTP through the solver abstraction.
 
-| Status      | Behavior                                      |
-|-------------|-----------------------------------------------|
-| `confirmed` | Fixed node — neither optimizer will move it   |
-| `pending`   | Free node — both optimizers can reschedule it |
+### PyVRP — HGS (Tier 2)
 
-Confirmed visits act as fixed skeleton nodes, equivalent to calendar blocks. The optimizer arranges pending visits around them.
+[PyVRP](https://github.com/PyVRP/PyVRP) — Hybrid Genetic Search for VRP. State-of-the-art metaheuristic. Consistently wins academic VRP competitions. Handles CVRP, VRPTW, heterogeneous fleet, multi-depot.
 
----
+```python
+from pyvrp import Model, solve
 
-## Feasibility Check
+model = Model()
+model.add_depot(x=home_lng, y=home_lat)
+for patient in patients:
+    model.add_client(x=patient.lng, y=patient.lat,
+                     tw_early=window_start, tw_late=window_end,
+                     service_duration=visit_duration)
+for day in working_days:
+    model.add_vehicle_type(capacity=MAX_VISITS, max_duration=max_drive)
 
-Applied after every crossover, mutation, or insertion:
-
-```
-is_feasible(path) =
-
-  # Layer 1: fixed nodes are not displaced
-  ∀ hard nodes n: n.time_start == n.fixed_time
-
-  # Layer 2: spatial-temporal coupling — transit fits in the gap
-  ∀ edges (u, v): v.time_start >= u.time_end + travel_time(u, v)
-
-  # Layer 3: no overlap between non-transit nodes
-  ∀ pairs (u, v): u.time_end <= v.time_start OR v.time_end <= u.time_start
-
-  # Layer 4: free nodes within their allowed domain (soft — contributes to fitness)
-  ∀ free nodes n: n.time_start ∈ n.domain
+result = solve(model, stop=MaxRuntime(30))
 ```
 
-Layers 1–3 are hard — any violation makes the schedule infeasible and the candidate is discarded. Layer 4 violations are soft — they contribute to fitness penalty but do not discard the schedule.
+### VRPSolverEasy — BCP (Tier 1)
 
----
+[VRPSolverEasy](https://github.com/inria-UFF/VRPSolverEasy) — Branch-Cut-and-Price exact solver from INRIA. Finds provably optimal solutions. Based on BaPCod solver + COIN-OR CLP.
 
-## GA Optimizer — Algorithm
+```python
+import VRPSolverEasy as vrpse
 
-### Encoding
+model = vrpse.Model()
+model.add_depot(id=0, x=home_lng, y=home_lat)
+for patient in patients:
+    model.add_customer(id=patient.id, x=patient.lng, y=patient.lat,
+                       demand=1, tw_begin=start, tw_end=end)
+model.add_vehicle_type(id=1, capacity=MAX_VISITS,
+                       max_number=len(working_days))
+model.set_parameters(time_limit=3600)
 
-A chromosome encodes a full week's schedule as a list of (visit, day) assignments. Each visit node has a stable ID (patient_id + instance_index). Time positions within a day are not encoded in the chromosome — they are derived by a retiming pass after crossover/mutation.
+# Warm start with HGS solution as upper bound
+model.set_initial_solution(hgs_routes, hgs_cost)
 
-### Population Initialization
-
-1. Generate one individual using the greedy optimizer (good starting point)
-2. Generate remaining individuals by randomly perturbing the greedy solution (swap days, shuffle visit order)
-
-### Crossover — NEAT-Inspired Alignment
-
-Visits are aligned by identity (not position) before crossover, solving the competing conventions problem:
-
-```
-Parent A:  [X:Mon, Y:Tue, Z:Mon, W:Thu]
-Parent B:  [X:Wed, Y:Mon, Z:Fri, W:Tue]
-
-Child:     [X:Mon, Y:Mon, Z:Fri, W:Thu]
-            ^^^A        ^^^B       ^^^A
+model.solve()
 ```
 
-Each visit's day assignment is inherited independently from one parent. The child then undergoes a retiming pass to assign exact times.
+**Performance:** Provably optimal for ~100 customers. Some 200-customer instances solvable. Performance improves significantly with HGS upper bound.
 
-### Mutation
+### NCO — Neural Combinatorial Optimization (Tier 3, future)
 
-Random mutations applied with decreasing probability as generations progress:
+Attention-based model trained on historical schedule data for real-time adjustments.
 
-- Move a visit to a different day
-- Swap two visits between days
-- Shift a visit's time slot earlier or later within a day
-- Reorder two adjacent visits within a day
+```
+Training data:
+  Input:  (patient locations, time windows, current partial route, disruption type)
+  Output: (next action: insert, swap, skip, defer)
 
-### Speciation
+Architecture: Transformer encoder for problem state,
+              autoregressive decoder for route sequence
 
-Maintain a diverse population to avoid premature convergence:
+Training: REINFORCE with baseline, reward = -route_cost
+```
 
-- Group individuals by structural similarity (same day assignments = same species)
-- Apply fitness sharing within species — penalize individuals too similar to others
-- Protect novel structures for a minimum number of generations before they compete globally
+Produces route adjustments in <100ms. Trained on data specific to each clinician's patient geography and scheduling patterns.
 
-### Cooling
+### Multi-Objective Support
 
-Mutation rate starts high and decreases each generation, analogous to simulated annealing temperature. Early generations explore broadly; later generations refine.
+**BCP (nightly):** Run with different weight vectors, each run is exact for its combination:
+```
+Run 1: minimize 0.8*drive_time + 0.2*workload_balance
+Run 2: minimize 0.5*drive_time + 0.5*workload_balance
+Run 3: minimize 0.2*drive_time + 0.8*workload_balance
+→ Present Pareto front of trade-off schedules
+```
 
-### Termination
+**HGS:** Multi-objective via Pareto dominance in population. Non-dominated individuals form the front. Single run produces multiple trade-off solutions.
 
-Run until a time budget is exhausted (e.g. 30 seconds for on-demand, longer for nightly run) or fitness improvement stalls for N generations.
-
----
-
-## Greedy Optimizer — Algorithm
-
-Used for on-demand insertion when a patient is added or a visit changes.
-
-1. Lock all confirmed visits as fixed nodes
-2. Treat all pending visits + new visits as free
-3. For each unplaced visit (ordered by patient priority):
-   - Generate candidate (day, time) slots across the week
-   - Score each candidate: `spatial_insertion_cost + soft_constraint_penalties`
-   - Spatial insertion cost = `d(prev, new) + d(new, next) - d(prev, next)`
-   - Select the lowest-score feasible slot
-   - Lock it in and proceed to the next visit
-4. Run nearest-neighbor reordering on each day's visits
-5. Run retiming pass to assign exact start times
-
-The greedy optimizer is not globally optimal but is fast and produces a good solution as a starting point for the GA or for immediate display to the user.
+**NCO:** Conditional generation — objective weights as model input. Clinician adjusts a preference slider, model generates matching solution in milliseconds.
 
 ---
 
@@ -378,14 +336,14 @@ The greedy optimizer is not globally optimal but is fast and produces a good sol
 | `workday_start_minute` | Physician | Earliest visit start |
 | `workday_end_minute` | Physician | Latest visit end |
 | `working_days` | Physician | Which days of week are active |
-| `max_drive_minutes_per_day` | Physician | Daily drive cap |
+| `max_drive_minutes_per_day` | Physician | Daily drive cap (round-trip including return home) |
 | `schedule_density` | Physician | Cluster visits into fewer days vs. spread evenly |
-| `charting_buffer_minutes` | Physician | Post-visit documentation time |
+| `charting_buffer_minutes` | Physician | Post-visit documentation gap (not added to visit block) |
 | `required_visits_per_week` | Patient | Number of visit instances to schedule |
 | `visit_duration_minutes` | Patient | Duration of each visit |
 | `min_days_between_visits` | Patient | Minimum spacing between instances |
 | `max_days_between_visits` | Patient | Maximum spacing between instances |
-| `priority` | Patient | Scheduling order preference (high-acuity first) |
+| `priority` | Patient | Scheduling urgency (higher = earlier slots, route penalty discounted) |
 | `availability_windows` | Patient | Time-of-day soft preference by day of week |
 
 ---
@@ -400,19 +358,50 @@ The greedy optimizer is not globally optimal but is fast and produces a good sol
 - Visits cannot exceed physician's configured working hours per day
 - Mandatory break after `max_continuous_work_minutes` of accumulated work
 - Lunch break must occur within the configured window
-- Max drive time per day (if configured)
 - Patient visit frequency met within the week
 - Transit time between consecutive visits must fit within the time gap
 
 ### Soft Constraints
-*Optimize toward — violations increase fitness penalty but schedule remains valid*
+*Optimize toward — violations are reported as warnings but schedules remain valid*
 
+- **Max drive time per day** — hard during day assignment, soft warning on final routes (never drops visits)
 - **Patient spacing** — visits to the same patient separated by at least `min_days_between_visits`
 - **Patient max spacing** — visits not further apart than `max_days_between_visits`
 - **Patient time-of-day preference** — respect availability windows
 - **Patient priority** — high-acuity patients scheduled earlier in day/week
 - **Physician schedule density** — prefer configured density (sparse vs. loaded days)
 - **Geographic day-clustering** — group nearby patients on the same day
-- **Charting buffer** — N minutes after each visit for documentation
+- **Charting buffer** — gap after each visit for documentation
 - **Lunch timing** — lunch falls near `lunch_start_minute`, within flexibility window
-- **Visit start time regularity** — match prior week's visit times where possible
+
+---
+
+## File Layout
+
+```
+app/services/scheduling/
+  solver_input.rb              # SolverInputData — AR-free data structs
+  solver.rb                    # Backend dispatch (greedy, ga, hgs, bcp)
+  solver_runner.rb             # Build input → solve → persist
+  solvers/
+    greedy.rb                  # Regret insertion + ALNS (AR-free)
+  weekly_optimizer.rb          # Legacy greedy (AR-coupled, still used by controller)
+  ga_optimizer.rb              # GA with education + diversity (AR-coupled)
+  chromosome.rb                # GA encoding: route-segment crossover, mutation
+  fitness_function.rb          # Weighted multi-objective scoring
+  feasibility_checker.rb       # Hard constraint validation
+  retimer.rb                   # Assign concrete times within a day
+  visit_instance.rb            # VisitInstance data struct
+  visit_instance_builder.rb    # Build instances from patients + locked visits
+  schedule_persister.rb        # Persist solver output to DB
+  travel_time_matrix_builder.rb # Mapbox Matrix API + haversine fallback
+  calendar_constraints.rb      # Blocked time ranges from calendar events
+  conflict_detector.rb         # Post-optimization conflict audit
+  rescheduler.rb               # Manual single-visit reschedule
+  time_window.rb               # Simple (start_minute, end_minute) data class
+
+app/services/integrations/
+  routing_client.rb            # Mapbox Matrix API + haversine fallback
+
+config/recurring.yml           # Nightly GA job at midnight
+```
