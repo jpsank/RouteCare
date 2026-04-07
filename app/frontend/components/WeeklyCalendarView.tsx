@@ -231,6 +231,11 @@ export function WeeklyCalendarView({
     [calendarBlocks, selectedDate],
   );
 
+  const returnHomeMinutes = useMemo(() => {
+    const returnHomeByDay = (schedule?.optimization_summary?.return_home_by_day ?? {}) as Record<string, number>;
+    return returnHomeByDay[selectedDate] ?? 0;
+  }, [schedule?.optimization_summary, selectedDate]);
+
   const {
     connectingProvider,
     setConnectingProvider,
@@ -484,6 +489,42 @@ export function WeeklyCalendarView({
         );
       })()}
 
+      {/* Unschedulable visits warning */}
+      {(() => {
+        const items = (schedule?.optimization_summary?.unschedulable ?? []) as Array<{ patient_name: string }>;
+        if (items.length === 0) return null;
+        const names = [...new Set(items.map((u) => u.patient_name))];
+        return (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs sm:gap-3 sm:px-3 sm:py-2 sm:text-sm">
+            <svg className="h-4 w-4 flex-none text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <span className="text-red-800">
+              Could not schedule all visits for: <strong>{names.join(", ")}</strong>
+            </span>
+          </div>
+        );
+      })()}
+
+      {/* Drive time violations warning */}
+      {(() => {
+        const violations = (schedule?.optimization_summary?.drive_violations ?? []) as Array<{ date: string; drive_minutes: number; max_drive: number }>;
+        if (violations.length === 0) return null;
+        return (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs sm:gap-3 sm:px-3 sm:py-2 sm:text-sm">
+            <svg className="h-4 w-4 flex-none text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <span className="text-amber-800">
+              Drive time exceeds limit on {violations.map((v) => {
+                const d = new Date(v.date + "T12:00:00");
+                return `${d.toLocaleDateString([], { weekday: "short" })} (${v.drive_minutes}min / ${v.max_drive}min)`;
+              }).join(", ")}
+            </span>
+          </div>
+        );
+      })()}
+
       {/* Settings modal (portaled to body) */}
       {showSettings && createPortal(
         <div className="fixed inset-0 z-[800] flex items-start justify-center px-4 pt-[10vh] animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]" data-modal-overlay onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
@@ -654,6 +695,7 @@ export function WeeklyCalendarView({
                 selectedVisitId={selectedVisitId}
                 setSelectedVisitId={setSelectedVisitId}
                 homeOrigin={homeOrigin}
+                returnHomeMinutes={returnHomeMinutes}
               />
             </div>
           </>

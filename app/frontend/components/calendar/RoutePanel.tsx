@@ -14,6 +14,7 @@ type Props = {
   selectedVisitId: number | null;
   setSelectedVisitId: (id: number | null) => void;
   homeOrigin?: Point | null;
+  returnHomeMinutes?: number;
 };
 
 function totalDriveMinutes(visits: Visit[]): number {
@@ -27,6 +28,7 @@ export function RoutePanel({
   selectedVisitId,
   setSelectedVisitId,
   homeOrigin,
+  returnHomeMinutes = 0,
 }: Props) {
   const googleMapsUrl = buildGoogleMapsUrl(
     dayVisits
@@ -46,7 +48,7 @@ export function RoutePanel({
     month: "short",
     day: "numeric",
   });
-  const driveTotal = totalDriveMinutes(dayVisits);
+  const driveTotal = totalDriveMinutes(dayVisits) + returnHomeMinutes;
 
   return (
     <aside className="rc-route-panel sticky top-3">
@@ -118,6 +120,15 @@ export function RoutePanel({
               </div>
             );
           })}
+          {returnHomeMinutes > 0 && (
+            <div className="rc-timeline-item">
+              <div className="rc-timeline-transit">
+                <span className="rc-transit-chip">
+                  Return home &middot; {returnHomeMinutes} min
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
