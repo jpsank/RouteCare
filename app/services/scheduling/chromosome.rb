@@ -32,18 +32,36 @@ module Scheduling
       child
     end
 
-    # NEAT-style crossover: align by visit instance ID, randomly inherit from one parent
+    # Route-segment crossover: inherit entire days from parents to preserve
+    # geographic clusters. For each day, randomly pick one parent's day
+    # assignment. Visits not covered by inherited days fall back to per-gene choice.
     def crossover(other)
-      child_genes = {}
+      all_days = (genes.values + other.genes.values).uniq
       all_ids = (genes.keys + other.genes.keys).uniq
 
+      # For each day, decide which parent "owns" it
+      parent_for_day = {}
+      all_days.each { |day| parent_for_day[day] = rand < 0.5 ? :a : :b }
+
+      child_genes = {}
       all_ids.each do |id|
-        if genes.key?(id) && other.genes.key?(id)
-          child_genes[id] = rand < 0.5 ? genes[id] : other.genes[id]
-        elsif genes.key?(id)
-          child_genes[id] = genes[id]
+        day_a = genes[id]
+        day_b = other.genes[id]
+
+        if day_a && day_b
+          # Both parents have this visit — use the day from the "owning" parent
+          if parent_for_day[day_a] == :a
+            child_genes[id] = day_a
+          elsif parent_for_day[day_b] == :b
+            child_genes[id] = day_b
+          else
+            # Neither day's parent was selected — pick randomly
+            child_genes[id] = rand < 0.5 ? day_a : day_b
+          end
+        elsif day_a
+          child_genes[id] = day_a
         else
-          child_genes[id] = other.genes[id]
+          child_genes[id] = day_b
         end
       end
 
