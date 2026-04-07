@@ -9,6 +9,8 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
+# Paths are repo-root–relative (see https://docs.railway.com/builds/build-configuration#configure-watch-paths)
+watchPatterns = [ "/solver_service/**" ]
 
 [deploy]
 healthcheckPath = "/health"

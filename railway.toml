@@ -11,7 +11,36 @@
 # https://docs.railway.com/guides/monorepo
 
 [build]
-# Railway auto-detects the Dockerfile
+# Railway auto-detects the Dockerfile. Skip deploys when only solver_service/ changes.
+# Repo-root–relative patterns: https://docs.railway.com/builds/build-configuration#configure-watch-paths
+watchPatterns = [
+  "/app/**",
+  "/bin/**",
+  "/config/**",
+  "/db/**",
+  "/docs/**",
+  "/lib/**",
+  "/public/**",
+  "/storage/**",
+  "/test/**",
+  "/tmp/**",
+  "/vendor/**",
+  "/.github/**",
+  "/Gemfile",
+  "/Gemfile.lock",
+  "/package.json",
+  "/package-lock.json",
+  "/Dockerfile",
+  "/Rakefile",
+  "/config.ru",
+  "/.ruby-version",
+  "/railway.toml",
+  "/render.yaml",
+  "/vite.config.ts",
+  "/tsconfig.json",
+  "/tailwind.config.cjs",
+  "/postcss.config.cjs",
+]
 
 [deploy]
 healthcheckPath = "/up"
