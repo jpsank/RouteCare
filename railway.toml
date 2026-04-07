@@ -1,5 +1,14 @@
-# Railway configuration for RouteCare
+# Railway configuration for RouteCare (Rails app at repo root).
 # Docs: https://docs.railway.com/reference/config-as-code
+#
+# Monorepo — Python solver:
+#   1. In the same Railway project, add a service from this repo.
+#   2. Settings → Root Directory: solver_service
+#   3. Settings → Config-as-code: /solver_service/railway.toml
+#   4. Deploy; add a public domain for the solver if Rails will call it over HTTPS.
+#   5. On this Rails service: PYTHON_SOLVER_URL=https://<solver-host> (no trailing path; client uses /solve)
+#
+# https://docs.railway.com/guides/monorepo
 
 [build]
 # Railway auto-detects the Dockerfile

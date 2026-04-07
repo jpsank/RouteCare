@@ -1,0 +1,17 @@
+# RouteCare Python solver (FastAPI). Use with a Railway service whose Root Directory is `solver_service`.
+# Dashboard: Settings → Root Directory = solver_service → Config-as-code path = /solver_service/railway.toml
+#
+# Wire Rails: on the RouteCare web service set PYTHON_SOLVER_URL to this service’s HTTPS URL
+# (Generate Domain) or private URL if both services are in the same project.
+#
+# https://docs.railway.com/guides/monorepo
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
