@@ -30,6 +30,8 @@ from collections import defaultdict
 from datetime import datetime
 
 from ortools.sat.python import cp_model
+from pyvrp import Model as VRPModel
+from pyvrp.stop import MaxRuntime
 
 from models import SolverInput, SolverOutput, PlannedVisit, VisitInstanceData
 from solvers.base import MAX_VISITS_PER_DAY, build_lunch_placements, compute_return_home, minutes_to_datetime
@@ -474,9 +476,13 @@ def _route_day(
 ) -> dict:
     """Find optimal route order and concrete times for a single day's visits.
 
-    For ≤5 visits (MAX_VISITS_PER_DAY), enumerates all permutations and
-    picks the lowest-cost feasible one. Handles lunch, breaks, calendar
-    blocks, and locked visit avoidance.
+    Strategy:
+      1. HGS (PyVRP) finds the travel-optimal visit ordering
+      2. For ≤5 visits, also try all permutations (exact)
+      3. Retime the best ordering with lunch/breaks/blocks
+      4. Pick the lowest-cost feasible result
+
+    HGS handles the spatial optimization; retiming handles domain constraints.
     """
     clinician = input.clinician
     travel = ctx["travel"]
@@ -514,27 +520,42 @@ def _route_day(
             "drive_cost": 0,
         }
 
-    # Enumerate all permutations (≤ 5! = 120)
+    # Collect candidate orderings
+    candidate_orders: list[tuple[int, ...]] = []
+
+    # 1. HGS ordering — travel-optimal route via PyVRP
+    hgs_order = _hgs_route_order(instances, travel, clinician)
+    if hgs_order is not None:
+        candidate_orders.append(hgs_order)
+
+    # 2. Nearest-neighbor ordering — fast fallback
+    nn_order = _nearest_neighbor(instances, travel)
+    candidate_orders.append(nn_order)
+
+    # 3. Exhaustive permutations for small instance counts
+    n = len(instances)
+    if n <= 5:
+        for perm in itertools.permutations(range(n)):
+            candidate_orders.append(perm)
+
+    # Evaluate all candidates with retiming
     best_result = None
     best_cost = float("inf")
 
-    for perm in itertools.permutations(range(len(instances))):
+    for order in candidate_orders:
         result = _evaluate_route(
-            perm, instances, date, clinician, travel, all_blocks,
+            order, instances, date, clinician, travel, all_blocks,
             lunch_earliest, lunch_latest, lunch_dur, lunch_target,
         )
-        if result is None:
-            continue  # infeasible
-
-        if result["total_cost"] < best_cost:
+        if result is not None and result["total_cost"] < best_cost:
             best_cost = result["total_cost"]
             best_result = result
 
+    # Fallback: try without lunch constraint
     if best_result is None:
-        # All permutations infeasible — try without lunch constraint
-        for perm in itertools.permutations(range(len(instances))):
+        for order in candidate_orders:
             result = _evaluate_route(
-                perm, instances, date, clinician, travel, all_blocks,
+                order, instances, date, clinician, travel, all_blocks,
                 lunch_earliest, lunch_latest, lunch_dur, lunch_target,
                 force_lunch=False,
             )
@@ -542,16 +563,14 @@ def _route_day(
                 best_cost = result["total_cost"]
                 best_result = result
 
+    # Absolute fallback: nearest-neighbor, no blocks
     if best_result is None:
-        # Absolute fallback: nearest-neighbor, no constraints
-        nn_order = _nearest_neighbor(instances, travel)
         best_result = _evaluate_route(
             nn_order, instances, date, clinician, travel, [],
             lunch_earliest, lunch_latest, lunch_dur, lunch_target,
             force_lunch=False, skip_blocks=True,
         )
         if best_result is None:
-            # Can't even place visits — return empty
             lunch_start = _round_up(lunch_earliest, SLOT_STEP)
             return {
                 "visits": [],
@@ -560,6 +579,84 @@ def _route_day(
             }
 
     return best_result
+
+
+def _hgs_route_order(
+    instances: list[VisitInstanceData],
+    travel,
+    clinician,
+) -> tuple[int, ...] | None:
+    """Use PyVRP HGS to find the travel-optimal visit ordering for a single day.
+
+    Builds a single-vehicle TSP model: one depot (home), one client per visit.
+    Returns the visit indices in HGS's optimal order, or None if infeasible.
+    """
+    n = len(instances)
+    if n <= 1:
+        return tuple(range(n))
+
+    try:
+        model = VRPModel()
+        depot = model.add_depot(x=0, y=0)
+
+        clients = []
+        for inst in instances:
+            client = model.add_client(
+                x=0, y=0,
+                delivery=[1],
+                service_duration=inst.duration,
+                tw_early=clinician.workday_start_minute,
+                tw_late=clinician.workday_end_minute,
+            )
+            clients.append(client)
+
+        # Edges: depot ↔ clients, client ↔ client
+        for i, inst in enumerate(instances):
+            pid = str(inst.patient_id)
+            t_out = travel("home", pid)
+            t_back = travel(pid, "home")
+            model.add_edge(depot, clients[i], distance=t_out, duration=t_out)
+            model.add_edge(clients[i], depot, distance=t_back, duration=t_back)
+
+            for j, inst_j in enumerate(instances):
+                if i == j:
+                    continue
+                t = travel(pid, str(inst_j.patient_id))
+                model.add_edge(clients[i], clients[j], distance=t, duration=t)
+
+        workday_dur = clinician.workday_end_minute - clinician.workday_start_minute
+        model.add_vehicle_type(
+            num_available=1,
+            capacity=[MAX_VISITS_PER_DAY],
+            shift_duration=workday_dur,
+            tw_early=clinician.workday_start_minute,
+            tw_late=clinician.workday_end_minute,
+        )
+
+        # Very short budget — single-day TSP with ≤5 nodes solves in milliseconds
+        result = model.solve(stop=MaxRuntime(0.05), seed=42, display=False)
+
+        if not result.is_feasible():
+            return None
+
+        routes = list(result.best.routes())
+        if not routes:
+            return None
+
+        # Extract visit order from HGS route (client indices are 1-based, 0=depot)
+        order = []
+        for visit_idx in routes[0].visits():
+            node = visit_idx - 1  # convert to 0-based
+            if 0 <= node < n:
+                order.append(node)
+
+        if len(order) != n:
+            return None  # HGS didn't place all visits
+
+        return tuple(order)
+
+    except Exception:
+        return None  # HGS failed, fall through to other orderings
 
 
 def _evaluate_route(
