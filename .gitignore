@@ -53,6 +53,9 @@ vendor/bundle
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
+# CPython 3 tag files (e.g. .cpython-311.pyc); usually only appear under __pycache__/
+*.cpython-*.pyc
 .python-version
 
 # Generated graph/dot files
