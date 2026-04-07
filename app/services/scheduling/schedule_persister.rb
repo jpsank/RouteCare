@@ -67,7 +67,7 @@ module Scheduling
             item[:visit].update!(position_in_day: index, drive_from_previous_minutes: drive_minutes)
           else
             slot = item[:slot]
-            schedule.visits.create!(
+            attrs = {
               patient: slot[:patient],
               starts_at: slot[:starts_at],
               ends_at: slot[:ends_at],
@@ -76,9 +76,12 @@ module Scheduling
               position_in_day: index,
               drive_from_previous_minutes: drive_minutes,
               soft_constraint_override: slot[:soft_constraint_override] || false,
-              source: "optimizer",
-              instance_id: slot[:instance_id].presence
-            )
+              source: "optimizer"
+            }
+            if Visit.has_attribute?(:instance_id)
+              attrs[:instance_id] = slot[:instance_id].presence
+            end
+            schedule.visits.create!(attrs)
           end
 
           previous_patient_id = item[:patient].id

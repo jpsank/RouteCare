@@ -10,6 +10,11 @@ class Visit < ApplicationRecord
     completed: "completed"
   }, validate: true
 
+  # Safe before `db:migrate` adds `visits.instance_id` (schema can lag; avoids 500 on serialize / warm-start).
+  def instance_id
+    has_attribute?(:instance_id) ? read_attribute(:instance_id) : nil
+  end
+
   validates :starts_at, :ends_at, :duration_minutes, :position_in_day, presence: true
   validates :duration_minutes, numericality: { greater_than: 0 }
   validates :position_in_day, :drive_from_previous_minutes, numericality: { greater_than_or_equal_to: 0 }
@@ -17,7 +22,8 @@ class Visit < ApplicationRecord
   validates :instance_id,
     format: { with: /\Apatient_\d+_visit_\d+\z/, message: "must look like patient_123_visit_0" },
     allow_nil: true,
-    allow_blank: true
+    allow_blank: true,
+    if: -> { has_attribute?(:instance_id) }
   validate :end_after_start
 
   scope :for_day, ->(date) { where(starts_at: date.beginning_of_day..date.end_of_day).order(:starts_at) }
