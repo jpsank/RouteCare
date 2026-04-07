@@ -151,91 +151,26 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
       });
   }, [routePlan, selectedDate, clearRenderedRoute]);
 
+  // Initialize map once on mount, destroy on unmount
+  const mapboxRef = useRef<typeof mapboxgl | null>(null);
   useEffect(() => {
-    let cancelled = false;
-
     const container = mapContainerRef.current;
     if (!container) return;
 
     void loadMapbox().then((mapbox) => {
-      if (cancelled) return;
-
-      if (!mapRef.current) {
-        mapRef.current = new mapbox.Map({
-          container,
-          style: "mapbox://styles/mapbox/light-v11",
-          center: [-96, 37.8],
-          zoom: 3,
-          accessToken: mapboxToken(),
-        });
-        mapRef.current.addControl(new mapbox.NavigationControl({ showCompass: false }), "top-right");
-      }
-      if (!routeSnapshot) return;
-
-      const map = mapRef.current;
-      const draw = () => {
-        const geojson: GeoJSON.FeatureCollection = {
-          type: "FeatureCollection",
-          features: [{ type: "Feature", geometry: routeSnapshot.geometry, properties: {} }],
-        };
-        if (map.getSource(ROUTE_SOURCE_ID)) (map.getSource(ROUTE_SOURCE_ID) as mapboxgl.GeoJSONSource).setData(geojson);
-        else {
-          map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: geojson });
-          map.addLayer({
-            id: ROUTE_LAYER_ID,
-            type: "line",
-            source: ROUTE_SOURCE_ID,
-            paint: { "line-color": "#6366f1", "line-width": 3, "line-opacity": 0.7 },
-          });
-        }
-
-        markersRef.current.forEach((marker) => marker.remove());
-        markersRef.current = [];
-        markerElementsRef.current.clear();
-        const allPoints = [routePlan?.origin, ...(routePlan?.stops || [])].filter(Boolean) as Array<Point | RouteStop>;
-        allPoints.forEach((point, idx) => {
-          const isHome = idx === 0 && homeOrigin != null;
-          const stop = point as RouteStop;
-
-          let el: HTMLElement;
-          let popupText: string;
-
-          if (isHome) {
-            el = createDotElement("#6b7280", "H");
-            popupText = "Home";
-          } else {
-            const pc = patientColor(stop.patientId);
-            const stopNumber = homeOrigin ? idx : idx + 1;
-            el = createDotElement(pc.accent, String(stopNumber));
-            popupText = `${stopNumber}. ${stop.patientName}\n${stop.patientAddress}\n${new Date(stop.startsAt).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            })} – ${new Date(stop.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-
-            // Store element for highlight sync
-            const visitMatch = dayVisits.find(
-              (v) => v.patient_id === stop.patientId && v.starts_at === stop.startsAt,
-            );
-            if (visitMatch) markerElementsRef.current.set(visitMatch.id, el);
-          }
-
-          const marker = new mapbox.Marker({ element: el, anchor: "center" })
-            .setLngLat([point.longitude, point.latitude])
-            .setPopup(new mapbox.Popup({ offset: 12, closeButton: false }).setText(popupText))
-            .addTo(map);
-          markersRef.current.push(marker);
-        });
-
-        const bounds = new mapbox.LngLatBounds();
-        allPoints.forEach((point) => bounds.extend([point.longitude, point.latitude]));
-        if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 40, maxZoom: 13 });
-      };
-      if (map.isStyleLoaded()) draw();
-      else map.once("load", draw);
+      if (mapRef.current) return; // already initialized
+      mapboxRef.current = mapbox;
+      mapRef.current = new mapbox.Map({
+        container,
+        style: "mapbox://styles/mapbox/light-v11",
+        center: [-96, 37.8],
+        zoom: 3,
+        accessToken: mapboxToken(),
+      });
+      mapRef.current.addControl(new mapbox.NavigationControl({ showCompass: false }), "top-right");
     });
 
     return () => {
-      cancelled = true;
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
       if (mapRef.current) {
@@ -243,7 +178,78 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
         mapRef.current = null;
       }
     };
-  }, [routeSnapshot, routePlan, homeOrigin]);
+  }, []);
+
+  // Draw route + markers when snapshot or plan changes (no map recreation)
+  useEffect(() => {
+    const map = mapRef.current;
+    const mapbox = mapboxRef.current;
+    if (!map || !mapbox) return;
+
+    if (!routeSnapshot || !routePlan) {
+      clearRenderedRoute();
+      return;
+    }
+
+    const draw = () => {
+      const geojson: GeoJSON.FeatureCollection = {
+        type: "FeatureCollection",
+        features: [{ type: "Feature", geometry: routeSnapshot.geometry, properties: {} }],
+      };
+      if (map.getSource(ROUTE_SOURCE_ID)) (map.getSource(ROUTE_SOURCE_ID) as mapboxgl.GeoJSONSource).setData(geojson);
+      else {
+        map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: geojson });
+        map.addLayer({
+          id: ROUTE_LAYER_ID,
+          type: "line",
+          source: ROUTE_SOURCE_ID,
+          paint: { "line-color": "#6366f1", "line-width": 3, "line-opacity": 0.7 },
+        });
+      }
+
+      markersRef.current.forEach((marker) => marker.remove());
+      markersRef.current = [];
+      markerElementsRef.current.clear();
+      const allPoints = [routePlan.origin, ...routePlan.stops].filter(Boolean) as Array<Point | RouteStop>;
+      allPoints.forEach((point, idx) => {
+        const isHome = idx === 0 && homeOrigin != null;
+        const stop = point as RouteStop;
+
+        let el: HTMLElement;
+        let popupText: string;
+
+        if (isHome) {
+          el = createDotElement("#6b7280", "H");
+          popupText = "Home";
+        } else {
+          const pc = patientColor(stop.patientId);
+          const stopNumber = homeOrigin ? idx : idx + 1;
+          el = createDotElement(pc.accent, String(stopNumber));
+          popupText = `${stopNumber}. ${stop.patientName}\n${stop.patientAddress}\n${new Date(stop.startsAt).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })} – ${new Date(stop.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+
+          const visitMatch = dayVisits.find(
+            (v) => v.patient_id === stop.patientId && v.starts_at === stop.startsAt,
+          );
+          if (visitMatch) markerElementsRef.current.set(visitMatch.id, el);
+        }
+
+        const marker = new mapbox.Marker({ element: el, anchor: "center" })
+          .setLngLat([point.longitude, point.latitude])
+          .setPopup(new mapbox.Popup({ offset: 12, closeButton: false }).setText(popupText))
+          .addTo(map);
+        markersRef.current.push(marker);
+      });
+
+      const bounds = new mapbox.LngLatBounds();
+      allPoints.forEach((point) => bounds.extend([point.longitude, point.latitude]));
+      if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 40, maxZoom: 13, duration: 500 });
+    };
+    if (map.isStyleLoaded()) draw();
+    else map.once("load", draw);
+  }, [routeSnapshot, routePlan, homeOrigin, dayVisits, clearRenderedRoute]);
 
   // Highlight selected marker
   useEffect(() => {
