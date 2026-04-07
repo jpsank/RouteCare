@@ -6,29 +6,25 @@ module Scheduling
     end
 
     def call
-      patients.each_with_object({}) do |origin, matrix|
-        matrix[origin.id] = {}
+      points = patients.filter_map do |patient|
+        next if patient.latitude.blank? || patient.longitude.blank?
 
-        patients.each do |destination|
-          matrix[origin.id][destination.id] =
-            if origin.id == destination.id
-              0
-            else
-              routing_client.travel_minutes(
-                origin: point_for(origin),
-                destination: point_for(destination)
-              )
-            end
-        end
+        { id: patient.id, lat: patient.latitude, lng: patient.longitude }
       end
+
+      return empty_matrix if points.size < 2
+
+      routing_client.travel_matrix(points)
     end
 
     private
 
     attr_reader :patients, :routing_client
 
-    def point_for(patient)
-      { lat: patient.latitude, lng: patient.longitude }
+    def empty_matrix
+      patients.each_with_object({}) do |patient, matrix|
+        matrix[patient.id] = { patient.id => 0 }
+      end
     end
   end
 end
