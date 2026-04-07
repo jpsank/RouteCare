@@ -282,7 +282,14 @@ module Scheduling
     end
 
     # Returns ranked day options for a visit, each with a concrete slot and a comparable score.
+    # Tries strict pass first (all constraints as filters), then relaxed pass (spacing/drive as penalties).
     def ranked_day_slots(visit_info, current_plan)
+      results = score_candidate_days(visit_info, current_plan, strict: true)
+      results = score_candidate_days(visit_info, current_plan, strict: false) if results.empty?
+      results.sort_by { |r| r[:day_score_value] }
+    end
+
+    def score_candidate_days(visit_info, current_plan, strict:)
       patient = visit_info[:patient]
       existing_patient_days = existing_days_for_patient(patient, current_plan)
       min_gap = patient.min_days_between_visits
@@ -293,14 +300,18 @@ module Scheduling
       results = []
 
       weekly_days.each do |date|
+        # Hard constraints: always enforced
         next if existing_patient_days.include?(date)
         next if visit_info[:excluded_days].include?(date)
         next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
-        next if too_close_to_existing?(date, existing_patient_days, min_gap)
-        # Check max drive INCLUDING this visit
-        if max_drive
-          projected_drive = day_drive_with_patient(current_plan, date, patient)
-          next if projected_drive > max_drive
+
+        # Soft constraints: filter in strict mode, penalty in relaxed mode
+        spacing_violation = too_close_to_existing?(date, existing_patient_days, min_gap)
+        drive_violation = max_drive && day_drive_with_patient(current_plan, date, patient) > max_drive
+
+        if strict
+          next if spacing_violation
+          next if drive_violation
         end
 
         # Verify a slot actually exists on this day
@@ -319,13 +330,17 @@ module Scheduling
                     spacing * 5.0 -
                     cluster * cluster_weight * 3.0
 
+        # In relaxed mode, add heavy penalties for violated soft constraints
+        day_score += 100.0 if spacing_violation
+        day_score += 50.0 if drive_violation
+
         patient_windows = preferred_windows_for(patient, date)
-        slot[:soft_constraint_override] = patient_windows.blank?
+        slot[:soft_constraint_override] = patient_windows.blank? || !strict
 
         results << { slot: slot, day_score_value: day_score }
       end
 
-      results.sort_by { |r| r[:day_score_value] }
+      results
     end
 
     # Find a valid start time on a specific day (temporal overlap only, no transit padding)
@@ -349,13 +364,26 @@ module Scheduling
       nil
     end
 
-    # Last resort: any open slot on any day (enforces one-patient-per-day + min spacing)
+    # Last resort: any open slot on any day. First tries with spacing, then without.
     def fallback_any_day(patient:, current_plan:, existing_patient_days:, slot_footprint:)
+      # Try with spacing first
+      slot = fallback_scan(patient: patient, current_plan: current_plan,
+                           existing_patient_days: existing_patient_days,
+                           slot_footprint: slot_footprint, enforce_spacing: true)
+      return slot if slot
+
+      # Drop spacing as last resort (still enforces one-patient-per-day)
+      fallback_scan(patient: patient, current_plan: current_plan,
+                    existing_patient_days: existing_patient_days,
+                    slot_footprint: slot_footprint, enforce_spacing: false)
+    end
+
+    def fallback_scan(patient:, current_plan:, existing_patient_days:, slot_footprint:, enforce_spacing:)
       min_gap = patient.min_days_between_visits
 
       weekly_days.each do |date|
         next if existing_patient_days.include?(date)
-        next if too_close_to_existing?(date, existing_patient_days, min_gap)
+        next if enforce_spacing && too_close_to_existing?(date, existing_patient_days, min_gap)
         next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
 
         start_minute = day_start_minute
@@ -628,6 +656,12 @@ module Scheduling
 
     # Like ranked_day_slots but uses custom blocked ranges (for repair context)
     def ranked_day_slots_with(visit_info, current_plan, blocked_ranges)
+      results = score_repair_days(visit_info, current_plan, blocked_ranges, strict: true)
+      results = score_repair_days(visit_info, current_plan, blocked_ranges, strict: false) if results.empty?
+      results.sort_by { |r| r[:day_score_value] }
+    end
+
+    def score_repair_days(visit_info, current_plan, blocked_ranges, strict:)
       patient = visit_info[:patient]
       existing_patient_days = existing_days_for_patient(patient, current_plan)
       min_gap = patient.min_days_between_visits
@@ -641,13 +675,15 @@ module Scheduling
         next if existing_patient_days.include?(date)
         next if visit_info[:excluded_days].include?(date)
         next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
-        next if too_close_to_existing?(date, existing_patient_days, min_gap)
-        if max_drive
-          projected_drive = day_drive_with_patient(current_plan, date, patient)
-          next if projected_drive > max_drive
+
+        spacing_violation = too_close_to_existing?(date, existing_patient_days, min_gap)
+        drive_violation = max_drive && day_drive_with_patient(current_plan, date, patient) > max_drive
+
+        if strict
+          next if spacing_violation
+          next if drive_violation
         end
 
-        # Find a valid start using the repair-specific blocked ranges
         patient_windows = preferred_windows_for(patient, date)
         window_set = patient_windows.presence || fallback_windows_for(date)
 
@@ -661,7 +697,7 @@ module Scheduling
             starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(start_minute)}")
             ends_at = starts_at + patient.visit_duration_minutes.minutes
             slot = { patient: patient, date: date, starts_at: starts_at, ends_at: ends_at,
-                     soft_constraint_override: patient_windows.blank? }
+                     soft_constraint_override: patient_windows.blank? || !strict }
             break
           end
         end
@@ -674,11 +710,13 @@ module Scheduling
         day_score = (day_offset_for(date) - target_day_offset).abs * 10.0 +
                     spacing * 5.0 -
                     cluster * cluster_weight * 3.0
+        day_score += 100.0 if spacing_violation
+        day_score += 50.0 if drive_violation
 
         results << { slot: slot, day_score_value: day_score }
       end
 
-      results.sort_by { |r| r[:day_score_value] }
+      results
     end
 
     # ── Plan Validation and Costing ────────────────────────────────────────
