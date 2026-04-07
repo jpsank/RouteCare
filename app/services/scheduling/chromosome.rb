@@ -157,9 +157,9 @@ module Scheduling
     private
 
     def estimate_day_drive(slots, travel_matrix)
-      sorted = slots.sort_by { |s| s[:starts_at] }
+      ordered = nearest_neighbor_order(slots, travel_matrix)
       total = 0
-      sorted.each_cons(2) do |prev_slot, next_slot|
+      ordered.each_cons(2) do |prev_slot, next_slot|
         total += (travel_matrix.dig(prev_slot[:patient].id, next_slot[:patient].id) || 0)
       end
       total
