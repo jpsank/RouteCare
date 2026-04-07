@@ -39,6 +39,60 @@ def compute_return_home(routes_by_day: dict[str, list[int]], travel_matrix: dict
     return result
 
 
+def redistribute_same_day_duplicates(
+    planned: list[PlannedVisit],
+    working_days: list[str],
+    clinician,
+) -> list[PlannedVisit]:
+    """Move duplicate same-patient visits on the same day to different days."""
+    from collections import defaultdict
+
+    # Group by (date, patient_id)
+    day_patient: dict[tuple[str, int], list[int]] = defaultdict(list)
+    for i, v in enumerate(planned):
+        day_patient[(v.date, v.patient_id)].append(i)
+
+    # Find duplicates
+    to_move: list[int] = []
+    for key, indices in day_patient.items():
+        if len(indices) > 1:
+            # Keep the first, move the rest
+            to_move.extend(indices[1:])
+
+    if not to_move:
+        return planned
+
+    result = list(planned)
+    used_days_by_patient: dict[int, set[str]] = defaultdict(set)
+    for v in result:
+        used_days_by_patient[v.patient_id].add(v.date)
+
+    for idx in to_move:
+        v = result[idx]
+        # Find the best available day for this visit
+        best_day = None
+        for day in working_days:
+            if day not in used_days_by_patient[v.patient_id]:
+                best_day = day
+                break
+
+        if best_day:
+            # Retime: place at workday start for simplicity (retimer will fix later)
+            start_minute = clinician.workday_start_minute
+            visit_duration = int((datetime.fromisoformat(v.ends_at) - datetime.fromisoformat(v.starts_at)).total_seconds() / 60)
+            result[idx] = PlannedVisit(
+                instance_id=v.instance_id,
+                patient_id=v.patient_id,
+                date=best_day,
+                starts_at=minutes_to_datetime(best_day, start_minute),
+                ends_at=minutes_to_datetime(best_day, start_minute + visit_duration),
+                soft_constraint_override=True,
+            )
+            used_days_by_patient[v.patient_id].add(best_day)
+
+    return result
+
+
 def validate_spacing(
     planned: list[PlannedVisit],
     patients_by_id: dict[int, dict],

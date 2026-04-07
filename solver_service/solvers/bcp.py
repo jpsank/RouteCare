@@ -7,6 +7,7 @@ from solvers.base import (
     build_lunch_placements,
     compute_return_home,
     minutes_to_datetime,
+    redistribute_same_day_duplicates,
     validate_spacing,
 )
 
@@ -92,12 +93,7 @@ def solve(
             from_key = "home" if i == 0 else str(pid_map.get(i, i))
             to_key = "home" if j == 0 else str(pid_map.get(j, j))
             t = matrix.get(from_key, {}).get(to_key, 0)
-            model.add_link(
-                start_point_id=i,
-                end_point_id=j,
-                distance=t,
-                time=t,
-            )
+            model.add_link(start_point_id=i, end_point_id=j, distance=t, time=t)
 
     # Parameters — use HGS upper bound if provided to prune BCP search tree
     ub = int(upper_bound.fitness) if upper_bound and upper_bound.fitness > 0 else 1000000
@@ -105,12 +101,13 @@ def solve(
 
     # Solve
     model.solve()
-    status = model.solution.status if hasattr(model, "solution") else "unknown"
+    status = model.status if hasattr(model, "status") else -1
+    solution = model.solution
 
-    if not hasattr(model, "solution") or not model.solution.routes:
+    if not solution.is_defined or not solution.routes:
         return _empty_output(input, metadata={
             "optimizer_type": "python_bcp",
-            "status": str(status),
+            "status": int(status),
             "proven_optimal": False,
         })
 
@@ -118,7 +115,7 @@ def solve(
     planned_visits = []
     routes_by_day: dict[str, list[int]] = {}
 
-    for route_idx, route in enumerate(model.solution.routes):
+    for route_idx, route in enumerate(solution.routes):
         if route_idx >= num_days:
             break
         date = working_days[route_idx]
@@ -159,9 +156,15 @@ def solve(
 
         routes_by_day[date] = day_patient_ids
 
-    # Post-process
+    # Post-process: enforce one-patient-per-day by moving duplicates to other days
+    planned_visits = redistribute_same_day_duplicates(planned_visits, working_days, clinician)
     planned_visits = validate_spacing(planned_visits, patients_by_id)
     lunch = build_lunch_placements(input)
+
+    # Recompute routes_by_day after redistribution
+    routes_by_day = {}
+    for v in planned_visits:
+        routes_by_day.setdefault(v.date, []).append(v.patient_id)
     return_home = compute_return_home(routes_by_day, matrix)
 
     unschedulable = []
@@ -174,16 +177,17 @@ def solve(
                 "patient_id": inst.patient_id,
             })
 
-    proven_optimal = str(status).lower() in ("optimal", "proven_optimal")
+    # Status 0 = optimal in BaPCod
+    proven_optimal = int(status) == 0
 
     return SolverOutput(
         planned_visits=planned_visits,
         lunch_placements=lunch,
-        fitness=model.solution.cost if hasattr(model.solution, "cost") else 0.0,
+        fitness=solution.value if solution.is_defined else 0.0,
         metadata={
             "optimizer_type": "python_bcp",
             "proven_optimal": proven_optimal,
-            "status": str(status),
+            "status": int(status),
             "unschedulable": unschedulable,
             "drive_violations": [],
             "soft_constraint_overrides": sum(1 for v in planned_visits if v.soft_constraint_override),
