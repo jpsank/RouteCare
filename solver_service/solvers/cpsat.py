@@ -416,10 +416,13 @@ def _assign_days(
             if w > 0:
                 penalties.append((active, w))
 
-    # ── Objective: approximate travel + penalties ──────────────────────
+    # ── Objective: travel cost from distance matrix + penalties ────────
 
-    # Travel cost from day_costs lookup
     travel_terms = []
+    travel_fn = ctx["travel"]
+
+    # Home-leg costs: each assigned instance contributes home→patient travel
+    # (return leg is implicit in pairwise + last→home via day_costs feedback)
     for d in day_indices:
         for i in range(num_instances):
             cost = day_costs[d].get(i, 0)
@@ -428,6 +431,26 @@ def _assign_days(
                 model.add(c == cost).only_enforce_if(assign[(i, d)])
                 model.add(c == 0).only_enforce_if(assign[(i, d)].negated())
                 travel_terms.append(c)
+
+    # Pairwise inter-patient costs: if two instances are on the same day,
+    # add their travel distance. This teaches CP-SAT geographic clustering —
+    # nearby patients are cheap to pair, distant patients are expensive.
+    for i in range(num_instances):
+        for j in range(i + 1, num_instances):
+            pid_i = str(input.instances[i].patient_id)
+            pid_j = str(input.instances[j].patient_id)
+            if pid_i == pid_j:
+                continue  # same patient, can't be on same day anyway
+            t = travel_fn(pid_i, pid_j)
+            if t == 0:
+                continue
+            for d in day_indices:
+                both = model.new_bool_var(f"pw_{i}_{j}_{d}")
+                model.add_min_equality(both, [assign[(i, d)], assign[(j, d)]])
+                pw = model.new_int_var(0, t, f"pwc_{i}_{j}_{d}")
+                model.add(pw == t).only_enforce_if(both)
+                model.add(pw == 0).only_enforce_if(both.negated())
+                travel_terms.append(pw)
 
     total_travel = model.new_int_var(0, 1_000_000, "tt")
     model.add(total_travel == sum(travel_terms)) if travel_terms else model.add(total_travel == 0)
