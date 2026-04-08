@@ -54,6 +54,17 @@ def round_up(minute: int, step: int) -> int:
     return minute if remainder == 0 else minute + (step - remainder)
 
 
+def day_bounds(clinician, date: str) -> tuple[int, int]:
+    """Return (start_minute, end_minute) for a date, respecting per_day_hours overrides."""
+    dt = datetime.fromisoformat(date)
+    wday = (dt.weekday() + 1) % 7
+    pdh = clinician.per_day_hours.get(str(wday), {})
+    return (
+        pdh.get("start", clinician.workday_start_minute),
+        pdh.get("end", clinician.workday_end_minute),
+    )
+
+
 def day_index(date_str: str, working_days: list[str]) -> int | None:
     try:
         return working_days.index(date_str)
@@ -71,17 +82,6 @@ def target_day_offsets(n_visits: int, num_days: int, min_gap: int, density: floa
     return [min(round(k * step), num_days - 1) for k in range(n_visits)]
 
 
-def day_bounds(clinician, date: str) -> tuple[int, int]:
-    """Return (start_minute, end_minute) for a date, respecting per_day_hours overrides."""
-    dt = datetime.fromisoformat(date)
-    wday = (dt.weekday() + 1) % 7
-    pdh = clinician.per_day_hours.get(str(wday), {})
-    return (
-        pdh.get("start", clinician.workday_start_minute),
-        pdh.get("end", clinician.workday_end_minute),
-    )
-
-
 def build_lunch_placements(input: SolverInput) -> dict[str, dict]:
     """Default lunch placement for all working days, respecting per_day_hours."""
     c = input.clinician
@@ -90,7 +90,10 @@ def build_lunch_placements(input: SolverInput) -> dict[str, dict]:
     half_window = c.lunch_window_minutes // 2
     placements = {}
     for date in input.working_days:
-        day_start, _ = day_bounds(c, date)
+        dt = datetime.fromisoformat(date)
+        wday = (dt.weekday() + 1) % 7
+        pdh = c.per_day_hours.get(str(wday), {})
+        day_start = pdh.get("start", c.workday_start_minute)
         earliest = max(c.lunch_start_minute - half_window, day_start)
         placements[date] = {
             "start_minute": earliest,

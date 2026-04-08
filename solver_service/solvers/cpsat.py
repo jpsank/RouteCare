@@ -56,8 +56,8 @@ from solvers.cpsat_context import (
     NUM_WORKERS,
     PENALTY_SOFT_OVERRIDE,
     build_context,
-    datetime_to_minute,
     day_bounds,
+    datetime_to_minute,
     empty_output,
 )
 from solvers.cpsat_assignment import assign_days
@@ -116,7 +116,7 @@ def upper_bound_valid_for_warm_start(
     return True
 
 
-def _visits_withinday_bounds(
+def _visits_within_day_bounds(
     visits: list[PlannedVisit],
     clinician,
 ) -> bool:
@@ -363,7 +363,7 @@ def solve(
 
     warm_ok = upper_bound is not None and upper_bound_valid_for_warm_start(input, ctx, upper_bound)
     warm_incumbent_ok = warm_ok and all([
-        _visits_withinday_bounds(upper_bound.planned_visits, input.clinician),
+        _visits_within_day_bounds(upper_bound.planned_visits, input.clinician),
         _visits_respect_min_spacing(upper_bound.planned_visits, patients_by_id),
         _visits_within_drive_limit(upper_bound.planned_visits, input, ctx),
         _visits_respect_calendar_blocks(upper_bound.planned_visits, ctx, input.clinician),
@@ -509,13 +509,13 @@ def solve(
             routed_pids = [str(input.instances[j].patient_id) for j in routed_on_d]
 
             for i in range(num_instances):
-                if i in dropped_on_d or (i, d) in ever_dropped:
+                if i in routed_on_d:
+                    day_marginal_costs[d][i] = share
+                elif i in dropped_on_d or (i, d) in ever_dropped:
                     # Routing couldn't (or previously couldn't) fit this visit
                     # on this day.  Keep the high marginal across iterations so
                     # CP-SAT doesn't ping-pong the visit back to a known-bad day.
                     day_marginal_costs[d][i] = home_leg[i] * 3
-                elif i in routed_on_d:
-                    day_marginal_costs[d][i] = share
                 else:
                     pid_i = str(input.instances[i].patient_id)
                     if routed_pids:
