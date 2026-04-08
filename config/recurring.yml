@@ -34,7 +34,9 @@ production:
     schedule: "0 * * * *"
     description: "Mark past confirmed visits as completed"
 
-  nightly_ga_optimize:
-    class: NightlyGaOptimizeJob
-    schedule: "0 0 * * *"
-    description: "Run GA optimizer for all active users' pending schedules"
+  # nightly_ga_optimize disabled: interactive CP-SAT (+ greedy fallback) covers optimization.
+  # Re-enable by restoring:
+  #   nightly_ga_optimize:
+  #     class: NightlyGaOptimizeJob
+  #     schedule: "0 0 * * *"
+  #     description: "Run GA optimizer for all active users' pending schedules"
