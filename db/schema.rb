@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_07_180000) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_08_180001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -75,7 +75,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_180000) do
     t.index ["user_id"], name: "index_calendar_connections_on_user_id"
     t.check_constraint "char_length(access_token) > 0", name: "calendar_connections_access_token_presence"
     t.check_constraint "char_length(refresh_token) > 0", name: "calendar_connections_refresh_token_presence"
-    t.check_constraint "provider::text = ANY (ARRAY['google'::character varying, 'outlook'::character varying, 'apple'::character varying]::text[])", name: "calendar_connections_provider_check"
+    t.check_constraint "provider::text = ANY (ARRAY['google'::character varying::text, 'outlook'::character varying::text, 'apple'::character varying::text])", name: "calendar_connections_provider_check"
     t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'disconnected'::character varying::text, 'expired'::character varying::text])", name: "calendar_connections_status_check"
   end
 
@@ -97,6 +97,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_180000) do
     t.integer "lunch_window_minutes", default: 90, null: false
     t.integer "max_continuous_work_minutes", default: 480, null: false
     t.integer "max_drive_minutes_per_day"
+    t.jsonb "per_day_hours", default: {}, null: false
     t.string "phone"
     t.integer "required_break_minutes", default: 15, null: false
     t.float "schedule_density", default: 0.5, null: false
@@ -183,7 +184,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_180000) do
     t.index ["clinician_profile_id"], name: "index_patients_on_clinician_profile_id"
     t.check_constraint "max_days_between_visits >= 1 AND max_days_between_visits <= 7", name: "chk_patients_max_days_between_visits"
     t.check_constraint "min_days_between_visits <= max_days_between_visits", name: "chk_patients_min_max_days_consistency"
-    t.check_constraint "min_days_between_visits >= 1 AND min_days_between_visits <= 6", name: "chk_patients_min_days_between_visits"
+    t.check_constraint "min_days_between_visits >= 0 AND min_days_between_visits <= 6", name: "chk_patients_min_days_between_visits"
     t.check_constraint "priority >= 0", name: "chk_patients_priority"
     t.check_constraint "required_visits_per_week > 0", name: "patients_required_visits_positive"
     t.check_constraint "visit_duration_minutes > 0", name: "patients_duration_positive"
@@ -388,7 +389,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_07_180000) do
     t.index ["user_id", "week_start_on"], name: "index_weekly_schedules_on_user_id_and_week_start_on", unique: true
     t.index ["user_id"], name: "index_weekly_schedules_on_user_id"
     t.check_constraint "baseline_drive_minutes >= 0", name: "weekly_schedules_non_negative_baseline_drive"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'optimized'::character varying, 'approved'::character varying, 'archived'::character varying]::text[])", name: "weekly_schedules_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'optimized'::character varying::text, 'approved'::character varying::text, 'archived'::character varying::text])", name: "weekly_schedules_status_check"
     t.check_constraint "total_drive_minutes >= 0", name: "weekly_schedules_non_negative_total_drive"
   end
 

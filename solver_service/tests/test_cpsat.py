@@ -146,6 +146,36 @@ def test_upper_bound_valid_rejects_two_visits_same_patient_same_day():
     assert not upper_bound_valid_for_warm_start(inp, ctx, bad)
 
 
+def test_warm_incumbent_rejected_when_per_day_hours_change():
+    """Assignment hints survive but incumbent is discarded when bounds change."""
+    from solvers.cpsat import (
+        solve, upper_bound_valid_for_warm_start, _visits_within_day_bounds,
+        _build_context,
+    )
+
+    inp = make_test_input()
+    out = solve(inp, time_budget=10)
+    ctx = _build_context(inp)
+    assert upper_bound_valid_for_warm_start(inp, ctx, out), "structural check should pass"
+
+    inp2 = make_test_input(clinician=ClinicianData(
+        home_location=Location(lat=36.0, lng=-94.0),
+        workday_start_minute=480,
+        workday_end_minute=1080,
+        lunch_duration_minutes=0,
+        per_day_hours={"1": {"start": 960, "end": 1020}},
+    ))
+    ctx2 = _build_context(inp2)
+    assert upper_bound_valid_for_warm_start(inp2, ctx2, out), \
+        "structural check should still pass (hints are useful)"
+    assert not _visits_within_day_bounds(out.planned_visits, inp2.clinician), \
+        "bounds check should reject old timings as incumbent"
+
+    out2 = solve(inp2, time_budget=10, upper_bound=out)
+    assert out2.metadata["warm_start_used"] is True, "hints should be used"
+    assert out2.metadata["warm_incumbent_used"] is False, "stale incumbent should be discarded"
+
+
 def test_cpsat_ignores_invalid_upper_bound_gracefully():
     """Corrupt upper_bound must not break solve (warm-start skipped)."""
     from solvers.cpsat import solve, upper_bound_valid_for_warm_start, _build_context
@@ -217,7 +247,7 @@ def test_cpsat_one_patient_per_day():
 def test_cpsat_max_visits_per_day():
     """No day should have more than MAX_VISITS_PER_DAY visits."""
     from solvers.cpsat import solve
-    from solvers.base import MAX_VISITS_PER_DAY
+    from solvers.cpsat_context import MAX_VISITS_PER_DAY
 
     input = make_test_input()
     output = solve(input, time_budget=10)
@@ -616,6 +646,41 @@ def test_cpsat_day_spreading():
     )
 
 
+def test_cpsat_min_days_zero_allows_consecutive():
+    """With min_days_between=0 and density=1.0, visits may land on consecutive days."""
+    from solvers.cpsat import solve
+
+    patients = [
+        PatientData(id=1, name="Alice", location=Location(lat=36.0, lng=-94.0),
+                    visit_duration_minutes=30, required_visits_per_week=3,
+                    min_days_between_visits=0, max_days_between_visits=7),
+    ]
+    instances = [
+        VisitInstanceData(id=f"patient_1_visit_{k}", patient_id=1,
+                          location=patients[0].location, duration=30)
+        for k in range(3)
+    ]
+    clinician = ClinicianData(
+        home_location=Location(lat=36.0, lng=-94.0),
+        schedule_density=1.0,  # pack into fewest days
+    )
+    input = make_test_input(
+        patients=patients, instances=instances, clinician=clinician,
+    )
+    output = solve(input, time_budget=10)
+
+    alice_days = sorted([
+        input.working_days.index(v.date) for v in output.planned_visits if v.patient_id == 1
+    ])
+    assert len(alice_days) == 3, f"Expected 3 visits scheduled, got {len(alice_days)}"
+
+    gaps = [alice_days[i+1] - alice_days[i] for i in range(len(alice_days)-1)]
+    assert any(g == 1 for g in gaps), (
+        f"With min_days_between=0 and density=1.0, expected at least one pair of "
+        f"consecutive days, but got days {alice_days}"
+    )
+
+
 def test_cpsat_metadata_fields():
     """Output metadata should contain expected fields."""
     from solvers.cpsat import solve
@@ -646,12 +711,11 @@ def test_cpsat_iteration_log_uniform_schema():
     required = {
         "iteration",
         "drive",
-        "unsched_penalty",
         "soft_penalty",
         "spacing_penalty",
         "density_penalty",
         "offset_penalty",
-        "fitness",
+        "cost",
         "placed",
     }
     output = solve(make_test_input(), time_budget=15)
@@ -681,7 +745,7 @@ def test_cpsat_converged_log_carries_last_metrics(monkeypatch):
     output = cpsat_mod.solve(make_test_input(), time_budget=20)
     conv = [e for e in output.metadata["iteration_log"] if e.get("converged")]
     assert conv, "stub should force identical assignment on iteration 1"
-    assert "drive" in conv[0] and "fitness" in conv[0] and "placed" in conv[0]
+    assert "drive" in conv[0] and "cost" in conv[0] and "placed" in conv[0]
 
 
 def test_cpsat_assign_time_skews_iteration_zero():
@@ -760,7 +824,7 @@ def test_cpsat_locked_visit_drive_cost():
 
 def test_cpsat_priority_weighted_fitness():
     """Dropping a high-priority patient should cost more than a low-priority one."""
-    from solvers.cpsat import solve, PENALTY_UNSCHEDULED
+    from solvers.cpsat import solve
 
     # Create more visits than can fit (6 visits, 1 day, max 5 per day)
     patients = [
@@ -788,3 +852,109 @@ def test_cpsat_priority_weighted_fitness():
     # High-priority patient 1 should be scheduled (not dropped)
     placed_pids = {v.patient_id for v in output.planned_visits}
     assert 1 in placed_pids, "High-priority patient 1 should not be dropped"
+
+
+def test_cpsat_locked_visit_gap_includes_charting_and_transit():
+    """Next visit after a locked visit must leave a gap for charting buffer + transit."""
+    from solvers.cpsat import solve
+
+    charting_buffer = 10
+    # Locked visit: patient 1, 8:30-9:30 (60 min) on Monday
+    # Floating visit: patient 2 on the same day
+    # After locked visit: charting (10 min) until 9:40, then transit, then transit buffer (5 min)
+    patients = [
+        PatientData(id=1, name="Locked", location=Location(lat=36.0, lng=-94.0),
+                    visit_duration_minutes=60, required_visits_per_week=1),
+        PatientData(id=2, name="Float", location=Location(lat=36.1, lng=-94.1),
+                    visit_duration_minutes=45, required_visits_per_week=1),
+    ]
+    instances = [
+        VisitInstanceData(id="patient_2_visit_0", patient_id=2,
+                          location=patients[1].location, duration=45 + charting_buffer),
+    ]
+    locked = [
+        LockedVisitData(
+            patient_id=1, date="2026-04-06",
+            starts_at="2026-04-06T08:30:00", ends_at="2026-04-06T09:30:00",
+            duration_minutes=60,
+        ),
+    ]
+    clinician = ClinicianData(
+        home_location=Location(lat=36.0, lng=-94.0),
+        charting_buffer_minutes=charting_buffer,
+    )
+    input = make_test_input(
+        patients=patients, instances=instances,
+        locked_visits=locked, clinician=clinician,
+        working_days=["2026-04-06"],
+        travel_matrix={
+            "home": {"1": 10, "2": 10},
+            "1": {"home": 10, "2": 15},
+            "2": {"home": 10, "1": 15},
+        },
+    )
+    output = solve(input, time_budget=10)
+
+    assert len(output.planned_visits) == 1
+    v = output.planned_visits[0]
+    v_start = datetime.fromisoformat(v.starts_at).hour * 60 + datetime.fromisoformat(v.starts_at).minute
+
+    # Locked visit ends at 9:30 (570 min).
+    # Charting buffer: 10 min → 9:40 (580 min).
+    # Transit from patient 1 to patient 2: 15 min → 9:55 (595 min).
+    # Transit buffer: 5 min → 10:00 (600 min).
+    # Rounded up to slot step: 600 min = 10:00 AM.
+    locked_end = 570  # 9:30
+    min_gap = charting_buffer + 15 + 5  # charting + transit + transit_buffer
+    assert v_start >= locked_end + min_gap, (
+        f"Floating visit starts at {v_start}, but locked visit ends at {locked_end} "
+        f"and needs {min_gap} min gap (charting {charting_buffer} + transit 15 + buffer 5)"
+    )
+
+
+def test_cpsat_per_day_hours():
+    """Per-day overrides should constrain visits to the narrower window."""
+    from solvers.cpsat import solve
+
+    # Default hours 8am-6pm, but Wednesday (wday 3) overridden to 9am-12pm (540-720).
+    clinician = ClinicianData(
+        home_location=Location(lat=36.0, lng=-94.0),
+        workday_start_minute=480,   # 8am
+        workday_end_minute=1080,    # 6pm
+        lunch_duration_minutes=0,
+        per_day_hours={"3": {"start": 540, "end": 720}},  # Wed 9am-12pm
+    )
+    patients = [
+        PatientData(
+            id=1, name="Alice",
+            location=Location(lat=36.0, lng=-94.0),
+            visit_duration_minutes=60, required_visits_per_week=1,
+            min_days_between_visits=1, max_days_between_visits=7,
+        ),
+    ]
+    instances = [
+        VisitInstanceData(
+            id="patient_1_visit_0", patient_id=1,
+            location=patients[0].location, duration=60,
+        ),
+    ]
+    # Only one working day: Wednesday
+    input = make_test_input(
+        patients=patients,
+        instances=instances,
+        clinician=clinician,
+        working_days=["2026-04-08"],  # Wednesday
+        travel_matrix={
+            "home": {"1": 0},
+            "1": {"home": 0},
+        },
+    )
+    output = solve(input, time_budget=10)
+
+    assert len(output.planned_visits) == 1
+    v = output.planned_visits[0]
+    v_start = datetime.fromisoformat(v.starts_at).hour * 60 + datetime.fromisoformat(v.starts_at).minute
+    v_end = datetime.fromisoformat(v.ends_at).hour * 60 + datetime.fromisoformat(v.ends_at).minute
+
+    assert v_start >= 540, f"Visit starts at {v_start}, expected >= 540 (9am per-day override)"
+    assert v_end <= 720, f"Visit ends at {v_end}, expected <= 720 (12pm per-day override)"

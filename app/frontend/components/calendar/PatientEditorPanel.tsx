@@ -19,7 +19,7 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
 
   useEffect(() => {
     if (patient) setForm(patientFormFromPatient(patient));
-  }, [patient?.id]);
+  }, [patient]);
 
   useEffect(() => {
     if (!patient) return;
@@ -82,7 +82,7 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
           </div>
           <div className="rc-field">
             <span className="rc-label">Duration (min)</span>
-            <input type="number" min={15} step={15} value={form.visit_duration_minutes} onChange={(e) => set("visit_duration_minutes", Number(e.target.value) || 60)} />
+            <input type="number" min={15} step={5} value={form.visit_duration_minutes} onChange={(e) => set("visit_duration_minutes", Number(e.target.value) || 60)} />
           </div>
           <div className="rc-field">
             <span className="rc-label">Visits / week</span>
@@ -91,6 +91,10 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
           <div className="rc-field">
             <span className="rc-label">Address</span>
             <input value={form.address_line1} onChange={(e) => set("address_line1", e.target.value)} />
+          </div>
+          <div className="rc-field">
+            <span className="rc-label">Apt / Suite / Unit</span>
+            <input value={form.address_line2} onChange={(e) => set("address_line2", e.target.value)} placeholder="Apt 4B" />
           </div>
           <div className="rc-field">
             <span className="rc-label">City</span>
@@ -118,11 +122,24 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
           </div>
           <div className="rc-field">
             <span className="rc-label">Min days between</span>
-            <input type="number" min={1} max={6} value={form.min_days_between_visits} onChange={(e) => set("min_days_between_visits", Number(e.target.value) || 1)} />
+            <input type="number" min={0} max={6} value={form.min_days_between_visits} onChange={(e) => set("min_days_between_visits", e.target.valueAsNumber || 0)} />
           </div>
           <div className="rc-field">
             <span className="rc-label">Max days between</span>
             <input type="number" min={1} max={7} value={form.max_days_between_visits} onChange={(e) => set("max_days_between_visits", Number(e.target.value) || 7)} />
+          </div>
+
+          <div className="sm:col-span-2 border-t border-gray-100 pt-2 mt-1">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Notes</span>
+          </div>
+          <div className="rc-field sm:col-span-2">
+            <textarea
+              className="w-full resize-y text-sm"
+              rows={3}
+              value={form.notes}
+              onChange={(e) => set("notes", e.target.value)}
+              placeholder="Free-form notes about this patient..."
+            />
           </div>
         </div>
 

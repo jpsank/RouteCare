@@ -6,7 +6,7 @@ class MessageDeliveryJob < ApplicationJob
   end
 
   def perform(message_id)
-    message = PatientMessage.find(message_id)
+    message = PatientMessage.includes(:patient).find(message_id)
     return unless message.status_queued?
 
     result = if message.channel_sms?

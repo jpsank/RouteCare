@@ -1,5 +1,5 @@
-import { Suspense, lazy } from "react";
-import type { CalendarBlock, Visit } from "../../types";
+import { Suspense, lazy, useState } from "react";
+import type { CalendarBlock, Patient, Visit } from "../../types";
 import { buildAppleMapsUrl, buildGoogleMapsUrl, fmt, patientColor, type Point } from "./utils";
 
 const RouteMapSection = lazy(async () => {
@@ -15,6 +15,8 @@ type Props = {
   setSelectedVisitId: (id: number | null) => void;
   homeOrigin?: Point | null;
   returnHomeMinutes?: number;
+  patients?: ReadonlyArray<Patient>;
+  onEditPatient?: (patientId: number) => void;
 };
 
 function totalDriveMinutes(visits: Visit[]): number {
@@ -29,7 +31,10 @@ export function RoutePanel({
   setSelectedVisitId,
   homeOrigin,
   returnHomeMinutes = 0,
+  patients = [],
+  onEditPatient,
 }: Props) {
+  const [showPatientList, setShowPatientList] = useState(false);
   const googleMapsUrl = buildGoogleMapsUrl(
     dayVisits
       .filter((visit) => visit.patient_latitude != null && visit.patient_longitude != null)
@@ -145,11 +150,44 @@ export function RoutePanel({
       )}
 
       {dayVisits.length > 0 && (
-        <>
-          <Suspense fallback={<div className="mt-2 text-[11px] text-gray-400">Loading map...</div>}>
-            <RouteMapSection dayVisits={dayVisits} selectedDate={selectedDate} homeOrigin={homeOrigin} selectedVisitId={selectedVisitId} />
-          </Suspense>
-        </>
+        <Suspense fallback={<div className="mt-2 text-[11px] text-gray-400">Loading map...</div>}>
+          <RouteMapSection dayVisits={dayVisits} selectedDate={selectedDate} homeOrigin={homeOrigin} selectedVisitId={selectedVisitId} />
+        </Suspense>
+      )}
+
+      {patients.length > 0 && (
+        <div className="mt-3 border-t border-gray-200 pt-2">
+          <button
+            className="flex w-full items-center justify-between border-0 bg-transparent p-0 text-[11px] font-semibold uppercase tracking-wide text-gray-400 shadow-none hover:text-gray-600"
+            onClick={() => setShowPatientList(!showPatientList)}
+          >
+            <span>All Patients ({patients.length})</span>
+            <svg className={`h-3 w-3 transition-transform ${showPatientList ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" /></svg>
+          </button>
+          {showPatientList && (
+            <div className="mt-1.5 space-y-0.5">
+              {patients.map((p) => {
+                const pc = patientColor(p.id);
+                return (
+                  <div
+                    key={p.id}
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] cursor-pointer hover:bg-gray-50"
+                    onClick={() => onEditPatient?.(p.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === "Enter") onEditPatient?.(p.id); }}
+                  >
+                    <span className="inline-block h-2.5 w-2.5 flex-none rounded-full" style={{ backgroundColor: pc.accent }} />
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-gray-900">{p.full_name}</span>
+                      <span className="ml-1.5 text-gray-400">{p.required_visits_per_week}x/wk &middot; {p.visit_duration_minutes}m</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
     </aside>
   );

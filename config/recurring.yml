@@ -34,6 +34,11 @@ production:
     schedule: "0 * * * *"
     description: "Mark past confirmed visits as completed"
 
+  weekly_auto_schedule:
+    class: WeeklyAutoScheduleJob
+    schedule: "0 18 * * 5"
+    description: "Auto-generate next week's schedule every Friday at 6pm"
+
   # nightly_ga_optimize disabled: interactive CP-SAT (+ greedy fallback) covers optimization.
   # Re-enable by restoring:
   #   nightly_ga_optimize:

@@ -23,6 +23,7 @@ type Props = {
   workingDays?: number[];
   onDateClick: (dateKey: string, startStr: string, pointer: { x: number; y: number }) => void;
   onEventClick: (eventId: string, startStr: string, pointer: { x: number; y: number }, target: HTMLElement) => void;
+  onEventDrop?: (eventId: string, newStart: string) => void;
 };
 
 function minuteToFullCalendarTime(minute: number): string {
@@ -32,12 +33,11 @@ function minuteToFullCalendarTime(minute: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
 }
 
-export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute, workingDays, onDateClick, onEventClick }: Props) {
+export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute, workingDays, onDateClick, onEventClick, onEventDrop }: Props) {
   const slotMinTime = minuteToFullCalendarTime(workdayStartMinute);
   const slotMaxTime = minuteToFullCalendarTime(workdayEndMinute);
   const scrollTime = minuteToFullCalendarTime(Math.min(workdayStartMinute + 60, workdayEndMinute - 30));
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
-  const hiddenDays = isMobile && workingDays?.length
+  const hiddenDays = workingDays?.length
     ? [0, 1, 2, 3, 4, 5, 6].filter((d) => !workingDays.includes(d))
     : [];
 
@@ -67,7 +67,8 @@ export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute,
       slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
       events={events}
       hiddenDays={hiddenDays}
-      editable={false}
+      editable={!!onEventDrop}
+      eventDurationEditable={false}
       allDaySlot={false}
       nowIndicator
       stickyHeaderDates
@@ -94,6 +95,11 @@ export function ScheduleCalendar({ events, workdayStartMinute, workdayEndMinute,
             </div>
           </div>
         );
+      }}
+      eventDrop={(info) => {
+        const match = info.event.id.match(/^visit-(\d+)$/);
+        if (!match || !onEventDrop) { info.revert(); return; }
+        onEventDrop(info.event.id, info.event.startStr);
       }}
       eventClick={(info) => onEventClick(info.event.id, info.event.startStr, { x: info.jsEvent.clientX, y: info.jsEvent.clientY }, info.jsEvent.target as HTMLElement)}
     />

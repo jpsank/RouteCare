@@ -141,7 +141,7 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
             </div>
             <div className="rc-field">
               <span className="rc-label">Duration (min)</span>
-              <input type="number" min={15} step={15} value={newPatientForm.visit_duration_minutes} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, visit_duration_minutes: Number(e.target.value) || 60 }))} />
+              <input type="number" min={5} step={5} value={newPatientForm.visit_duration_minutes} onChange={(e) => setNewPatientForm((prev) => ({ ...prev, visit_duration_minutes: Number(e.target.value) || 60 }))} />
             </div>
             <div className="rc-field">
               <span className="rc-label">Visits / week</span>

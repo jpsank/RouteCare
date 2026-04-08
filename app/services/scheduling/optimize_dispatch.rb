@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 module Scheduling
-  # Routes weekly optimization to the Ruby greedy pipeline or the CP-SAT microservice.
+  # Routes weekly optimization to CP-SAT with greedy fallback.
   #
   # ENV:
-  #   ROUTECARE_SCHEDULER_BACKEND — +greedy+ (default) or +cpsat+
+  #   ROUTECARE_SCHEDULER_BACKEND — +cpsat+ (default) or +greedy+
   #   ROUTECARE_SCHEDULE_QUALITY — +fast+ (30s), +balanced+ (60s), +deep+ (120s); when set, overrides
   #     default for CP-SAT unless +ROUTECARE_CPSAT_TIME_BUDGET+ is also set (explicit seconds win).
   #   ROUTECARE_CPSAT_TIME_BUDGET — explicit CP-SAT seconds (default 60 if no quality preset, clamped 10..7200)
@@ -15,7 +15,9 @@ module Scheduling
   class OptimizeDispatch
     def self.call(user:, week_start_on:, start_point: nil)
       case backend
-      when :cpsat
+      when :greedy
+        WeeklyOptimizer.new(user: user, week_start_on: week_start_on, start_point: start_point).call
+      else
         begin
           if Rails.env.test? && ENV["ROUTECARE_TEST_CPSAT_FAIL"] == "1"
             raise RemoteSolverError, "simulated CP-SAT failure (test)"
@@ -39,15 +41,13 @@ module Scheduling
           augment_fallback_metadata!(schedule, e)
           schedule
         end
-      else
-        WeeklyOptimizer.new(user: user, week_start_on: week_start_on, start_point: start_point).call
       end
     end
 
     def self.backend
-      case ENV.fetch("ROUTECARE_SCHEDULER_BACKEND", "greedy").to_s.strip.downcase
-      when "cpsat" then :cpsat
-      else :greedy
+      case ENV.fetch("ROUTECARE_SCHEDULER_BACKEND", "cpsat").to_s.strip.downcase
+      when "greedy" then :greedy
+      else :cpsat
       end
     end
 

@@ -306,7 +306,7 @@ def _to_minute(dt_str: str) -> int:
     return dt.hour * 60 + dt.minute
 
 
-def run_benchmark(with_hgs: bool = False, re_solve: bool = False) -> None:
+def run_benchmark(re_solve: bool = False) -> None:
     scenarios = [
         ("Small (3 patients, 5 visits)", make_scenario_small()),
         ("Medium (8 patients, 15 visits)", make_scenario_medium()),
@@ -322,23 +322,12 @@ def run_benchmark(with_hgs: bool = False, re_solve: bool = False) -> None:
     except ImportError as e:
         print(f"CP-SAT unavailable: {e}", file=sys.stderr)
 
-    # HGS (PyVRP) — opt-in; not loaded unless --with-hgs
-    if with_hgs:
-        try:
-            from solvers.hgs import solve as hgs_solve
-            backends.append(("HGS", hgs_solve, 5))
-        except ImportError as e:
-            print(f"HGS unavailable (--with-hgs): {e}", file=sys.stderr)
-
     if not backends:
         print("No solvers available; fix imports and retry.", file=sys.stderr)
         sys.exit(1)
 
     print("=" * 90)
-    title = "BENCHMARK: CP-SAT Decomposed"
-    if with_hgs and len(backends) > 1:
-        title += " vs HGS"
-    print(title)
+    print("BENCHMARK: CP-SAT Decomposed")
     print("=" * 90)
 
     for scenario_name, input_data in scenarios:
@@ -393,14 +382,9 @@ def run_benchmark(with_hgs: bool = False, re_solve: bool = False) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compare scheduling solver backends.")
     parser.add_argument(
-        "--with-hgs",
-        action="store_true",
-        help="Also run the PyVRP HGS solver (default: CP-SAT only).",
-    )
-    parser.add_argument(
         "--re-solve",
         action="store_true",
         help="After each CP-SAT run, time a second solve with upper_bound set (warm start).",
     )
     args = parser.parse_args()
-    run_benchmark(with_hgs=args.with_hgs, re_solve=args.re_solve)
+    run_benchmark(re_solve=args.re_solve)

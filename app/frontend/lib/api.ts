@@ -123,7 +123,7 @@ export async function rescheduleVisit(id: number, requestedStartsAt: string): Pr
   return data.visit;
 }
 
-export async function updateVisit(id: number, visit: Partial<Pick<Visit, "status" | "starts_at" | "ends_at" | "position_in_day">>): Promise<Visit> {
+export async function updateVisit(id: number, visit: Partial<Pick<Visit, "status" | "starts_at" | "ends_at" | "position_in_day" | "clinician_override">>): Promise<Visit> {
   const data = await request<{ visit: Visit }>(`/api/v1/visits/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ visit }),
@@ -281,6 +281,7 @@ export const api = {
         | "max_drive_minutes_per_day"
         | "schedule_density"
         | "charting_buffer_minutes"
+        | "per_day_hours"
       >
     >,
   ) =>
@@ -378,7 +379,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ requested_starts_at: requestedStartsAt }),
     }),
-  updateVisit: (id: number, visit: Partial<Pick<Visit, "status" | "starts_at" | "ends_at" | "position_in_day">>) =>
+  updateVisit: (id: number, visit: Partial<Pick<Visit, "status" | "starts_at" | "ends_at" | "position_in_day" | "clinician_override">>) =>
     request<{ visit: Visit }>(`/api/v1/visits/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ visit }),

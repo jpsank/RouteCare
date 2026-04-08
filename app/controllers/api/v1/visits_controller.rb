@@ -42,7 +42,12 @@ class Api::V1::VisitsController < Api::V1::BaseController
     visit = scoped_visits.find_by(id: params[:id])
     return render_not_found("Visit not found") unless visit
 
-    visit.update!(visit_params.merge(clinician_override: true, source: "manual"))
+    attrs = visit_params
+    # Only force clinician_override true when the user isn't explicitly toggling it
+    unless attrs.key?(:clinician_override)
+      attrs = attrs.merge(clinician_override: true, source: "manual")
+    end
+    visit.update!(attrs)
     resequence_day!(visit)
     render json: { visit: serialize_visit(visit.reload) }
   end
@@ -99,28 +104,11 @@ class Api::V1::VisitsController < Api::V1::BaseController
   end
 
   def serialize_visit(visit)
-    {
-      id: visit.id,
-      instance_id: visit.instance_id,
-      patient_id: visit.patient_id,
-      patient_name: visit.patient.full_name,
-      patient_address: visit.patient.address,
-      patient_latitude: visit.patient.latitude,
-      patient_longitude: visit.patient.longitude,
-      starts_at: visit.starts_at,
-      ends_at: visit.ends_at,
-      duration_minutes: visit.duration_minutes,
-      status: visit.status,
-      position_in_day: visit.position_in_day,
-      drive_from_previous_minutes: visit.drive_from_previous_minutes,
-      clinician_override: visit.clinician_override,
-      soft_constraint_override: visit.soft_constraint_override,
-      source: visit.source
-    }
+    VisitSerializer.as_json(visit)
   end
 
   def visit_params
-    params.require(:visit).permit(:starts_at, :ends_at, :status, :position_in_day)
+    params.require(:visit).permit(:starts_at, :ends_at, :status, :position_in_day, :clinician_override)
   end
 
   def visit_create_params

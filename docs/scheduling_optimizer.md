@@ -21,21 +21,23 @@ These dimensions are coupled: spatial decisions (which patients to group on a da
 ### Solver Architecture
 
 ```
-Primary: CP-SAT (default, on-demand)             ← Google OR-Tools
-  Constraint programming model with all domain constraints.
-  Enforces spacing, availability, breaks, blocks during search.
-  Proves optimality or returns best-found within time budget.
-  Replaces both Ruby greedy optimizer and VRP-only solvers.
-
-Legacy: HGS (travel-only, near-optimal)          ← PyVRP
-  Hybrid Genetic Search for pure VRP.
-  Fast but does not enforce healthcare constraints.
-  Selectable via ?backend=hgs.
-
-Legacy: BCP (travel-only, exact)                  ← VRPSolverEasy / BaPCod
-  Branch-Cut-and-Price exact VRP solver.
-  Requires BaPCod binary (academic license).
-  Selectable via ?backend=bcp.
+Primary: CP-SAT (default, on-demand)             ← Google OR-Tools + PyVRP
+  Two-phase approach:
+    Phase 1 — Day assignment: CP-SAT model assigns each visit instance to a
+      working day, enforcing all domain constraints (spacing, availability,
+      calendar blocks, drive caps, density).
+    Phase 2 — Per-day routing: for each day's assigned visits, finds the
+      optimal visit ordering and concrete start times:
+        • n ≤ 4 visits  → exhaustive permutation enumeration (exact)
+        • n = 5 visits  → exhaustive by default (CPSAT_SKIP_PERM_ENUM_FOR_N5
+                          env var falls back to HGS + nearest-neighbor)
+        • n ≥ 6 visits  → PyVRP HGS (Hybrid Genetic Search) produces a
+                          travel-optimal ordering in ~0.5s, alongside
+                          nearest-neighbor as a backup
+      All orderings are retimed with full constraint enforcement (lunch,
+      calendar blocks, mandatory breaks, locked visit interleaving), and the
+      lowest-cost feasible result is kept.
+  Proves optimality on day assignment or returns best-found within budget.
 
 Legacy: Greedy + ALNS (Ruby, in-app)              ← WeeklyOptimizer
   Regret-based insertion + adaptive large neighborhood search.
@@ -52,14 +54,15 @@ Future: NCO (real-time, <100ms)
 ```
 User clicks Re-optimize:
   → Rails calls Python solver service (/solve?backend=cpsat)
-  → CP-SAT builds model with all constraints
-  → Returns optimal/near-optimal schedule in 5-30s
+  → Phase 1: CP-SAT assigns each visit to a day (all domain constraints)
+  → Phase 2: Per-day routing for each day's visit set:
+      n ≤ 4  → try all permutations (exact)
+      n = 5  → try all permutations by default (HGS+NN if skipping)
+      n ≥ 6  → PyVRP HGS + nearest-neighbor as candidates
+      → Retime each candidate (lunch, breaks, calendar blocks, locked visits)
+      → Keep lowest-cost feasible ordering
+  → Returns schedule in 5-30s
   → Rails persists result
-
-Pipeline mode (?backend=pipeline):
-  1. HGS (PyVRP) → near-optimal VRP solution
-  2. Feed HGS upper bound to BCP (VRPSolverEasy)
-  3. Return best result (travel-only, no domain constraints)
 ```
 
 ### Solver Abstraction Layer
@@ -72,7 +75,7 @@ Python: POST /solve?backend=cpsat               → SolverOutput (JSON)
 Rails:  SchedulePersister.persist(output)        → WeeklySchedule
 ```
 
-Backends: `cpsat` (default), `hgs`, `bcp`, `pipeline`
+Backend: `cpsat`
 
 ---
 
@@ -283,14 +286,6 @@ The original on-demand optimizer, still used by the Rails controller.
 
 **Retiming:** Assigns concrete times respecting transit gaps, charting buffer, lunch window, mandatory breaks, locked visit ranges. Rounds to 15-minute intervals.
 
-### Python HGS (PyVRP) — Travel-Only VRP
-
-[PyVRP](https://github.com/PyVRP/PyVRP) — Hybrid Genetic Search. Fast near-optimal VRP solver. **Does not enforce** healthcare constraints (spacing, availability, breaks, calendar blocks). Useful as a travel-time baseline.
-
-### Python BCP (VRPSolverEasy / BaPCod) — Travel-Only Exact
-
-[VRPSolverEasy](https://github.com/inria-UFF/VRPSolverEasy) — Branch-Cut-and-Price exact solver. Requires BaPCod binary (academic license, not bundled in Docker). Same limitation as HGS: travel-only, no domain constraints.
-
 ---
 
 ## Future: NCO — Neural Combinatorial Optimization
@@ -360,14 +355,14 @@ solver_service/                     # Python solver microservice
   Dockerfile                        # python:3.11-slim, uvicorn
   requirements.txt                  # ortools, pyvrp, fastapi, etc.
   solvers/
-    __init__.py                      # Exports: cpsat_solve, hgs_solve, bcp_solve
-    cpsat.py                         # CP-SAT solver (primary, all constraints)
-    hgs.py                           # PyVRP HGS solver (legacy, travel-only)
-    bcp.py                           # VRPSolverEasy BCP solver (legacy, travel-only)
-    base.py                          # Shared utilities (lunch, return-home, spacing)
+    __init__.py                      # Exports: cpsat_solve
+    cpsat.py                         # CP-SAT solver entry point
+    cpsat_context.py                 # Shared constants and environment config
+    cpsat_assignment.py              # Day-assignment CP-SAT model
+    cpsat_routing.py                 # Per-day route ordering (PyVRP HGS + enumeration)
+    cpsat_fitness.py                 # Fitness / objective scoring
   tests/
-    test_cpsat.py                    # 11 tests covering all constraint types
-    test_hgs.py                      # HGS basic tests
+    test_cpsat.py                    # Tests covering all constraint types
 
 app/services/scheduling/             # Ruby (legacy, being replaced)
   weekly_optimizer.rb                # Greedy + ALNS (still used by controller)

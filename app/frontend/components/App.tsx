@@ -1,33 +1,15 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../lib/api";
-import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
+import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule } from "../types";
 import { SetupWizard } from "./SetupWizard";
 import { MessageHistorySlideOver } from "./MessageHistorySlideOver";
+import { useAppActions } from "./hooks/useAppActions";
 
 const WeeklyCalendarView = lazy(async () => {
   const module = await import("./WeeklyCalendarView");
   return { default: module.WeeklyCalendarView };
 });
-
-type PatientSavePayload = {
-  full_name: string;
-  phone: string;
-  email?: string;
-  address_line1: string;
-  address_line2?: string;
-  city: string;
-  state: string;
-  postal_code: string;
-  required_visits_per_week: number;
-  visit_duration_minutes: number;
-  notes?: string;
-  latitude?: number;
-  longitude?: number;
-  min_days_between_visits: number;
-  max_days_between_visits: number;
-  priority: number;
-};
 
 
 function PanelFallback() {
@@ -57,21 +39,15 @@ export function App() {
   const [clinicianProfile, setClinicianProfile] = useState<ClinicianProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshAlerts = useCallback(async () => {
-    const res = await api.listAlerts();
-    setAlerts(res.alerts);
-  }, []);
-
-  const refreshMessages = useCallback(async () => {
-    const res = await api.listMessages();
-    setMessages(res.messages);
-  }, []);
+  const actions = useAppActions(
+    { setSchedule, setPatients, setMessages, setAlerts, setCalendarBlocks, setClinicianProfile, setError },
+    { startLoading, stopLoading },
+  );
 
   const refreshData = useCallback(async () => {
     startLoading();
     setError(null);
     try {
-      // Critical path: schedule, patients, blocks, profile — renders the calendar
       const [scheduleResponse, patientsResponse, blocksResponse, profileResponse] = await Promise.all([
         api.getSchedule(),
         api.listPatients(),
@@ -83,7 +59,6 @@ export function App() {
       setCalendarBlocks(blocksResponse.calendar_blocks);
       setClinicianProfile(profileResponse.clinician_profile);
 
-      // Deferred: messages, alerts, connections — populate after first paint
       Promise.all([
         api.listMessages(),
         api.listAlerts(),
@@ -104,7 +79,6 @@ export function App() {
     refreshData().catch(() => undefined);
   }, [refreshData]);
 
-  // Refresh data when the app regains focus (e.g. returning from Maps)
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") refreshData().catch(() => undefined);
@@ -113,7 +87,6 @@ export function App() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refreshData]);
 
-  // Auto-complete setup for existing users who already have data
   useEffect(() => {
     if (clinicianProfile && !clinicianProfile.setup_completed_at && (clinicianProfile.home_latitude || patients.length > 0)) {
       api.updateClinicianProfile({ setup_completed_at: new Date().toISOString() })
@@ -122,259 +95,8 @@ export function App() {
     }
   }, [clinicianProfile, patients.length]);
 
-  const visits = useMemo(() => schedule?.visits ?? [], [schedule]);
-  const optimizeSchedule = async (start?: { latitude: number; longitude: number }) => {
-    startLoading();
-    setError(null);
-    try {
-      const response = await api.optimizeSchedule(undefined, start?.latitude, start?.longitude);
-      setSchedule(response.schedule);
-      const refreshedBlocks = await api.listCalendarBlocks();
-      setCalendarBlocks(refreshedBlocks.calendar_blocks);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const createPatient = async (payload: PatientSavePayload) => {
-    startLoading();
-    setError(null);
-    try {
-      const created = await api.createPatient(payload);
-      setPatients((prev) => [created.patient, ...prev]);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const updatePatient = async (patientId: number, payload: PatientSavePayload) => {
-    startLoading();
-    setError(null);
-    try {
-      const updated = await api.updatePatient(patientId, payload);
-      setPatients((prev) => prev.map((patient) => (patient.id === patientId ? updated.patient : patient)));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const seedDemoPatients = async () => {
-    startLoading();
-    setError(null);
-    try {
-      const response = await api.seedDemoPatients();
-      setPatients(response.patients);
-      const optimized = await api.optimizeSchedule();
-      setSchedule(optimized.schedule);
-      const refreshedBlocks = await api.listCalendarBlocks();
-      setCalendarBlocks(refreshedBlocks.calendar_blocks);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const updateWorkingHours = async (workdayStartMinute: number, workdayEndMinute: number) => {
-    startLoading();
-    setError(null);
-    try {
-      const response = await api.updateClinicianProfile({
-        workday_start_minute: workdayStartMinute,
-        workday_end_minute: workdayEndMinute,
-      });
-      setClinicianProfile(response.clinician_profile);
-      const optimized = await api.optimizeSchedule();
-      setSchedule(optimized.schedule);
-      const refreshedBlocks = await api.listCalendarBlocks();
-      setCalendarBlocks(refreshedBlocks.calendar_blocks);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const updateLunchSettings = async (lunchStartMinute: number, lunchDurationMinutes: number, lunchWindowMinutes: number) => {
-    startLoading();
-    setError(null);
-    try {
-      const response = await api.updateClinicianProfile({
-        lunch_start_minute: lunchStartMinute,
-        lunch_duration_minutes: lunchDurationMinutes,
-        lunch_window_minutes: lunchWindowMinutes,
-      });
-      setClinicianProfile(response.clinician_profile);
-      const optimized = await api.optimizeSchedule();
-      setSchedule(optimized.schedule);
-      const refreshedBlocks = await api.listCalendarBlocks();
-      setCalendarBlocks(refreshedBlocks.calendar_blocks);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const updateWorkingDays = async (workingDays: number[]) => {
-    startLoading();
-    setError(null);
-    try {
-      const response = await api.updateClinicianProfile({
-        working_days: workingDays,
-      });
-      setClinicianProfile(response.clinician_profile);
-      const optimized = await api.optimizeSchedule();
-      setSchedule(optimized.schedule);
-      const refreshedBlocks = await api.listCalendarBlocks();
-      setCalendarBlocks(refreshedBlocks.calendar_blocks);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const updateHomeLocation = async (latitude: number, longitude: number) => {
-    startLoading();
-    setError(null);
-    try {
-      const response = await api.updateClinicianProfile({
-        home_latitude: latitude,
-        home_longitude: longitude,
-      });
-      setClinicianProfile(response.clinician_profile);
-      const optimized = await api.optimizeSchedule();
-      setSchedule(optimized.schedule);
-      const refreshedBlocks = await api.listCalendarBlocks();
-      setCalendarBlocks(refreshedBlocks.calendar_blocks);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const updateDisplayName = async (displayName: string) => {
-    startLoading();
-    setError(null);
-    try {
-      const response = await api.updateClinicianProfile({
-        display_name: displayName,
-      });
-      setClinicianProfile(response.clinician_profile);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const updateSchedulingSettings = async (settings: Record<string, unknown>) => {
-    startLoading();
-    setError(null);
-    try {
-      const response = await api.updateClinicianProfile(settings as Parameters<typeof api.updateClinicianProfile>[0]);
-      setClinicianProfile(response.clinician_profile);
-      const optimized = await api.optimizeSchedule();
-      setSchedule(optimized.schedule);
-      const refreshedBlocks = await api.listCalendarBlocks();
-      setCalendarBlocks(refreshedBlocks.calendar_blocks);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const sendMessage = async (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => {
-    startLoading();
-    setError(null);
-    try {
-      const result = await api.createMessage(visitId, channel, body, sendImmediately);
-      setMessages((prev) => [result.message, ...(prev ?? [])]);
-      return result.message;
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const bulkConfirmMessages = async () => {
-    startLoading();
-    setError(null);
-    try {
-      const result = await api.bulkConfirmMessages();
-      setMessages((prev) => [...result.messages, ...(prev ?? [])]);
-      return result;
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const approveMessage = async (messageId: number) => {
-    startLoading();
-    setError(null);
-    try {
-      const result = await api.approveMessage(messageId);
-      setMessages((prev) => (prev ?? []).map((message) => (message.id === messageId ? result.message : message)));
-      return result.message;
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const selectMessageSuggestion = async (messageId: number, suggestionIndex: number) => {
-    startLoading();
-    setError(null);
-    try {
-      const result = await api.selectMessageSuggestion(messageId, suggestionIndex);
-      setMessages((prev) => (prev ?? []).map((message) => (message.id === messageId ? result.message : message)));
-      return result.message;
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  };
-
-  const executeAlertAction = async (alertId: number) => {
-    setError(null);
-    try {
-      const result = await api.executeAlertAction(alertId);
-      setAlerts((prev) => (prev ?? []).map((a) => (a.id === alertId ? result.alert : a)));
-      if (result.message) {
-        setMessages((prev) => [result.message!, ...(prev ?? [])]);
-      }
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const updateAlert = async (alertId: number, status: string) => {
-    setError(null);
-    try {
-      const result = await api.updateAlert(alertId, status);
-      setAlerts((prev) => (prev ?? []).map((a) => (a.id === alertId ? result.alert : a)));
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
   const pendingMessageCount = (messages ?? []).filter((m) => m.status === "pending_approval").length;
 
-  // Show onboarding wizard for new users
   const needsSetup = clinicianProfile && !clinicianProfile.setup_completed_at;
   if (needsSetup) {
     return (
@@ -383,7 +105,7 @@ export function App() {
           <SetupWizard
             clinicianProfile={clinicianProfile}
             onComplete={refreshData}
-            onSeedDemo={seedDemoPatients}
+            onSeedDemo={actions.seedDemoPatients}
           />
         </div>
       </div>
@@ -448,25 +170,25 @@ export function App() {
               calendarBlocks={calendarBlocks}
               calendarConnections={calendarConnections}
               loading={loading}
-              onOptimize={optimizeSchedule}
-              onCreatePatient={createPatient}
-              onUpdatePatient={updatePatient}
-              onSeedDemoPatients={seedDemoPatients}
+              onOptimize={actions.optimizeSchedule}
+              onCreatePatient={actions.createPatient}
+              onUpdatePatient={actions.updatePatient}
+              onSeedDemoPatients={actions.seedDemoPatients}
               clinicianProfile={clinicianProfile}
-              onUpdateWorkingHours={updateWorkingHours}
-              onUpdateWorkingDays={updateWorkingDays}
-              onUpdateLunchSettings={updateLunchSettings}
-              onUpdateDisplayName={updateDisplayName}
-              onUpdateSchedulingSettings={updateSchedulingSettings}
-              onSetHomeFromCurrentLocation={updateHomeLocation}
-              onUpdateHomeLocation={updateHomeLocation}
+              onUpdateWorkingHours={actions.updateWorkingHours}
+              onUpdateWorkingDays={actions.updateWorkingDays}
+              onUpdateLunchSettings={actions.updateLunchSettings}
+              onUpdateDisplayName={actions.updateDisplayName}
+              onUpdateSchedulingSettings={actions.updateSchedulingSettings}
+              onSetHomeFromCurrentLocation={actions.updateHomeLocation}
+              onUpdateHomeLocation={actions.updateHomeLocation}
               onCalendarRefresh={refreshData}
-              onBulkConfirm={bulkConfirmMessages}
-              onSendMessage={sendMessage}
+              onBulkConfirm={actions.bulkConfirmMessages}
+              onSendMessage={actions.sendMessage}
               messages={messages}
               alerts={alerts ?? []}
-              onUpdateAlert={updateAlert}
-              onExecuteAlertAction={executeAlertAction}
+              onUpdateAlert={actions.updateAlert}
+              onExecuteAlertAction={actions.executeAlertAction}
             />
           </Suspense>
         </main>
@@ -476,7 +198,7 @@ export function App() {
             messages={messages ?? []}
             isOpen={messageSlideOverOpen}
             onClose={() => setMessageSlideOverOpen(false)}
-            onApprove={approveMessage}
+            onApprove={actions.approveMessage}
           />,
           document.body,
         )}

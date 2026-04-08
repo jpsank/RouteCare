@@ -36,7 +36,8 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
       :max_drive_minutes_per_day,
       :schedule_density,
       :charting_buffer_minutes,
-      working_days: []
+      working_days: [],
+      per_day_hours: {}
     )
   end
 
@@ -60,7 +61,8 @@ class Api::V1::ClinicianProfilesController < Api::V1::BaseController
       required_break_minutes: profile.required_break_minutes,
       max_drive_minutes_per_day: profile.max_drive_minutes_per_day,
       schedule_density: profile.schedule_density,
-      charting_buffer_minutes: profile.charting_buffer_minutes
+      charting_buffer_minutes: profile.charting_buffer_minutes,
+      per_day_hours: profile.per_day_hours
     }
   end
 end

@@ -7,9 +7,10 @@ import { DailyRouteView } from "./DailyRouteView";
 import { EventEditorPanel } from "./calendar/EventEditorPanel";
 import { InlineAlertSummary } from "./calendar/InlineAlertSummary";
 import { PatientEditorPanel } from "./calendar/PatientEditorPanel";
-import { WeeklySettingsPanel } from "./calendar/WeeklySettingsPanel";
+import { SettingsModal } from "./calendar/SettingsModal";
 import { useCalendarConnections } from "./calendar/hooks/useCalendarConnections";
 import { useEventEditor } from "./calendar/hooks/useEventEditor";
+import { useSettingsState } from "./calendar/hooks/useSettingsState";
 import {
   asDateKey,
   localInputToIso,
@@ -18,6 +19,7 @@ import {
   toLocalInputValue,
   type PatientSavePayload,
 } from "./calendar/utils";
+import { api as apiClient } from "../lib/api";
 
 const ScheduleCalendar = lazy(async () => {
   const module = await import("./calendar/ScheduleCalendar");
@@ -56,15 +58,6 @@ type Props = {
   onExecuteAlertAction?: (alertId: number) => Promise<void>;
 };
 
-const DAY_LABELS: Array<[number, string]> = [
-  [1, "M"],
-  [2, "T"],
-  [3, "W"],
-  [4, "T"],
-  [5, "F"],
-  [6, "S"],
-  [0, "S"],
-];
 
 export function WeeklyCalendarView({
   schedule,
@@ -123,23 +116,22 @@ export function WeeklyCalendarView({
   const [routeCollapsed, setRouteCollapsed] = useState(() => {
     try { return localStorage.getItem("rc-route-collapsed") === "true"; } catch { return false; }
   });
-  const [savingHours, setSavingHours] = useState(false);
-  const [savingWorkingDays, setSavingWorkingDays] = useState(false);
-  const [savingHomeLocation, setSavingHomeLocation] = useState(false);
-  const [homeLatitudeInput, setHomeLatitudeInput] = useState("");
-  const [homeLongitudeInput, setHomeLongitudeInput] = useState("");
-  const [savingHomeInput, setSavingHomeInput] = useState(false);
+  const settings = useSettingsState(clinicianProfile, {
+    onUpdateWorkingHours,
+    onUpdateWorkingDays,
+    onUpdateLunchSettings,
+    onUpdateDisplayName,
+    onUpdateSchedulingSettings,
+    onSetHomeFromCurrentLocation,
+    onUpdateHomeLocation,
+  });
+
   const [addEventOpen, setAddEventOpen] = useState(false);
   const [addEventStartInput, setAddEventStartInput] = useState("");
   const [addEventPosition, setAddEventPosition] = useState<{ x: number; y: number } | null>(null);
   const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
   const [mobileToday, setMobileToday] = useState(false);
   const [mobileTodayInitialized, setMobileTodayInitialized] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [savingLunch, setSavingLunch] = useState(false);
-  const [savingSchedulingSettings, setSavingSchedulingSettings] = useState(false);
-  const [displayNameInput, setDisplayNameInput] = useState("");
-  const [savingDisplayName, setSavingDisplayName] = useState(false);
 
 
   const homeOrigin = useMemo(() => {
@@ -149,15 +141,6 @@ export function WeeklyCalendarView({
       longitude: Number(clinicianProfile.home_longitude),
     };
   }, [clinicianProfile?.home_latitude, clinicianProfile?.home_longitude]);
-
-  useEffect(() => {
-    setHomeLatitudeInput(clinicianProfile?.home_latitude != null ? String(clinicianProfile.home_latitude) : "");
-    setHomeLongitudeInput(clinicianProfile?.home_longitude != null ? String(clinicianProfile.home_longitude) : "");
-  }, [clinicianProfile?.home_latitude, clinicianProfile?.home_longitude]);
-
-  useEffect(() => {
-    setDisplayNameInput(clinicianProfile?.display_name ?? "");
-  }, [clinicianProfile?.display_name]);
 
   // Default to Today view on mobile only if there are visits today
   useEffect(() => {
@@ -169,54 +152,21 @@ export function WeeklyCalendarView({
     setMobileTodayInitialized(true);
   }, [schedule, visits, mobileTodayInitialized]);
 
-  const workdayStartMinute = clinicianProfile?.workday_start_minute ?? 8 * 60;
-  const workdayEndMinute = clinicianProfile?.workday_end_minute ?? 18 * 60;
-  const workingDays = clinicianProfile?.working_days?.length ? clinicianProfile.working_days : [1, 2, 3, 4, 5];
-  const lunchStartMinute = clinicianProfile?.lunch_start_minute ?? 720;
-  const lunchDurationMinutes = clinicianProfile?.lunch_duration_minutes ?? 30;
-  const lunchWindowMinutes = clinicianProfile?.lunch_window_minutes ?? 90;
-  const chartingBufferMinutes = clinicianProfile?.charting_buffer_minutes ?? 0;
-  const scheduleDensity = clinicianProfile?.schedule_density ?? 0.5;
-  const maxDriveMinutesPerDay = clinicianProfile?.max_drive_minutes_per_day ?? null;
-  const maxContinuousWorkMinutes = clinicianProfile?.max_continuous_work_minutes ?? 480;
-  const requiredBreakMinutes = clinicianProfile?.required_break_minutes ?? 15;
-
-  const updateLunch = async (startMin: number, duration: number, window: number) => {
-    setSavingLunch(true);
-    try {
-      await onUpdateLunchSettings(startMin, duration, window);
-    } finally {
-      setSavingLunch(false);
-    }
-  };
-
-  const updateSchedulingSettings = async (settings: Record<string, unknown>) => {
-    setSavingSchedulingSettings(true);
-    try {
-      await onUpdateSchedulingSettings(settings);
-    } finally {
-      setSavingSchedulingSettings(false);
-    }
-  };
-
-  const updateWorkdayRange = async (nextStart: number, nextEnd: number) => {
-    if (nextEnd <= nextStart) return;
-    setSavingHours(true);
-    try {
-      await onUpdateWorkingHours(nextStart, nextEnd);
-    } finally {
-      setSavingHours(false);
-    }
-  };
-
-  const saveDisplayName = async () => {
-    setSavingDisplayName(true);
-    try {
-      await onUpdateDisplayName(displayNameInput.trim());
-    } finally {
-      setSavingDisplayName(false);
-    }
-  };
+  const {
+    workdayStartMinute, workdayEndMinute, calendarStartMinute, calendarEndMinute, workingDays,
+    lunchStartMinute, lunchDurationMinutes, lunchWindowMinutes,
+    chartingBufferMinutes, scheduleDensity, maxDriveMinutesPerDay,
+    maxContinuousWorkMinutes, requiredBreakMinutes,
+    homeLatitudeInput, setHomeLatitudeInput,
+    homeLongitudeInput, setHomeLongitudeInput,
+    displayNameInput, setDisplayNameInput,
+    savingHours, savingWorkingDays, savingHomeLocation, savingHomeInput,
+    savingLunch, savingSchedulingSettings, savingDisplayName,
+    showSettings, setShowSettings,
+    updateWorkdayRange, toggleWorkingDay, updateLunch,
+    updateSchedulingSettings, saveDisplayName,
+    saveHomeFromCurrentLocation, saveHomeFromInputs,
+  } = settings;
 
   const dayVisits = useMemo(
     () =>
@@ -232,8 +182,7 @@ export function WeeklyCalendarView({
   );
 
   const returnHomeMinutes = useMemo(() => {
-    const returnHomeByDay = (schedule?.optimization_summary?.return_home_by_day ?? {}) as Record<string, number>;
-    return returnHomeByDay[selectedDate] ?? 0;
+    return schedule?.optimization_summary?.return_home_by_day?.[selectedDate] ?? 0;
   }, [schedule?.optimization_summary, selectedDate]);
 
   const {
@@ -256,11 +205,8 @@ export function WeeklyCalendarView({
   } = useCalendarConnections({ calendarConnections, selectedDate, onCalendarRefresh });
 
   const lunchEvents = useMemo(() => {
-    if (!schedule?.week_start_on) return [];
-    const lunchBreaks = (schedule.optimization_summary?.lunch_breaks ?? {}) as Record<
-      string,
-      { start_minute: number; end_minute: number }
-    >;
+    if (!schedule?.week_start_on || lunchDurationMinutes <= 0) return [];
+    const lunchBreaks = schedule.optimization_summary?.lunch_breaks ?? {};
     const weekStart = new Date(schedule.week_start_on + "T00:00:00");
     const events: Array<{
       id: string;
@@ -354,40 +300,15 @@ export function WeeklyCalendarView({
     ],
   );
 
-  const saveHomeFromCurrentLocation = async () => {
-    const currentPosition = await new Promise<GeolocationPosition>((resolve, reject) =>
-      navigator.geolocation.getCurrentPosition(resolve, reject),
-    );
-    setSavingHomeLocation(true);
+  const handleEventDrop = async (eventId: string, newStartStr: string) => {
+    const match = eventId.match(/^visit-(\d+)$/);
+    if (!match) return;
+    const visitId = Number(match[1]);
     try {
-      setHomeLatitudeInput(String(currentPosition.coords.latitude));
-      setHomeLongitudeInput(String(currentPosition.coords.longitude));
-      await onSetHomeFromCurrentLocation(currentPosition.coords.latitude, currentPosition.coords.longitude);
-    } finally {
-      setSavingHomeLocation(false);
-    }
-  };
-
-  const saveHomeFromInputs = async () => {
-    const latitude = Number(homeLatitudeInput);
-    const longitude = Number(homeLongitudeInput);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
-    setSavingHomeInput(true);
-    try {
-      await onUpdateHomeLocation(latitude, longitude);
-    } finally {
-      setSavingHomeInput(false);
-    }
-  };
-
-  const toggleWorkingDay = async (wday: number) => {
-    const next = workingDays.includes(wday) ? workingDays.filter((day) => day !== wday) : [...workingDays, wday].sort((a, b) => a - b);
-    if (next.length === 0) return;
-    setSavingWorkingDays(true);
-    try {
-      await onUpdateWorkingDays(next);
-    } finally {
-      setSavingWorkingDays(false);
+      await apiClient.rescheduleVisit(visitId, new Date(newStartStr).toISOString());
+      await onCalendarRefresh();
+    } catch {
+      await onCalendarRefresh(); // revert by refreshing
     }
   };
 
@@ -491,24 +412,41 @@ export function WeeklyCalendarView({
 
       {/* Unschedulable visits warning */}
       {(() => {
-        const items = (schedule?.optimization_summary?.unschedulable ?? []) as Array<{ patient_name: string }>;
+        const items = schedule?.optimization_summary?.unschedulable ?? [];
         if (items.length === 0) return null;
-        const names = [...new Set(items.map((u) => u.patient_name))];
+        const reasonLabels: Record<string, string> = {
+          min_days_between_visits: "min days between visits",
+          day_capacity: "not enough time in day",
+          availability_windows: "no patient availability",
+          routing_or_drive_limit: "drive limit or routing",
+          no_working_days_available: "no working days available",
+        };
+        const byPatient = new Map<string, Set<string>>();
+        for (const u of items) {
+          const existing = byPatient.get(u.patient_name) ?? new Set();
+          for (const r of u.reasons ?? []) existing.add(reasonLabels[r] ?? r);
+          byPatient.set(u.patient_name, existing);
+        }
         return (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs sm:gap-3 sm:px-3 sm:py-2 sm:text-sm">
-            <svg className="h-4 w-4 flex-none text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-            </svg>
-            <span className="text-red-800">
-              Could not schedule all visits for: <strong>{names.join(", ")}</strong>
-            </span>
+          <div className="flex flex-col gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 flex-none text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              <span className="text-red-800">Could not schedule all visits:</span>
+            </div>
+            {[...byPatient.entries()].map(([name, reasons]) => (
+              <div key={name} className="ml-6 text-red-700">
+                <strong>{name}</strong>{reasons.size > 0 && ` — ${[...reasons].join(", ")}`}
+              </div>
+            ))}
           </div>
         );
       })()}
 
       {/* Drive time violations warning */}
       {(() => {
-        const violations = (schedule?.optimization_summary?.drive_violations ?? []) as Array<{ date: string; drive_minutes: number; max_drive: number }>;
+        const violations = schedule?.optimization_summary?.drive_violations ?? [];
         if (violations.length === 0) return null;
         return (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs sm:gap-3 sm:px-3 sm:py-2 sm:text-sm">
@@ -525,90 +463,64 @@ export function WeeklyCalendarView({
         );
       })()}
 
-      {/* Settings modal (portaled to body) */}
-      {showSettings && createPortal(
-        <div className="fixed inset-0 z-[800] flex items-start justify-center px-4 pt-[10vh] animate-[fadeIn_0.15s_ease-out] bg-black/25 backdrop-blur-[2px]" data-modal-overlay onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
-          <div className="w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.15s_ease-out]">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-gray-900">Settings</h2>
-              <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onClick={() => setShowSettings(false)}>
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-
-            {/* Working Days */}
-            <div className="mb-4">
-              <span className="rc-label mb-1.5 block">Working days</span>
-              <div className="flex flex-wrap gap-1.5">
-                {DAY_LABELS.map(([wday, label]) => (
-                  <button
-                    key={`wd-${wday}`}
-                    type="button"
-                    className={`rc-day-btn ${workingDays.includes(wday) ? "active" : ""}`}
-                    onClick={() => toggleWorkingDay(wday)}
-                    disabled={loading || savingWorkingDays}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <WeeklySettingsPanel
-              loading={loading}
-              workdayStartMinute={workdayStartMinute}
-              workdayEndMinute={workdayEndMinute}
-              onUpdateWorkdayRange={updateWorkdayRange}
-              savingHours={savingHours}
-              homeLatitudeInput={homeLatitudeInput}
-              homeLongitudeInput={homeLongitudeInput}
-              onHomeLatitudeInputChange={setHomeLatitudeInput}
-              onHomeLongitudeInputChange={setHomeLongitudeInput}
-              onSaveHomeFromInputs={saveHomeFromInputs}
-              onSaveHomeFromCurrentLocation={saveHomeFromCurrentLocation}
-              savingHomeInput={savingHomeInput}
-              savingHomeLocation={savingHomeLocation}
-              onSeedDemoPatients={onSeedDemoPatients}
-              lunchStartMinute={lunchStartMinute}
-              lunchDurationMinutes={lunchDurationMinutes}
-              lunchWindowMinutes={lunchWindowMinutes}
-              onUpdateLunch={updateLunch}
-              savingLunch={savingLunch}
-              displayNameInput={displayNameInput}
-              onDisplayNameInputChange={setDisplayNameInput}
-              onSaveDisplayName={saveDisplayName}
-              savingDisplayName={savingDisplayName}
-              chartingBufferMinutes={chartingBufferMinutes}
-              scheduleDensity={scheduleDensity}
-              maxDriveMinutesPerDay={maxDriveMinutesPerDay}
-              maxContinuousWorkMinutes={maxContinuousWorkMinutes}
-              requiredBreakMinutes={requiredBreakMinutes}
-              onUpdateSchedulingSettings={updateSchedulingSettings}
-              savingSchedulingSettings={savingSchedulingSettings}
-              calendarConnectionsProps={{
-                connectingProvider,
-                setConnectingProvider,
-                externalCalendarId,
-                setExternalCalendarId,
-                appleIcsUrl,
-                setAppleIcsUrl,
-                googleConnection,
-                googleCalendars,
-                selectedGoogleCalendarId,
-                setSelectedGoogleCalendarId,
-                calendarConnections,
-                calendarConfigMessage,
-                connectCalendar,
-                loadGoogleCalendars,
-                saveGoogleCalendarSelection,
-                syncConnection,
-                pushToConnection,
-                calendarFeedUrl: api.calendarFeedUrl(schedule.week_start_on),
-              }}
-            />
-          </div>
-        </div>,
-        document.body,
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          loading={loading}
+          clinicianProfile={clinicianProfile}
+          workdayStartMinute={workdayStartMinute}
+          workdayEndMinute={workdayEndMinute}
+          onUpdateWorkdayRange={updateWorkdayRange}
+          savingHours={savingHours}
+          workingDays={workingDays}
+          onToggleWorkingDay={toggleWorkingDay}
+          savingWorkingDays={savingWorkingDays}
+          homeLatitudeInput={homeLatitudeInput}
+          homeLongitudeInput={homeLongitudeInput}
+          onHomeLatitudeInputChange={setHomeLatitudeInput}
+          onHomeLongitudeInputChange={setHomeLongitudeInput}
+          onSaveHomeFromInputs={saveHomeFromInputs}
+          onSaveHomeFromCurrentLocation={saveHomeFromCurrentLocation}
+          savingHomeInput={savingHomeInput}
+          savingHomeLocation={savingHomeLocation}
+          lunchStartMinute={lunchStartMinute}
+          lunchDurationMinutes={lunchDurationMinutes}
+          lunchWindowMinutes={lunchWindowMinutes}
+          onUpdateLunch={updateLunch}
+          savingLunch={savingLunch}
+          displayNameInput={displayNameInput}
+          onDisplayNameInputChange={setDisplayNameInput}
+          onSaveDisplayName={saveDisplayName}
+          savingDisplayName={savingDisplayName}
+          chartingBufferMinutes={chartingBufferMinutes}
+          scheduleDensity={scheduleDensity}
+          maxDriveMinutesPerDay={maxDriveMinutesPerDay}
+          maxContinuousWorkMinutes={maxContinuousWorkMinutes}
+          requiredBreakMinutes={requiredBreakMinutes}
+          onUpdateSchedulingSettings={updateSchedulingSettings}
+          savingSchedulingSettings={savingSchedulingSettings}
+          onSeedDemoPatients={onSeedDemoPatients}
+          calendarConnectionsProps={{
+            connectingProvider,
+            setConnectingProvider,
+            externalCalendarId,
+            setExternalCalendarId,
+            appleIcsUrl,
+            setAppleIcsUrl,
+            googleConnection,
+            googleCalendars,
+            selectedGoogleCalendarId,
+            setSelectedGoogleCalendarId,
+            calendarConnections,
+            calendarConfigMessage,
+            connectCalendar,
+            loadGoogleCalendars,
+            saveGoogleCalendarSelection,
+            syncConnection,
+            pushToConnection,
+            calendarFeedUrl: api.calendarFeedUrl(schedule.week_start_on),
+          }}
+        />
       )}
 
       {/* Mobile today view */}
@@ -629,9 +541,10 @@ export function WeeklyCalendarView({
           <Suspense fallback={<div className="p-4 text-sm text-gray-500">Loading calendar...</div>}>
             <ScheduleCalendar
               events={calendarEvents}
-              workdayStartMinute={workdayStartMinute}
-              workdayEndMinute={workdayEndMinute}
+              workdayStartMinute={calendarStartMinute}
+              workdayEndMinute={calendarEndMinute}
               workingDays={workingDays}
+              onEventDrop={handleEventDrop}
               onDateClick={(dateKey, startStr, pointer) => {
                 setSelectedVisitId(null);
                 setEditorMode("none");
@@ -696,6 +609,8 @@ export function WeeklyCalendarView({
                 setSelectedVisitId={setSelectedVisitId}
                 homeOrigin={homeOrigin}
                 returnHomeMinutes={returnHomeMinutes}
+                patients={patients}
+                onEditPatient={(id) => setEditingPatientId(id)}
               />
             </div>
           </>
@@ -716,6 +631,8 @@ export function WeeklyCalendarView({
               setSelectedVisitId={setSelectedVisitId}
               homeOrigin={homeOrigin}
               returnHomeMinutes={returnHomeMinutes}
+              patients={patients}
+              onEditPatient={(id) => setEditingPatientId(id)}
             />
           </div>
         )}
@@ -739,6 +656,10 @@ export function WeeklyCalendarView({
           position={editorPosition}
           onSendMessage={onSendMessage}
           onEditPatient={(patientId) => setEditingPatientId(patientId)}
+          onToggleLock={async (visitId, locked) => {
+            await apiClient.updateVisit(visitId, { clinician_override: locked });
+            await onCalendarRefresh();
+          }}
         />
       )}
 

@@ -1,6 +1,6 @@
 module Scheduling
-  # Solver-agnostic input format. Any solver backend (Ruby greedy, Ruby GA,
-  # Python HGS, C++ BCP) receives this data structure — no ActiveRecord objects.
+  # Solver-agnostic input format. All solver backends (CP-SAT, greedy)
+  # receive this data structure — no ActiveRecord objects.
   #
   # Usage:
   #   input = Scheduling::SolverInput.build(user:, week_start_on:, start_point:)
@@ -28,7 +28,8 @@ module Scheduling
     :required_break_minutes,
     :max_drive_minutes_per_day, # Integer | nil
     :schedule_density,
-    :charting_buffer_minutes
+    :charting_buffer_minutes,
+    :per_day_hours           # { "wday" => { "start" => Int, "end" => Int } } | {}
   )
 
   LockedVisitData = Data.define(
@@ -96,7 +97,8 @@ module Scheduling
         required_break_minutes: profile.required_break_minutes,
         max_drive_minutes_per_day: profile.max_drive_minutes_per_day,
         schedule_density: profile.schedule_density,
-        charting_buffer_minutes: profile.charting_buffer_minutes
+        charting_buffer_minutes: profile.charting_buffer_minutes,
+        per_day_hours: profile.per_day_hours.presence || {}
       )
 
       # Patients
@@ -120,7 +122,9 @@ module Scheduling
 
       # Locked visits
       schedule = user.weekly_schedules.find_by(week_start_on: week_start)
-      locked_ar = schedule ? schedule.visits.where(status: %w[confirmed completed]).includes(:patient).to_a : []
+      # Lock visits that are confirmed/completed AND marked as clinician_override (locked).
+      # Visits where clinician_override is false can be re-optimized even if confirmed.
+      locked_ar = schedule ? schedule.visits.where(status: %w[confirmed completed], clinician_override: true).includes(:patient).to_a : []
       locked_visits = locked_ar.map do |v|
         LockedVisitData.new(
           patient_id: v.patient_id, date: v.starts_at.to_date,
@@ -135,32 +139,23 @@ module Scheduling
         ranges.map { |r| CalendarBlockData.new(date: date, starts_at: r.begin, ends_at: r.end) }
       end
 
-      # Travel matrix (includes home node)
-      routing_client = Integrations::RoutingClient.new
+      # Travel matrix (includes home node in a single batch API call)
       all_patients_for_matrix = (active_patients + locked_ar.map(&:patient)).uniq
-      travel_matrix = TravelTimeMatrixBuilder.new(patients: all_patients_for_matrix, routing_client: routing_client).call
+      home_point = home_location ? { lat: home_location.lat, lng: home_location.lng } : nil
+      travel_matrix = TravelTimeMatrixBuilder.new(patients: all_patients_for_matrix, home: home_point).call
 
-      if home_location
-        travel_matrix[:home] = {}
-        all_patients_for_matrix.each do |p|
-          next unless p.latitude && p.longitude
-          time = routing_client.travel_minutes(
-            origin: { lat: home_location.lat, lng: home_location.lng },
-            destination: { lat: p.latitude, lng: p.longitude }
-          )
-          travel_matrix[:home][p.id] = time
-          travel_matrix[p.id] ||= {}
-          travel_matrix[p.id][:home] = time
-        end
-      end
-
-      # Visit instances
+      # Visit instances — always generate instances for all required visits
+      # so the optimizer can re-route even when all visits are already placed.
+      # Locked visits are preserved as constraints but the solver can still
+      # optimize routes and timing for unlocked visits.
       locked_counts = locked_visits.each_with_object(Hash.new(0)) { |v, h| h[v.patient_id] += 1 }
       instances = []
+      has_free_instances = false
       patients.each do |patient|
         remaining = patient.required_visits_per_week - locked_counts.fetch(patient.id, 0)
         next if remaining <= 0
 
+        has_free_instances = true
         remaining.times do |i|
           instances << VisitInstanceData.new(
             id: "patient_#{patient.id}_visit_#{i}",
@@ -171,6 +166,27 @@ module Scheduling
             availability_windows: patient.availability_windows
           )
         end
+      end
+
+      # If all visits are already locked, unlock them so the optimizer can
+      # re-assign days/times. This handles the case where all patients have
+      # 1 visit/week and they're all confirmed — user still expects
+      # Re-optimize to find better routes.
+      if !has_free_instances && locked_visits.any?
+        locked_visits.each_with_index do |lv, i|
+          patient = patients.find { |p| p.id == lv.patient_id }
+          next unless patient
+
+          instances << VisitInstanceData.new(
+            id: "patient_#{patient.id}_visit_#{i}",
+            patient_id: patient.id,
+            location: patient.location,
+            duration: patient.visit_duration_minutes + clinician.charting_buffer_minutes,
+            priority: patient.priority,
+            availability_windows: patient.availability_windows
+          )
+        end
+        locked_visits = []
       end
 
       # Working days as actual dates

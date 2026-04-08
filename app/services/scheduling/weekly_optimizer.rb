@@ -67,12 +67,13 @@ module Scheduling
 
         ordered_slots = two_opt_order(nearest_neighbor_order(new_slots))
 
+        ds, de = day_bounds_for(date)
         retimer = Scheduling::Retimer.new(
           travel_matrix: @travel_matrix,
           locked_visits: locked,
-          lunch_config: lunch_break_config,
-          day_start_minute: day_start_minute,
-          day_end_minute: day_end_minute,
+          lunch_config: lunch_break_config_for(date),
+          day_start_minute: ds,
+          day_end_minute: de,
           start_point: start_point_for_day,
           routing_client: routing_client,
           max_continuous_work_minutes: clinician_profile.max_continuous_work_minutes,
@@ -101,15 +102,15 @@ module Scheduling
       end
 
       # Fill in lunch for working days with no visits
-      if lunch_break_config
-        weekly_days.each do |date|
-          next if lunch_placements.key?(date.to_s)
+      weekly_days.each do |date|
+        next if lunch_placements.key?(date.to_s)
+        lbc = lunch_break_config_for(date)
+        next unless lbc
 
-          lunch_placements[date.to_s] = {
-            start_minute: lunch_break_config[:earliest_start],
-            end_minute: lunch_break_config[:earliest_start] + lunch_break_config[:duration]
-          }
-        end
+        lunch_placements[date.to_s] = {
+          start_minute: lbc[:earliest_start],
+          end_minute: lbc[:earliest_start] + lbc[:duration]
+        }
       end
 
       # Compute fitness
@@ -152,18 +153,11 @@ module Scheduling
 
     def build_travel_matrix(all_patients)
       unique_patients = (all_patients + @locked_visits.map(&:patient)).uniq
-      @travel_matrix = Scheduling::TravelTimeMatrixBuilder.new(patients: unique_patients).call
-
-      home = start_point_for_day
-      if home
-        @travel_matrix[HOME_NODE_ID] = {}
-        unique_patients.each do |patient|
-          time = routing_client.travel_minutes(origin: home, destination: { lat: patient.latitude, lng: patient.longitude })
-          @travel_matrix[HOME_NODE_ID][patient.id] = time
-          @travel_matrix[patient.id] ||= {}
-          @travel_matrix[patient.id][HOME_NODE_ID] = time
-        end
-      end
+      @travel_matrix = Scheduling::TravelTimeMatrixBuilder.new(
+        patients: unique_patients,
+        home: start_point_for_day,
+        routing_client: routing_client
+      ).call
     end
 
     def compute_global_avg_travel
@@ -386,8 +380,9 @@ module Scheduling
         next if enforce_spacing && too_close_to_existing?(date, existing_patient_days, min_gap)
         next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
 
-        start_minute = day_start_minute
-        while start_minute + slot_footprint <= day_end_minute
+        ds, de = day_bounds_for(date)
+        start_minute = ds
+        while start_minute + slot_footprint <= de
           starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(start_minute)}")
           footprint_end = starts_at + slot_footprint.minutes
           ends_at = starts_at + patient.visit_duration_minutes.minutes
@@ -860,8 +855,9 @@ module Scheduling
              .map { |window| Scheduling::TimeWindow.new(window.start_minute, window.end_minute) }
     end
 
-    def fallback_windows_for(_date)
-      [ Scheduling::TimeWindow.new(day_start_minute, day_end_minute) ]
+    def fallback_windows_for(date)
+      ds, de = day_bounds_for(date)
+      [ Scheduling::TimeWindow.new(ds, de) ]
     end
 
     def day_start_minute
@@ -872,10 +868,28 @@ module Scheduling
       clinician_profile&.workday_end_minute || DEFAULT_DAY_END_MINUTE
     end
 
-    def lunch_break_config
+    def day_bounds_for(date)
+      return [ day_start_minute, day_end_minute ] if clinician_profile.blank?
+
+      override = clinician_profile.per_day_hours[date.wday.to_s]
+      if override.present?
+        [ override["start"] || day_start_minute, override["end"] || day_end_minute ]
+      else
+        [ day_start_minute, day_end_minute ]
+      end
+    end
+
+    def lunch_break_config_for(date)
       return nil if clinician_profile.blank?
+      ds, de = day_bounds_for(date)
       lr = clinician_profile.lunch_range
-      { earliest_start: lr[:earliest_start_minute], latest_start: lr[:latest_start_minute], duration: lr[:duration_minutes] }
+      earliest = [ lr[:earliest_start_minute], ds ].max
+      latest = [ lr[:latest_start_minute], de - lr[:duration_minutes] ].min
+      { earliest_start: earliest, latest_start: latest, duration: lr[:duration_minutes] }
+    end
+
+    def lunch_break_config
+      lunch_break_config_for(week_start_on)
     end
 
     def start_point_for_day

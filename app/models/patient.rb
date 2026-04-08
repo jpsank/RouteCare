@@ -7,7 +7,7 @@ class Patient < ApplicationRecord
   validates :full_name, :phone, :address_line1, :city, :state, :postal_code, presence: true
   validates :required_visits_per_week, numericality: { greater_than: 0, less_than_or_equal_to: 7 }
   validates :visit_duration_minutes, numericality: { greater_than_or_equal_to: 15, less_than_or_equal_to: 240 }
-  validates :min_days_between_visits, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 6 }
+  validates :min_days_between_visits, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 6 }
   validates :max_days_between_visits, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 7 }
   validates :priority, numericality: { greater_than_or_equal_to: 0 }
   validates :email, format: { with: URI::MailTo::EMAIL_REGEXP }, allow_blank: true

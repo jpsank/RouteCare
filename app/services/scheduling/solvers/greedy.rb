@@ -56,12 +56,13 @@ module Scheduling
 
           ordered_slots = two_opt_order(nearest_neighbor_order(new_slots))
 
+          day_start, day_end = day_bounds(date)
           retimer = Scheduling::Retimer.new(
             travel_matrix: @travel_matrix,
             locked_visits: locked,
-            lunch_config: lunch_break_config,
-            day_start_minute: @clinician.workday_start_minute,
-            day_end_minute: @clinician.workday_end_minute,
+            lunch_config: lunch_break_config(date),
+            day_start_minute: day_start,
+            day_end_minute: day_end,
             start_point: home_point,
             max_continuous_work_minutes: @clinician.max_continuous_work_minutes,
             required_break_minutes: @clinician.required_break_minutes,
@@ -155,11 +156,23 @@ module Scheduling
         @global_avg_travel = all_times.empty? ? 1.0 : (all_times.sum.to_f / all_times.size)
       end
 
-      def lunch_break_config
+      # Returns [start_minute, end_minute] for a given date, respecting per_day_hours overrides.
+      def day_bounds(date)
+        override = @clinician.per_day_hours[date.wday.to_s]
+        if override.present?
+          [ override["start"] || @clinician.workday_start_minute,
+            override["end"]   || @clinician.workday_end_minute ]
+        else
+          [ @clinician.workday_start_minute, @clinician.workday_end_minute ]
+        end
+      end
+
+      def lunch_break_config(date)
         lr = @clinician
+        day_start, day_end = day_bounds(date)
         half_window = lr.lunch_window_minutes / 2
-        earliest = [ lr.lunch_start_minute - half_window, lr.workday_start_minute ].max
-        latest = [ lr.lunch_start_minute + half_window, lr.workday_end_minute - lr.lunch_duration_minutes ].min
+        earliest = [ lr.lunch_start_minute - half_window, day_start ].max
+        latest = [ lr.lunch_start_minute + half_window, day_end - lr.lunch_duration_minutes ].min
         { earliest_start: earliest, latest_start: latest, duration: lr.lunch_duration_minutes }
       end
 
@@ -322,7 +335,8 @@ module Scheduling
         window_set = if windows && !windows.empty?
           windows.map { |w| Scheduling::TimeWindow.new(w[:start_minute], w[:end_minute]) }
         else
-          [ Scheduling::TimeWindow.new(@clinician.workday_start_minute, @clinician.workday_end_minute) ]
+          day_start, day_end = day_bounds(date)
+          [ Scheduling::TimeWindow.new(day_start, day_end) ]
         end
 
         window_set.each do |window|

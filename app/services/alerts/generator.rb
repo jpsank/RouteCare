@@ -16,7 +16,7 @@ module Alerts
 
     def generate_unconfirmed_visit_alerts
       window_end = 48.hours.from_now
-      visits = Visit.joins(:weekly_schedule)
+      visits = Visit.joins(:weekly_schedule).includes(:patient)
         .where(weekly_schedules: { user_id: user.id })
         .where(status: "pending_patient_confirmation")
         .where(starts_at: Time.current..window_end)

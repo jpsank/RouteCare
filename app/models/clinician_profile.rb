@@ -12,7 +12,7 @@ class ClinicianProfile < ApplicationRecord
   validates :workday_end_minute, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 1440 }
   validates :working_days_mask, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 127 }
   validates :lunch_start_minute, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 1439 }
-  validates :lunch_duration_minutes, numericality: { greater_than_or_equal_to: 15, less_than_or_equal_to: 60 }
+  validates :lunch_duration_minutes, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 60 }
   validates :lunch_window_minutes, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 180 }
   validates :max_continuous_work_minutes, numericality: { greater_than_or_equal_to: 60, less_than_or_equal_to: 720 }
   validates :required_break_minutes, numericality: { greater_than_or_equal_to: 5, less_than_or_equal_to: 60 }
@@ -40,6 +40,21 @@ class ClinicianProfile < ApplicationRecord
       else
         normalized.sum { |wday| (1 << wday) }
       end
+  end
+
+  # Returns { start_minute:, end_minute: } for a specific day of week (0=Sun..6=Sat).
+  # Falls back to the global workday_start_minute / workday_end_minute if no override.
+  # per_day_hours JSON format: { "1" => { "start" => 480, "end" => 1080 }, ... }
+  def workday_range_for(wday)
+    override = per_day_hours[wday.to_s]
+    if override.present?
+      {
+        start_minute: override["start"] || workday_start_minute,
+        end_minute: override["end"] || workday_end_minute
+      }
+    else
+      { start_minute: workday_start_minute, end_minute: workday_end_minute }
+    end
   end
 
   # Returns {earliest_start_minute, latest_start_minute, duration_minutes}

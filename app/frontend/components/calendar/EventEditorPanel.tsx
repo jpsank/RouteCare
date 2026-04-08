@@ -16,6 +16,7 @@ type Props = {
   position?: { x: number; y: number } | null;
   onSendMessage?: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<Message | undefined>;
   onEditPatient?: (patientId: number) => void;
+  onToggleLock?: (visitId: number, locked: boolean) => Promise<void>;
 };
 
 export function EventEditorPanel({
@@ -31,6 +32,7 @@ export function EventEditorPanel({
   position,
   onSendMessage,
   onEditPatient,
+  onToggleLock,
 }: Props) {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
@@ -119,6 +121,20 @@ export function EventEditorPanel({
                 ))}
               </select>
             </div>
+            {onToggleLock && (
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={selectedVisit.clinician_override}
+                  onChange={() => onToggleLock(selectedVisit.id, !selectedVisit.clinician_override)}
+                  className="h-3.5 w-3.5"
+                />
+                Lock from optimizer
+                <span className="text-gray-400" title="Locked visits keep their time during re-optimization">
+                  <svg className="h-3 w-3 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
+                </span>
+              </label>
+            )}
             <button className="btn-primary w-full" onClick={saveVisit} disabled={savingVisit}>
               {savingVisit ? "Saving..." : "Save Visit"}
             </button>

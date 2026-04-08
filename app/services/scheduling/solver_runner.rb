@@ -3,18 +3,18 @@ module Scheduling
   # runs a solver backend, and persists the result.
   #
   # Usage:
-  #   Scheduling::SolverRunner.run(user:, week_start_on:, backend: :greedy)
+  #   Scheduling::SolverRunner.run(user:, week_start_on:, backend: :cpsat)
   #
   # CP-SAT: pass +upper_bound:+ (SolverOutputData) for a warm-started re-solve, or
   # +warm_start_from_schedule: true+ with +backend: :cpsat+ to build upper_bound from
   # the existing WeeklySchedule when instance ids align with persisted visits.
   #
   class SolverRunner
-    def self.run(user:, week_start_on:, start_point: nil, backend: :greedy, **options)
+    def self.run(user:, week_start_on:, start_point: nil, backend: :cpsat, **options)
       new(user:, week_start_on:, start_point:, backend:, **options).run
     end
 
-    def initialize(user:, week_start_on:, start_point: nil, backend: :greedy, **options)
+    def initialize(user:, week_start_on:, start_point: nil, backend: :cpsat, **options)
       @user = user
       @week_start_on = week_start_on.to_date.beginning_of_week(:monday)
       @start_point = start_point
@@ -43,9 +43,11 @@ module Scheduling
       )
 
       # Build day_routes from planned visits (format SchedulePersister expects)
+      # Only visits explicitly locked by the clinician are preserved as immovable.
+      # This must match the filter in SolverInput.build so the solver and persister agree.
       locked_visits = @user.weekly_schedules
         .find_by(week_start_on: @week_start_on)
-        &.visits&.where(status: %w[confirmed completed])&.to_a || []
+        &.visits&.where(status: %w[confirmed completed], clinician_override: true)&.to_a || []
 
       # Map PlannedVisit structs to the slot hashes the persister expects
       patients_by_id = @user.clinician_profile.patients.index_by(&:id)

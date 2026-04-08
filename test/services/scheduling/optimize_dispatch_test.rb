@@ -18,14 +18,14 @@ class Scheduling::OptimizeDispatchTest < ActiveSupport::TestCase
     @week = Date.new(2026, 4, 6)
   end
 
-  test "backend defaults to greedy" do
+  test "backend defaults to cpsat" do
     ENV.delete("ROUTECARE_SCHEDULER_BACKEND")
-    assert_equal :greedy, Scheduling::OptimizeDispatch.backend
+    assert_equal :cpsat, Scheduling::OptimizeDispatch.backend
   end
 
-  test "backend cpsat when ENV set" do
-    ENV["ROUTECARE_SCHEDULER_BACKEND"] = "cpsat"
-    assert_equal :cpsat, Scheduling::OptimizeDispatch.backend
+  test "backend greedy when ENV set" do
+    ENV["ROUTECARE_SCHEDULER_BACKEND"] = "greedy"
+    assert_equal :greedy, Scheduling::OptimizeDispatch.backend
   ensure
     ENV.delete("ROUTECARE_SCHEDULER_BACKEND")
   end

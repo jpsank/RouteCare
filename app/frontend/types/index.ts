@@ -60,6 +60,19 @@ export type Visit = {
   external_calendar_event_id?: string | null;
 };
 
+export type OptimizationSummary = {
+  unschedulable?: Array<{ patient_name: string; patient_id: number; reasons?: string[] }>;
+  drive_violations?: Array<{ date: string; drive_minutes: number; max_drive: number }>;
+  lunch_breaks?: Record<string, { start_minute: number; end_minute: number }>;
+  return_home_by_day?: Record<string, number>;
+  route_winners?: Record<string, string>;
+  scheduler_fallback?: string;
+  optimizer_type?: string;
+  iterations?: number;
+  status?: string;
+  soft_constraint_overrides?: number;
+};
+
 export type WeeklySchedule = {
   id: number;
   week_start_on: string;
@@ -67,8 +80,19 @@ export type WeeklySchedule = {
   total_drive_minutes: number;
   baseline_drive_minutes: number;
   drive_minutes_saved: number;
-  optimization_summary: Record<string, unknown>;
+  optimization_summary: OptimizationSummary;
   visits: Visit[];
+};
+
+export type MessageMetadata = {
+  suggested_visit_times?: Array<{ starts_at: string; ends_at: string }>;
+  parsed_intent?: string;
+  proposed_windows?: Array<{ start_minute?: number; end_minute?: number }>;
+  transport?: string;
+  queued_at?: string;
+  sent_at?: string;
+  provider_message_id?: string;
+  delivery_error?: string;
 };
 
 export type Message = {
@@ -84,7 +108,7 @@ export type Message = {
   approved_at: string | null;
   proposed_starts_at: string | null;
   proposed_ends_at: string | null;
-  metadata: Record<string, unknown>;
+  metadata: MessageMetadata;
   created_at: string;
 };
 
@@ -96,13 +120,18 @@ export type CalendarBlock = {
   ends_at: string;
 };
 
+export type CalendarConnectionMetadata = {
+  calendar_name?: string;
+  ics_url?: string;
+};
+
 export type CalendarConnection = {
   id: number;
   provider: "google" | "outlook" | "apple";
   external_calendar_id: string;
   status: "active" | "disconnected" | "expired";
   token_expires_at?: string | null;
-  metadata: Record<string, unknown>;
+  metadata: CalendarConnectionMetadata;
 };
 
 export type CalendarOption = {
@@ -110,6 +139,11 @@ export type CalendarOption = {
   summary: string;
   primary: boolean;
   access_role?: string;
+};
+
+export type AlertMetadata = {
+  visit_id?: number;
+  weekly_schedule_id?: number;
 };
 
 export type Alert = {
@@ -120,7 +154,7 @@ export type Alert = {
   message: string;
   due_at?: string | null;
   read_at?: string | null;
-  metadata: Record<string, unknown>;
+  metadata: AlertMetadata;
   created_at: string;
 };
 
@@ -151,4 +185,5 @@ export type ClinicianProfile = {
   max_drive_minutes_per_day?: number | null;
   schedule_density: number;
   charting_buffer_minutes: number;
+  per_day_hours?: Record<string, { start: number; end: number }>;
 };

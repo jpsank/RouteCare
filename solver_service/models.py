@@ -34,6 +34,7 @@ class ClinicianData(BaseModel):
     max_drive_minutes_per_day: int | None = None
     schedule_density: float = 0.5
     charting_buffer_minutes: int = 0
+    per_day_hours: dict[str, dict[str, int]] = {}  # "wday" → {"start": min, "end": min}
 
 
 class VisitInstanceData(BaseModel):
