@@ -46,7 +46,7 @@ module Messaging
     def resolve_days(window)
       day_name = window["day"].to_s.downcase.strip
       if DAY_NAME_TO_WDAY.key?(day_name)
-        [DAY_NAME_TO_WDAY[day_name]]
+        [ DAY_NAME_TO_WDAY[day_name] ]
       else
         # No specific day — apply to all weekdays
         (1..5).to_a
@@ -57,12 +57,12 @@ module Messaging
       if window["time_range"].is_a?(Hash)
         start_min = parse_time_string(window["time_range"]["start"])
         end_min = parse_time_string(window["time_range"]["end"])
-        return [start_min, end_min] if start_min && end_min && end_min > start_min
+        return [ start_min, end_min ] if start_min && end_min && end_min > start_min
       end
 
       if window["time_of_day"].present? && TIME_OF_DAY_RANGES.key?(window["time_of_day"].downcase)
         range = TIME_OF_DAY_RANGES[window["time_of_day"].downcase]
-        return [range[:start_minute], range[:end_minute]]
+        return [ range[:start_minute], range[:end_minute] ]
       end
 
       if window["time"].present?
@@ -71,17 +71,17 @@ module Messaging
           qualifier = window["qualifier"].to_s.downcase
           case qualifier
           when "after"
-            return [time_min, DEFAULT_END_MINUTE]
+            return [ time_min, DEFAULT_END_MINUTE ]
           when "before"
-            return [DEFAULT_START_MINUTE, time_min]
+            return [ DEFAULT_START_MINUTE, time_min ]
           else
             # Single time — create a 2-hour window around it
-            return [[time_min - 60, DEFAULT_START_MINUTE].max, [time_min + 60, DEFAULT_END_MINUTE].min]
+            return [ [ time_min - 60, DEFAULT_START_MINUTE ].max, [ time_min + 60, DEFAULT_END_MINUTE ].min ]
           end
         end
       end
 
-      [nil, nil]
+      [ nil, nil ]
     end
 
     def parse_time_string(str)
