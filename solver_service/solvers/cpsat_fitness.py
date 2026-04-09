@@ -12,7 +12,6 @@ from solvers.cpsat_context import (
     PENALTY_DAY_OFFSET,
     PENALTY_SPACING_MAX,
     PENALTY_SPACING_MIN,
-    SolverContext,
     target_day_offsets,
 )
 
@@ -52,19 +51,18 @@ def compute_spacing_penalty(
 
 def compute_density_fitness_penalty(
     assignments: dict[int, list[int]],
-    ctx: SolverContext,
+    ctx: dict,
     input: SolverInput,
 ) -> int:
-    """Mirror CP-SAT schedule_density penalties using realized assignment counts.
-
-    Only counts new assignments (excludes locked visits) to match the CP-SAT
-    model which only has variables for new placements.
-    """
+    """Mirror CP-SAT schedule_density penalties using realized assignment counts."""
     num_days = len(input.working_days)
     if num_days <= 1:
         return 0
     density = input.clinician.schedule_density
-    counts = [len(assignments.get(d, [])) for d in range(num_days)]
+    locked_by_day = ctx["locked_count_by_day"]
+    counts = [
+        len(assignments.get(d, [])) + locked_by_day.get(d, 0) for d in range(num_days)
+    ]
     if density < 0.5:
         w = int(DENSITY_BASE_WEIGHT * 2 * (0.5 - density))
         return w * (max(counts) - min(counts)) if w > 0 else 0
@@ -79,20 +77,20 @@ def compute_day_offset_fitness_penalty(
     planned: list[PlannedVisit],
     patients_by_id: dict,
     input: SolverInput,
-    ctx: SolverContext,
+    ctx: dict,
 ) -> int:
     """Approximate CP-SAT target day-offset penalty from placed visits."""
     if not planned:
         return 0
-    date_to_idx = ctx.date_to_idx
+    date_to_idx = ctx["date_to_idx"]
     inst_day: dict[str, int] = {}
     for v in planned:
         di = date_to_idx.get(v.date)
         if di is not None:
             inst_day[v.instance_id] = di
 
-    instances_by_patient = ctx.instances_by_patient
-    inst_idx_map = ctx.inst_idx_map
+    instances_by_patient = ctx["instances_by_patient"]
+    inst_idx_map = ctx["inst_idx_map"]
     num_days = len(input.working_days)
     clinician = input.clinician
     penalty = 0

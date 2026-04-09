@@ -21,7 +21,6 @@ from solvers.cpsat_context import (
     PENALTY_DAY_OFFSET,
     PENALTY_SPACING_MAX,
     PRIORITY_WEIGHT,
-    SolverContext,
     target_day_offsets,
 )
 from models import SolverInput
@@ -29,33 +28,33 @@ from models import SolverInput
 
 def assign_days(
     input: SolverInput,
-    ctx: SolverContext,
+    ctx: dict,
     day_marginal_costs: dict[int, dict[int, int]],
     home_leg: dict[int, int],
     time_budget: int,
     iteration: int = 0,
     prev_assignments: dict[int, list[int]] | None = None,
-) -> tuple[dict[int, list[int]] | None, str, int]:
+) -> tuple[dict[int, list[int]] | None, str]:
     """CP-SAT model for day assignment only.
 
-    Returns (assignments, status_string, assign_penalty_value).
+    Returns (assignments, status_string).
     """
     clinician = input.clinician
-    patients_by_id = ctx.patients_by_id
-    inst_idx_map = ctx.inst_idx_map
+    patients_by_id = ctx["patients_by_id"]
+    inst_idx_map = ctx["inst_idx_map"]
     working_days = input.working_days
     num_days = len(working_days)
     num_instances = len(input.instances)
     day_indices = list(range(num_days))
 
-    instances_by_patient = ctx.instances_by_patient
-    locked_patient_days = ctx.locked_patient_days
-    locked_count_by_day = ctx.locked_count_by_day
-    day_wdays = ctx.day_wdays
+    instances_by_patient = ctx["instances_by_patient"]
+    locked_patient_days = ctx["locked_patient_days"]
+    locked_count_by_day = ctx["locked_count_by_day"]
+    day_wdays = ctx["day_wdays"]
 
     # Pre-compute available work minutes per day (per_day_hours overrides + locked/blocked time deducted).
     # instance.duration already includes charting_buffer, so this gives a realistic capacity ceiling.
-    blocked_ranges_by_day = ctx.blocked_ranges_by_day
+    blocked_ranges_by_day = ctx.get("blocked_ranges_by_day", {})
     day_available_minutes: dict[int, int] = {}
     for d in range(num_days):
         wday = str(day_wdays[d])
@@ -177,8 +176,7 @@ def assign_days(
                     model.add(viol == 0).only_enforce_if(both.negated())
                     penalties.append((viol, PENALTY_SPACING_MAX))
 
-    # 6. Availability windows — hard-constrain days with zero windows,
-    #    soft-penalize days with narrow windows that routing may struggle with.
+    # 6. Availability windows
     for i, inst in enumerate(input.instances):
         if not inst.availability_windows:
             continue
@@ -186,17 +184,7 @@ def assign_days(
             wday = str(day_wdays[d])
             windows = inst.availability_windows.get(wday, [])
             if not windows:
-                # No windows at all on this weekday — routing will hard-fail.
-                model.add(assign[(i, d)] == 0)
-            else:
-                # Windows exist but may be narrow; soft-penalize if total
-                # window time is less than the visit duration (tight fit).
-                total_window = sum(
-                    max(0, w.get("end_minute", 1440) - w.get("start_minute", 0))
-                    for w in windows
-                )
-                if total_window < inst.duration * 2:
-                    penalties.append((assign[(i, d)], PENALTY_AVAILABILITY))
+                penalties.append((assign[(i, d)], PENALTY_AVAILABILITY))
 
     # 7. Pre-compute per-(day, instance) marginal cost vars
     marginal_var: dict[tuple[int, int], tuple] = {}  # (d, i) → (cp_var, cost_value)
@@ -209,45 +197,21 @@ def assign_days(
                 model.add(c == 0).only_enforce_if(assign[(i, d)].negated())
                 marginal_var[(d, i)] = (c, cost)
 
-    # 7b. Transit-aware day capacity: visit durations + estimated transit
-    # must fit in available time.  Each visit's transit estimate is half its
-    # home-leg (a conservative proxy for the per-visit contribution to the
-    # day's travel).  This prevents CP-SAT from over-packing days that
-    # routing will then fail to schedule.
+    # 7b. Hard day capacity: visit durations must fit in available time.
+    # Only uses exact visit durations (not transit estimates) so marginal
+    # overestimates can't block feasible placements.  Actual timing
+    # feasibility (including transit) is enforced by the routing phase.
     for d in day_indices:
         avail_mins = day_available_minutes[d]
         if avail_mins <= 0:
             continue
-        dur_terms = []
-        for i, inst in enumerate(input.instances):
-            transit_est = home_leg.get(i, 0) // 2
-            dur_terms.append(assign[(i, d)] * (inst.duration + transit_est))
+        dur_terms = [assign[(i, d)] * inst.duration for i, inst in enumerate(input.instances)]
         if dur_terms:
             model.add(sum(dur_terms) <= avail_mins)
 
-    # 7c. Soft per-day drive budget — gives CP-SAT awareness of max_drive.
-    # The sum of per-visit marginals overestimates actual drive (shared legs),
-    # so this is a soft penalty, not a hard constraint.  The categorical
-    # visit_value gap guarantees this can never cause a visit to be dropped.
-    drive_over_penalties: list[tuple] = []
-    max_drive_per_day = clinician.max_drive_minutes_per_day
-    if max_drive_per_day and max_drive_per_day > 0:
-        for d in day_indices:
-            day_cost_terms = []
-            max_possible = 0
-            for i in range(num_instances):
-                cost = day_marginal_costs.get(d, {}).get(i, home_leg.get(i, 0))
-                if cost > 0:
-                    day_cost_terms.append(assign[(i, d)] * cost)
-                    max_possible += cost
-            if not day_cost_terms or max_possible <= max_drive_per_day:
-                continue
-            day_cost = model.new_int_var(0, max_possible, f"day_drive_{d}")
-            model.add(day_cost == sum(day_cost_terms))
-            over = model.new_int_var(0, max_possible, f"drive_over_{d}")
-            model.add(over >= day_cost - max_drive_per_day)
-            model.add(over >= 0)
-            drive_over_penalties.append((over, max_possible - max_drive_per_day))
+    # Drive limit is enforced as a hard constraint in the routing phase (on
+    # actual drive costs).  The assignment model's travel_terms already steer
+    # toward lower-drive solutions via the objective.
 
     # 8. Target day offsets (spread visits evenly)
     for pid, insts in instances_by_patient.items():
@@ -301,19 +265,15 @@ def assign_days(
     # ── Objective: travel cost from distance matrix + penalties ────────
 
     travel_terms = []
-    travel_fn = ctx.travel
+    travel_fn = ctx["travel"]
 
     # Per-(day, instance) marginal routing cost — reuse shared vars from step 7
     for (d, i), (var, _cost) in marginal_var.items():
         travel_terms.append(var)
 
+    # Pairwise inter-patient costs (iteration 0 only — teaches geographic clustering).
     travel_ub = sum(cost for (_, cost) in marginal_var.values())
 
-    # Pairwise inter-patient costs — geographic clustering signal.
-    # Only on iteration 0 when marginals are home-leg-based and don't encode
-    # inter-patient relationships.  On later iterations, removal marginals
-    # already capture pairwise context; adding these terms would double-count
-    # and push close patients apart.
     if iteration == 0:
         prune_mult = max(1, int(os.environ.get("CPSAT_PAIRWISE_PRUNE_MULT", "3")))
         home_vals = sorted(home_leg.values())
@@ -347,10 +307,6 @@ def assign_days(
         if w > 0:
             penalty_terms.append(var * w)
 
-    # Per-day drive overage penalties (from step 7c)
-    for var, max_over in drive_over_penalties:
-        penalty_terms.append(var)
-
     # Tight objective domain from penalty structure
     penalty_cap = 0
     for var, wt in penalties:
@@ -364,8 +320,6 @@ def assign_days(
             penalty_cap += w * MAX_VISITS_PER_DAY
         else:
             penalty_cap += w
-    for _, max_over in drive_over_penalties:
-        penalty_cap += max_over
 
     penalty_cap = max(penalty_cap, 1)
     penalty_cap = min(penalty_cap, 500_000_000)
@@ -413,11 +367,7 @@ def assign_days(
     status = solver.solve(model)
     status_name = solver.status_name(status)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return None, status_name, 0
-
-    # Extract CP-SAT's own penalty score — this is the exact value the solver
-    # optimized, so it's more accurate than re-approximating penalties externally.
-    assign_penalty_value = solver.value(total_penalty)
+        return None, status_name
 
     # Extract assignments (sorted instance indices per day for stable routing I/O)
     result: dict[int, list[int]] = defaultdict(list)
@@ -430,4 +380,4 @@ def assign_days(
     for d_key in result:
         result[d_key].sort()
 
-    return dict(result), status_name, assign_penalty_value
+    return dict(result), status_name

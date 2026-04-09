@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
 
 from models import SolverInput, SolverOutput
 
@@ -32,7 +30,7 @@ SLOT_STEP = 15
 TRANSIT_BUFFER = 5
 
 # Pipeline (tests may monkeypatch MAX_ITERATIONS)
-MAX_ITERATIONS = max(1, int(os.environ.get("CPSAT_MAX_ITERATIONS", "5")))
+MAX_ITERATIONS = max(1, int(os.environ.get("CPSAT_MAX_ITERATIONS", "3")))
 NUM_WORKERS = int(os.environ.get("CPSAT_NUM_WORKERS", min(os.cpu_count() or 4, 8)))
 HGS_MAX_SECONDS = float(os.environ.get("CPSAT_HGS_MAX_SECONDS", "0.5"))
 
@@ -124,29 +122,9 @@ def empty_output(input: SolverInput, metadata: dict | None = None) -> SolverOutp
     )
 
 
-# ── Typed Context ───────────────────────────────────────────────────
-
-
-@dataclass
-class SolverContext:
-    """Shared pre-computed data passed between assignment, routing, and fitness."""
-
-    day_wdays: list[int]
-    blocked_ranges_by_day: dict[int, list[tuple[int, int]]]
-    locked_patient_days: dict[int, set[int]]
-    locked_count_by_day: dict[int, int]
-    instances_by_patient: dict[int, list]
-    calendar_blocks_by_date: dict[str, list]
-    locked_visits_by_date: dict[str, list]
-    travel: Callable[[str, str], int]
-    patients_by_id: dict[int, object]
-    inst_idx_map: dict[str, int]
-    date_to_idx: dict[str, int]
-
-
 # ── Context Builder ──────────────────────────────────────────────────
 
-def build_context(input: SolverInput) -> SolverContext:
+def build_context(input: SolverInput) -> dict:
     """Pre-compute shared data structures used by both assignment and routing."""
     clinician = input.clinician
     working_days = input.working_days
@@ -197,16 +175,16 @@ def build_context(input: SolverInput) -> SolverContext:
     for lv in input.locked_visits:
         locked_visits_by_date[lv.date].append(lv)
 
-    return SolverContext(
-        day_wdays=day_wdays,
-        blocked_ranges_by_day=dict(blocked_ranges_by_day),
-        locked_patient_days=dict(locked_patient_days),
-        locked_count_by_day=dict(locked_count_by_day),
-        instances_by_patient=dict(instances_by_patient),
-        calendar_blocks_by_date=dict(calendar_blocks_by_date),
-        locked_visits_by_date=dict(locked_visits_by_date),
-        travel=travel_fn,
-        patients_by_id=patients_by_id,
-        inst_idx_map=inst_idx_map,
-        date_to_idx=date_to_idx,
-    )
+    return {
+        "day_wdays": day_wdays,
+        "blocked_ranges_by_day": dict(blocked_ranges_by_day),
+        "locked_patient_days": dict(locked_patient_days),
+        "locked_count_by_day": dict(locked_count_by_day),
+        "instances_by_patient": dict(instances_by_patient),
+        "calendar_blocks_by_date": dict(calendar_blocks_by_date),
+        "locked_visits_by_date": dict(locked_visits_by_date),
+        "travel": travel_fn,
+        "patients_by_id": patients_by_id,
+        "inst_idx_map": inst_idx_map,
+        "date_to_idx": date_to_idx,
+    }

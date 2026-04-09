@@ -19,7 +19,6 @@ from solvers.cpsat_context import (
     HGS_MAX_SECONDS,
     MAX_VISITS_PER_DAY,
     SLOT_STEP,
-    SolverContext,
     TRANSIT_BUFFER,
     datetime_to_minute,
     day_bounds,
@@ -34,7 +33,7 @@ logger = logging.getLogger(__name__)
 def _empty_result(need_lunch: bool, lunch_start: int, lunch_dur: int, drive_cost: int = 0) -> dict:
     """Construct a route result with no floating visits."""
     lunch = {"start_minute": lunch_start, "end_minute": lunch_start + lunch_dur} if need_lunch else None
-    return {"visits": [], "lunch": lunch, "drive_cost": drive_cost, "winner": None, "dropped": []}
+    return {"visits": [], "lunch": lunch, "drive_cost": drive_cost, "winner": None}
 
 
 def trivial_empty_route_day(input: SolverInput, date: str) -> dict:
@@ -53,7 +52,7 @@ def route_day(
     date: str,
     instances: list[VisitInstanceData],
     input: SolverInput,
-    ctx: SolverContext,
+    ctx: dict,
 ) -> dict:
     """Find optimal route order and concrete times for a single day's visits.
 
@@ -66,7 +65,7 @@ def route_day(
       5. Dropped visits are fed back to CP-SAT via marginals for rescheduling
     """
     clinician = input.clinician
-    travel = ctx.travel
+    travel = ctx["travel"]
 
     day_start_minute, day_end_minute = day_bounds(clinician, date)
 
@@ -85,14 +84,14 @@ def route_day(
 
     # Blocked time ranges
     day_blocks = []
-    for cb in ctx.calendar_blocks_by_date.get(date, ()):
+    for cb in ctx["calendar_blocks_by_date"].get(date, ()):
         day_blocks.append((datetime_to_minute(cb.starts_at), datetime_to_minute(cb.ends_at)))
 
     # Locked visits for this day — route stops only, NOT added to day_blocks.
     # They are interleaved by _evaluate_route's locked_cursor loop which handles
     # travel routing, charting buffer, and transit buffer correctly.
     locked_stops = []
-    for lv in ctx.locked_visits_by_date.get(date, ()):
+    for lv in ctx["locked_visits_by_date"].get(date, ()):
         s = datetime_to_minute(lv.starts_at)
         locked_stops.append({
             "patient_id": lv.patient_id,
@@ -159,17 +158,7 @@ def route_day(
             locked_stops=locked_stops, force_lunch=need_lunch,
             day_start_minute=day_start_minute, day_end_minute=day_end_minute,
         )
-        if result["drive_cost"] > max_drive:
-            # Tag all visits as dropped due to drive limit for marginal feedback.
-            if not best_result and result["visits"]:
-                drive_dropped = result.copy()
-                drive_dropped["dropped"] = drive_dropped.get("dropped", []) + [
-                    {"instance_id": v.instance_id, "reason": "drive_limit"}
-                    for v in drive_dropped["visits"]
-                ]
-                drive_dropped["visits"] = []
-                drive_dropped["winner"] = None
-                best_result = drive_dropped
+        if result is None or result["drive_cost"] > max_drive:
             continue
         nv = len(result["visits"])
         if nv > best_visits or (nv == best_visits and result["total_cost"] < best_cost):
@@ -178,12 +167,7 @@ def route_day(
             result["winner"] = source
             best_result = result
 
-    if best_result is None:
-        best_result = _empty_result(need_lunch, lunch_start, lunch_dur)
-        best_result["dropped"] = []
-    if "dropped" not in best_result:
-        best_result["dropped"] = []
-    return best_result
+    return best_result or _empty_result(need_lunch, lunch_start, lunch_dur)
 
 
 def _hgs_route_optional(
@@ -202,34 +186,6 @@ def _hgs_route_optional(
 
     day_start, day_end = day_bounds(clinician, date)
 
-    # Pre-compute per-instance time window from availability windows.
-    # When a patient has availability windows for this weekday, use the
-    # widest window as HGS tw bounds (HGS supports one window per client).
-    # This makes HGS order-aware of timing constraints.
-    dt_date = datetime.fromisoformat(date)
-    wday_str = str((dt_date.weekday() + 1) % 7)
-
-    inst_tw: list[tuple[int, int]] = []
-    for inst in instances:
-        if inst.availability_windows:
-            windows = inst.availability_windows.get(wday_str, [])
-            if windows:
-                # Use the widest window to give HGS the most flexibility
-                best_w = max(
-                    windows,
-                    key=lambda w: w.get("end_minute", 1440) - w.get("start_minute", 0),
-                )
-                tw_e = max(day_start, best_w.get("start_minute", day_start))
-                tw_l = min(day_end, best_w.get("end_minute", day_end))
-                if tw_l > tw_e:
-                    inst_tw.append((tw_e, tw_l))
-                else:
-                    inst_tw.append((day_start, day_end))
-            else:
-                inst_tw.append((day_start, day_end))
-        else:
-            inst_tw.append((day_start, day_end))
-
     try:
         model = VRPModel()
         depot = model.add_depot(x=0, y=0)
@@ -238,14 +194,13 @@ def _hgs_route_optional(
         # visits when hard constraints (max_distance, shift_duration) force it.
         prize = 1_000_000
         clients = []
-        for idx, inst in enumerate(instances):
-            tw_e, tw_l = inst_tw[idx]
+        for inst in instances:
             client = model.add_client(
                 x=0, y=0,
                 delivery=[1],
                 service_duration=inst.duration,
-                tw_early=tw_e,
-                tw_late=tw_l,
+                tw_early=day_start,
+                tw_late=day_end,
                 required=False,
                 prize=prize,
             )
@@ -318,12 +273,8 @@ def _evaluate_route(
     locked_stops: list[dict] | None = None,
     day_start_minute: int | None = None,
     day_end_minute: int | None = None,
-) -> dict:
-    """Evaluate a specific visit ordering with locked visits interleaved.
-
-    Returns a partial route when some visits don't fit — dropped visits are
-    listed with reasons so the assignment layer can adjust marginals.
-    """
+) -> dict | None:
+    """Evaluate a specific visit ordering with locked visits interleaved."""
     max_cont = clinician.max_continuous_work_minutes
     break_dur = clinician.required_break_minutes
     charting = clinician.charting_buffer_minutes
@@ -336,7 +287,6 @@ def _evaluate_route(
     lunch_placement = None
     visits = []
     drive_cost = 0
-    dropped: list[dict] = []
 
     pending_locked = list(locked_stops or [])
     locked_cursor = 0
@@ -359,10 +309,6 @@ def _evaluate_route(
         pid_key = str(inst.patient_id)
         visit_dur = max(0, inst.duration - charting)
         footprint = inst.duration
-
-        # Snapshot state before attempting this visit — restore on skip.
-        snap = (current_time, prev_key, accumulated_work, drive_cost,
-                locked_cursor, lunch_taken, lunch_placement)
 
         transit = travel(prev_key, pid_key)
         transit_buf = TRANSIT_BUFFER if prev_key != "home" else 0
@@ -407,6 +353,7 @@ def _evaluate_route(
                     accumulated_work = 0
                     took_break = True
                 else:
+                    # Work happened after any prior break; transit is now post-break
                     took_break = False
                 earliest_start = round_up(raw_start, SLOT_STEP)
 
@@ -418,24 +365,16 @@ def _evaluate_route(
 
         drive_cost += transit
 
-        # Availability window: pick the feasible window closest to
-        # earliest_start (minimizes idle gap) instead of always taking
-        # the first.  This leaves more slack for subsequent visits.
+        # Availability window: place within preferred window if possible
         windows = sorted_windows.get(idx)
         if windows:
-            best_candidate = None
-            best_gap = float("inf")
             for w in windows:
                 w_start = w.get("start_minute", 0)
                 w_end = w.get("end_minute", 1440)
                 candidate = round_up(max(earliest_start, w_start), SLOT_STEP)
                 if candidate + visit_dur <= w_end:
-                    gap = candidate - earliest_start
-                    if gap < best_gap:
-                        best_gap = gap
-                        best_candidate = candidate
-            if best_candidate is not None:
-                earliest_start = best_candidate
+                    earliest_start = candidate
+                    break
 
         # Lunch insertion — must fit in window AND not overlap prior visits/charting
         if lunch_dur > 0 and not lunch_taken and earliest_start >= lunch_earliest:
@@ -455,11 +394,7 @@ def _evaluate_route(
                 accumulated_work = 0
 
         if earliest_start + footprint > workday_end:
-            # Visit doesn't fit — restore state and skip.
-            (current_time, prev_key, accumulated_work, drive_cost,
-             locked_cursor, lunch_taken, lunch_placement) = snap
-            dropped.append({"instance_id": inst.id, "reason": "workday_overflow"})
-            continue
+            return None
 
         starts_at = minutes_to_datetime(date, earliest_start)
         ends_at = minutes_to_datetime(date, earliest_start + visit_dur)
@@ -513,7 +448,6 @@ def _evaluate_route(
         "lunch": lunch_placement,
         "drive_cost": drive_cost,
         "total_cost": drive_cost + lunch_drift,
-        "dropped": dropped,
     }
 
 
