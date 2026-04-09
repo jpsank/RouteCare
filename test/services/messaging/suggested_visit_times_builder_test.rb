@@ -61,12 +61,20 @@ class Messaging::SuggestedVisitTimesBuilderTest < ActiveSupport::TestCase
       source: "manual"
     )
 
+    # Stub travel time to a known value (60 min) so the test is
+    # deterministic and doesn't depend on external APIs.
+    Integrations::RoutingClient.define_method(:travel_minutes) { |**| 60 }
+
     suggestions = Messaging::SuggestedVisitTimesBuilder.new(
       visit: visit,
       proposed_windows: [ { "day" => "tuesday", "time_of_day" => "afternoon" } ]
     ).call
 
+    # Previous visit ends at 13:45 + 60 min travel + 5 min buffer = 14:50,
+    # so first feasible 15-min slot is 15:00.
     assert_not_empty suggestions
-    assert_operator Time.iso8601(suggestions.first.fetch("starts_at")), :>=, Time.zone.parse("2026-04-07 15:45:00")
+    assert_operator Time.iso8601(suggestions.first.fetch("starts_at")), :>=, Time.zone.parse("2026-04-07 15:00:00")
+  ensure
+    Integrations::RoutingClient.remove_method(:travel_minutes)
   end
 end
