@@ -32,7 +32,7 @@ TRANSIT_BUFFER = 5
 # Pipeline (tests may monkeypatch MAX_ITERATIONS)
 MAX_ITERATIONS = max(1, int(os.environ.get("CPSAT_MAX_ITERATIONS", "3")))
 NUM_WORKERS = int(os.environ.get("CPSAT_NUM_WORKERS", min(os.cpu_count() or 4, 8)))
-HGS_MAX_SECONDS = float(os.environ.get("CPSAT_HGS_MAX_SECONDS", "0.5"))
+ILS_MAX_SECONDS = float(os.environ.get("CPSAT_HGS_MAX_SECONDS", "0.5"))  # env var name is legacy
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

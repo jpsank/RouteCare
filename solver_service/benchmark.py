@@ -1,4 +1,4 @@
-"""Benchmark: CP-SAT decomposed solver (optional comparison with HGS).
+"""Benchmark: CP-SAT decomposed solver (optional comparison with ILS).
 
 Runs on identical inputs at multiple scales and compares:
   - Solution quality (total drive time, constraint violations)
@@ -8,7 +8,7 @@ Runs on identical inputs at multiple scales and compares:
 Usage:
   cd solver_service
   python3 benchmark.py                 # CP-SAT only (default)
-  python3 benchmark.py --with-hgs      # also run PyVRP HGS baseline
+  python3 benchmark.py --with-hgs      # also run PyVRP ILS baseline
   python3 benchmark.py --re-solve    # CP-SAT cold + warm re-solve timing on each scenario
 """
 

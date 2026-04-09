@@ -1,6 +1,6 @@
 """Day routing: optimal sequencing + timing for a single day's visits.
 
-Given fixed patients for a day, finds the optimal visit order using HGS (PyVRP)
+Given fixed patients for a day, finds the optimal visit order using ILS (PyVRP)
 and/or exhaustive permutations, then retimes with lunch, blocks, and locked visits.
 """
 
@@ -16,7 +16,7 @@ from pyvrp.stop import MaxRuntime
 
 from models import SolverInput, PlannedVisit, VisitInstanceData
 from solvers.cpsat_context import (
-    HGS_MAX_SECONDS,
+    ILS_MAX_SECONDS,
     MAX_VISITS_PER_DAY,
     SLOT_STEP,
     TRANSIT_BUFFER,
@@ -58,7 +58,7 @@ def route_day(
 
     Strategy:
       1. Collect locked visits for this day as fixed-position route stops
-      2. HGS (required=False, prize=1M) finds the best feasible ordering;
+      2. ILS (required=False, prize=1M) finds the best feasible ordering;
          only drops visits when hard constraints make inclusion impossible
       3. For ≤5 floating visits, also try all permutations (exact safety net)
       4. Pick the result with the most visits, then lowest cost
@@ -120,25 +120,25 @@ def route_day(
     n = len(instances)
     skip_perm_n5 = os.environ.get("CPSAT_SKIP_PERM_ENUM_FOR_N5", "").lower() in ("1", "true", "yes")
 
-    # HGS (required=False, prize=1M) finds the best feasible ordering.
+    # ILS (required=False, prize=1M) finds the best feasible ordering.
     # With prize >> max routing cost, it only drops visits when hard
     # constraints make inclusion genuinely infeasible.  Dropped visits
     # are fed back to the assignment layer via marginals.
-    hgs_instances = instances
-    hgs_order = None
+    ils_instances = instances
+    ils_order = None
     if n >= 2:
-        hgs_result = _hgs_route_optional(instances, travel, clinician, date)
-        if hgs_result is not None:
-            hgs_instances, hgs_order = hgs_result
+        ils_result = _ils_route_optional(instances, travel, clinician, date)
+        if ils_result is not None:
+            ils_instances, ils_order = ils_result
 
-    # Candidates: HGS ordering + exhaustive permutations for small n.
-    # Perms operate on the full set, so they catch any HGS heuristic
+    # Candidates: ILS ordering + exhaustive permutations for small n.
+    # Perms operate on the full set, so they catch any ILS heuristic
     # misses for n ≤ 5.  Each candidate carries its instance set so we
     # can compare across different visit counts.
     candidates: list[tuple[str, tuple[int, ...], list]] = []
 
-    if hgs_order is not None:
-        candidates.append(("hgs", hgs_order, hgs_instances))
+    if ils_order is not None:
+        candidates.append(("ils", ils_order, ils_instances))
 
     if n <= 4 or (n == 5 and not skip_perm_n5):
         for perm in itertools.permutations(range(n)):
@@ -170,13 +170,13 @@ def route_day(
     return best_result or _empty_result(need_lunch, lunch_start, lunch_dur)
 
 
-def _hgs_route_optional(
+def _ils_route_optional(
     instances: list[VisitInstanceData],
     travel,
     clinician,
     date: str,
 ) -> tuple[list[VisitInstanceData], tuple[int, ...]] | None:
-    """HGS with optional clients: finds best feasible visit subset in one solve.
+    """ILS (PyVRP) with optional clients: finds best feasible visit subset in one solve.
 
     Returns (subset_instances, ordering_into_subset) or None on failure.
     """
@@ -190,7 +190,7 @@ def _hgs_route_optional(
         model = VRPModel()
         depot = model.add_depot(x=0, y=0)
 
-        # Prize must exceed any realistic routing cost so HGS only drops
+        # Prize must exceed any realistic routing cost so ILS only drops
         # visits when hard constraints (max_distance, shift_duration) force it.
         prize = 1_000_000
         clients = []
@@ -230,8 +230,8 @@ def _hgs_route_optional(
             tw_late=day_end,
         )
 
-        hgs_seconds = max(0.1, min(HGS_MAX_SECONDS, n * 0.03))
-        result = model.solve(stop=MaxRuntime(hgs_seconds), seed=42, display=False)
+        ils_seconds = max(0.1, min(ILS_MAX_SECONDS, n * 0.03))
+        result = model.solve(stop=MaxRuntime(ils_seconds), seed=42, display=False)
 
         if not result.is_feasible():
             return None
@@ -254,7 +254,7 @@ def _hgs_route_optional(
         return subset, reindexed_order
 
     except Exception as e:
-        logger.warning("HGS optional routing failed for %d instances: %s", n, e)
+        logger.warning("ILS optional routing failed for %d instances: %s", n, e)
         return None
 
 

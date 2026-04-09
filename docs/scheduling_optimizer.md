@@ -30,8 +30,8 @@ Primary: CP-SAT (default, on-demand)             ← Google OR-Tools + PyVRP
       optimal visit ordering and concrete start times:
         • n ≤ 4 visits  → exhaustive permutation enumeration (exact)
         • n = 5 visits  → exhaustive by default (CPSAT_SKIP_PERM_ENUM_FOR_N5
-                          env var falls back to HGS + nearest-neighbor)
-        • n ≥ 6 visits  → PyVRP HGS (Hybrid Genetic Search) produces a
+                          env var falls back to ILS + nearest-neighbor)
+        • n ≥ 6 visits  → PyVRP ILS (Iterated Local Search) produces a
                           travel-optimal ordering in ~0.5s, alongside
                           nearest-neighbor as a backup
       All orderings are retimed with full constraint enforcement (lunch,
@@ -57,8 +57,8 @@ User clicks Re-optimize:
   → Phase 1: CP-SAT assigns each visit to a day (all domain constraints)
   → Phase 2: Per-day routing for each day's visit set:
       n ≤ 4  → try all permutations (exact)
-      n = 5  → try all permutations by default (HGS+NN if skipping)
-      n ≥ 6  → PyVRP HGS + nearest-neighbor as candidates
+      n = 5  → try all permutations by default (ILS+NN if skipping)
+      n ≥ 6  → PyVRP ILS + nearest-neighbor as candidates
       → Retime each candidate (lunch, breaks, calendar blocks, locked visits)
       → Keep lowest-cost feasible ordering
   → Returns schedule in 5-30s
@@ -359,7 +359,7 @@ solver_service/                     # Python solver microservice
     cpsat.py                         # CP-SAT solver entry point
     cpsat_context.py                 # Shared constants and environment config
     cpsat_assignment.py              # Day-assignment CP-SAT model
-    cpsat_routing.py                 # Per-day route ordering (PyVRP HGS + enumeration)
+    cpsat_routing.py                 # Per-day route ordering (PyVRP ILS + enumeration)
     cpsat_fitness.py                 # Fitness / objective scoring
   tests/
     test_cpsat.py                    # Tests covering all constraint types

@@ -24,10 +24,10 @@ Architecture:
 
   Env:
     CPSAT_NUM_WORKERS — OR-Tools worker threads (default: min(CPU, 8))
-    CPSAT_HGS_MAX_SECONDS — max PyVRP time per day-route (default: 0.5)
+    CPSAT_HGS_MAX_SECONDS — max PyVRP ILS time per day-route (default: 0.5)
     CPSAT_ROUTE_DAY_WORKERS — thread pool size for routing multiple days in parallel
       (default: min(CPSAT_NUM_WORKERS, num_working_days); set 1 to disable)
-    CPSAT_SKIP_PERM_ENUM_FOR_N5 — if true, n=5 days use HGS+NN only (skip 5! permutations)
+    CPSAT_SKIP_PERM_ENUM_FOR_N5 — if true, n=5 days use ILS+NN only (skip 5! permutations)
     CPSAT_PAIRWISE_PRUNE_MULT — iteration-0 pairwise pruning: drop pair if travel exceeds
       max(1, median_home_leg)×this multiplier (default 3; median 0 would otherwise prune everything)
     CPSAT_MAX_ITERATIONS — max assignment↔routing passes (default 3, minimum 1)
