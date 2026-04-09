@@ -13,7 +13,7 @@ module Scheduling
       def solve
         payload = request_body
         response = solver_post(
-          query: { backend: "cpsat", time_budget: @time_budget },
+          query: { time_budget: @time_budget },
           timeout: @time_budget + 30,
           body: payload
         )
@@ -72,7 +72,7 @@ module Scheduling
           locked_visits: input.locked_visits.map { |v| serialize_locked(v) },
           calendar_blocks: input.calendar_blocks.map { |b| serialize_block(b) },
           travel_matrix: serialize_matrix(input.travel_matrix),
-          week_start_on: input.week_start_on.to_s,
+          start_date: input.week_start_on.to_s,
           working_days: input.working_days.map(&:to_s)
         }.to_json
       end
@@ -82,7 +82,7 @@ module Scheduling
           id: p.id, name: p.name,
           location: p.location ? { lat: p.location.lat, lng: p.location.lng } : nil,
           visit_duration_minutes: p.visit_duration_minutes,
-          required_visits_per_week: p.required_visits_per_week,
+          required_visits: p.required_visits_per_week,
           min_days_between_visits: p.min_days_between_visits,
           max_days_between_visits: p.max_days_between_visits,
           priority: p.priority,

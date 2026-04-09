@@ -1,7 +1,8 @@
 """Pydantic models matching Ruby SolverInputData / SolverOutputData."""
 
 from __future__ import annotations
-from pydantic import BaseModel
+
+from pydantic import BaseModel, model_validator
 
 
 class Location(BaseModel):
@@ -14,11 +15,13 @@ class PatientData(BaseModel):
     name: str
     location: Location | None = None
     visit_duration_minutes: int
-    required_visits_per_week: int
+    required_visits: int
     min_days_between_visits: int = 1
     max_days_between_visits: int = 7
     priority: int = 0
-    availability_windows: dict[str, list[dict]] = {}  # "day_of_week" → [{start_minute, end_minute}]
+    availability_windows: dict[
+        str, list[dict]
+    ] = {}  # "day_of_week" → [{start_minute, end_minute}]
 
 
 class ClinicianData(BaseModel):
@@ -44,10 +47,12 @@ class VisitInstanceData(BaseModel):
     duration: int  # visit_duration_minutes + charting_buffer
     priority: int = 0
     availability_windows: dict[str, list[dict]] = {}
+    eligible_clinician_indices: list[int] = []  # empty = any clinician
 
 
 class LockedVisitData(BaseModel):
     patient_id: int
+    clinician_idx: int = 0
     date: str  # ISO date
     starts_at: str  # ISO datetime
     ends_at: str  # ISO datetime
@@ -55,6 +60,7 @@ class LockedVisitData(BaseModel):
 
 
 class CalendarBlockData(BaseModel):
+    clinician_idx: int = 0
     date: str  # ISO date
     starts_at: str  # ISO datetime
     ends_at: str  # ISO datetime
@@ -62,18 +68,35 @@ class CalendarBlockData(BaseModel):
 
 class SolverInput(BaseModel):
     patients: list[PatientData]
-    clinician: ClinicianData
+    clinician: ClinicianData | None = None
+    clinicians: list[ClinicianData] = []
     instances: list[VisitInstanceData]
     locked_visits: list[LockedVisitData] = []
     calendar_blocks: list[CalendarBlockData] = []
     travel_matrix: dict[str, dict[str, int]]  # JSON keys are always strings
-    week_start_on: str  # ISO date
+    start_date: str  # ISO date — first day of the scheduling horizon
     working_days: list[str]  # ISO dates
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_clinicians(cls, data):
+        if isinstance(data, dict):
+            clinician = data.get("clinician")
+            clinicians = data.get("clinicians")
+            if clinician and not clinicians:
+                data["clinicians"] = [clinician]
+            elif clinicians and not clinician:
+                data["clinician"] = clinicians[0]
+            elif not clinician and not clinicians:
+                data["clinician"] = {}
+                data["clinicians"] = [{}]
+        return data
 
 
 class PlannedVisit(BaseModel):
     instance_id: str
     patient_id: int
+    clinician_idx: int = 0
     date: str  # ISO date
     starts_at: str  # ISO datetime
     ends_at: str  # ISO datetime
