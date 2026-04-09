@@ -712,9 +712,7 @@ def test_cpsat_iteration_log_uniform_schema():
         "iteration",
         "drive",
         "soft_penalty",
-        "spacing_penalty",
-        "density_penalty",
-        "offset_penalty",
+        "assign_penalty",
         "cost",
         "placed",
     }
@@ -734,9 +732,10 @@ def test_cpsat_converged_log_carries_last_metrics(monkeypatch):
     def wrapper(*args, **kwargs):
         ncalls["n"] += 1
         if ncalls["n"] >= 2:
-            return (cached["assignments"], "FEASIBLE")
+            return (cached["assignments"], "FEASIBLE", cached.get("penalty", 0))
         result = real_assign(*args, **kwargs)
         cached["assignments"] = result[0]
+        cached["penalty"] = result[2]
         return result
 
     monkeypatch.setattr(cpsat_mod, "_assign_days", wrapper)
