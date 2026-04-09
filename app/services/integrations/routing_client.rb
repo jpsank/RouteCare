@@ -51,7 +51,7 @@ module Integrations
     def mapbox_single_pair(origin, destination)
       points = [
         { id: "o", lat: origin[:lat], lng: origin[:lng] },
-        { id: "d", lat: destination[:lat], lng: destination[:lng] },
+        { id: "d", lat: destination[:lat], lng: destination[:lng] }
       ]
       result = mapbox_matrix_chunk(points)
       result.dig("o", "d") || haversine_estimate(origin, destination)

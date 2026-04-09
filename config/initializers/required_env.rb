@@ -10,7 +10,7 @@ OPTIONAL_ENV_KEYS = {
   "GOOGLE_MAPS_API_KEY" => "Traffic-aware routing (Google Routes)",
   "MAPBOX_ACCESS_TOKEN" => "Mapbox routing fallback",
   "GOOGLE_OAUTH_CLIENT_ID" => "Google Calendar sync",
-  "GOOGLE_OAUTH_CLIENT_SECRET" => "Google Calendar sync",
+  "GOOGLE_OAUTH_CLIENT_SECRET" => "Google Calendar sync"
 }.freeze
 
 Rails.application.config.after_initialize do
