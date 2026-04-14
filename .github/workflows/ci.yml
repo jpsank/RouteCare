@@ -23,13 +23,8 @@ jobs:
     env:
       RUBOCOP_CACHE_ROOT: tmp/rubocop
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          bundler-cache: true
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-ruby
 
       - name: Prepare RuboCop cache
         uses: actions/cache@v5
@@ -61,7 +56,6 @@ jobs:
     name: unit + system tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     services:
       postgres:
         image: postgres
@@ -71,36 +65,14 @@ jobs:
         ports:
           - 5432:5432
         options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
-
-      # redis:
-      #   image: valkey/valkey:8
-      #   ports:
-      #     - 6379:6379
-      #   options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
-
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          bundler-cache: true
-
-      - name: Cache bootsnap
-        uses: actions/cache@v5
-        with:
-          path: tmp/cache/bootsnap
-          key: bootsnap-${{ runner.os }}-${{ hashFiles('.ruby-version', 'Gemfile.lock') }}-${{ github.sha }}
-          restore-keys: |
-            bootsnap-${{ runner.os }}-${{ hashFiles('.ruby-version', 'Gemfile.lock') }}-
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-ruby
 
       - name: Run unit + system tests
-        env:
-          RAILS_ENV: test
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432
-          # RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
-          # REDIS_URL: redis://localhost:6379/0
         run: bin/rails db:test:prepare test test:system
 
       - name: Keep screenshots from failed system tests
@@ -114,19 +86,9 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-node
 
       - name: Type-check
         run: npx tsc --noEmit
@@ -137,7 +99,6 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     services:
       postgres:
         image: postgres
@@ -147,38 +108,15 @@ jobs:
         ports:
           - 5432:5432
         options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
-
     env:
       RAILS_ENV: test
       DATABASE_URL: postgres://postgres:postgres@localhost:5432
       SECRET_KEY_BASE: dummycisecretkeybasefortestingonly00000000000000000000000000000000000000000
       PLAYWRIGHT_SKIP_SEED: "1"
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          bundler-cache: true
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-
-      - name: Install npm deps
-        run: npm ci
-
-      - name: Cache bootsnap
-        uses: actions/cache@v5
-        with:
-          path: tmp/cache/bootsnap
-          key: bootsnap-${{ runner.os }}-${{ hashFiles('.ruby-version', 'Gemfile.lock') }}-${{ github.sha }}
-          restore-keys: |
-            bootsnap-${{ runner.os }}-${{ hashFiles('.ruby-version', 'Gemfile.lock') }}-
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-ruby
+      - uses: ./.github/actions/setup-node
 
       - name: Cache Vite test build
         uses: actions/cache@v5
@@ -250,4 +188,3 @@ jobs:
             test-results
           retention-days: 7
           if-no-files-found: ignore
-

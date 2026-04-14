@@ -1,0 +1,17 @@
+name: Setup Ruby
+description: Install Ruby with bundler cache and bootsnap cache.
+runs:
+  using: composite
+  steps:
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        bundler-cache: true
+
+    - name: Cache bootsnap
+      uses: actions/cache@v5
+      with:
+        path: tmp/cache/bootsnap
+        key: bootsnap-${{ runner.os }}-${{ hashFiles('.ruby-version', 'Gemfile.lock') }}-${{ github.sha }}
+        restore-keys: |
+          bootsnap-${{ runner.os }}-${{ hashFiles('.ruby-version', 'Gemfile.lock') }}-
