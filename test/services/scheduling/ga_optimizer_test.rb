@@ -25,7 +25,7 @@ class Scheduling::GaOptimizerTest < ActiveSupport::TestCase
     Time.use_zone("America/New_York") do
       optimizer = Scheduling::GaOptimizer.new(
         user: @user, week_start_on: Date.new(2026, 4, 6),
-        time_budget: 5, population_size: 10
+        time_budget: 1, population_size: 10
       )
       solution = optimizer.generate_solution
 
@@ -44,7 +44,7 @@ class Scheduling::GaOptimizerTest < ActiveSupport::TestCase
     Time.use_zone("America/New_York") do
       optimizer = Scheduling::GaOptimizer.new(
         user: @user, week_start_on: Date.new(2026, 4, 6),
-        time_budget: 5, population_size: 10
+        time_budget: 1, population_size: 10
       )
       solution = optimizer.generate_solution
 
@@ -62,13 +62,13 @@ class Scheduling::GaOptimizerTest < ActiveSupport::TestCase
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       optimizer = Scheduling::GaOptimizer.new(
         user: @user, week_start_on: Date.new(2026, 4, 6),
-        time_budget: 3, population_size: 10
+        time_budget: 1, population_size: 10
       )
       optimizer.generate_solution
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
 
       # Allow some overhead beyond the budget
-      assert elapsed < 10, "Should finish within reasonable time (took #{elapsed.round(1)}s)"
+      assert elapsed < 5, "Should finish within reasonable time (took #{elapsed.round(1)}s)"
     end
   end
 
@@ -76,7 +76,7 @@ class Scheduling::GaOptimizerTest < ActiveSupport::TestCase
     Time.use_zone("America/New_York") do
       optimizer = Scheduling::GaOptimizer.new(
         user: @user, week_start_on: Date.new(2026, 4, 6),
-        time_budget: 3, population_size: 10
+        time_budget: 1, population_size: 10
       )
       schedule = optimizer.call
 
