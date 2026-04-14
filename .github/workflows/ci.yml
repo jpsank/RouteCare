@@ -70,9 +70,6 @@ jobs:
       #   options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips node-gyp
-
       - name: Checkout code
         uses: actions/checkout@v6
 
@@ -131,9 +128,6 @@ jobs:
       PLAYWRIGHT_SKIP_SEED: "1"
 
     steps:
-      - name: Install system packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips node-gyp
-
       - name: Checkout code
         uses: actions/checkout@v6
 
@@ -150,6 +144,13 @@ jobs:
 
       - name: Install npm deps
         run: npm ci
+
+      - name: Cache Vite test build
+        uses: actions/cache@v5
+        id: vite-cache
+        with:
+          path: public/vite-test
+          key: vite-test-${{ runner.os }}-${{ hashFiles('app/frontend/**', 'vite.config.ts', 'package-lock.json', 'tsconfig.json', 'tailwind.config.*', 'postcss.config.*') }}
 
       - name: Cache Playwright browsers
         uses: actions/cache@v5
@@ -170,6 +171,7 @@ jobs:
         run: bin/rails db:test:prepare
 
       - name: Build Vite assets for test
+        if: steps.vite-cache.outputs.cache-hit != 'true'
         run: bin/vite build --mode test
 
       - name: Seed Playwright users
@@ -241,9 +243,6 @@ jobs:
       #   options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips node-gyp
-
       - name: Checkout code
         uses: actions/checkout@v6
 
