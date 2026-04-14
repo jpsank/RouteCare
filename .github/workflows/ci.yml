@@ -2,40 +2,29 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  scan_ruby:
+  static_analysis:
+    name: lint + security scan
     runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          bundler-cache: true
-
-      - name: Scan for common Rails security vulnerabilities using static analysis
-        run: bin/brakeman --no-pager
-      
-      - name: Scan for known security vulnerabilities in gems used
-        run: bin/bundler-audit
-      
-  lint:
-    runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       RUBOCOP_CACHE_ROOT: tmp/rubocop
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          bundler-cache: true
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-ruby
 
       - name: Prepare RuboCop cache
         uses: actions/cache@v5
@@ -47,12 +36,26 @@ jobs:
           restore-keys: |
             rubocop-${{ runner.os }}-${{ env.DEPENDENCIES_HASH }}-
 
+      - name: Cache bundler-audit advisory DB
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/ruby-advisory-db
+          key: ruby-advisory-db-${{ github.run_id }}
+          restore-keys: ruby-advisory-db-
+
       - name: Lint code for consistent style
         run: bin/rubocop -f github
 
-  test:
-    runs-on: ubuntu-latest
+      - name: Scan for common Rails security vulnerabilities using static analysis
+        run: bin/brakeman --no-pager
 
+      - name: Scan for known security vulnerabilities in gems used
+        run: bin/bundler-audit
+
+  test:
+    name: unit + system tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres
@@ -62,48 +65,30 @@ jobs:
         ports:
           - 5432:5432
         options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
-
-      # redis:
-      #   image: valkey/valkey:8
-      #   ports:
-      #     - 6379:6379
-      #   options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
-
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432
     steps:
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips node-gyp
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-ruby
 
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - name: Run unit + system tests
+        run: bin/rails db:test:prepare test test:system
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+      - name: Keep screenshots from failed system tests
+        uses: actions/upload-artifact@v7
+        if: failure()
         with:
-          bundler-cache: true
-
-      - name: Run tests
-        env:
-          RAILS_ENV: test
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432
-          # RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
-          # REDIS_URL: redis://localhost:6379/0
-        run: bin/rails db:test:prepare test
+          name: screenshots
+          path: ${{ github.workspace }}/tmp/screenshots
+          if-no-files-found: ignore
 
   frontend:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-node
 
       - name: Type-check
         run: npx tsc --noEmit
@@ -113,7 +98,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres
@@ -123,33 +108,22 @@ jobs:
         ports:
           - 5432:5432
         options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
-
     env:
       RAILS_ENV: test
       DATABASE_URL: postgres://postgres:postgres@localhost:5432
       SECRET_KEY_BASE: dummycisecretkeybasefortestingonly00000000000000000000000000000000000000000
       PLAYWRIGHT_SKIP_SEED: "1"
-
     steps:
-      - name: Install system packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips node-gyp
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-ruby
+      - uses: ./.github/actions/setup-node
 
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+      - name: Cache Vite test build
+        uses: actions/cache@v5
+        id: vite-cache
         with:
-          bundler-cache: true
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-
-      - name: Install npm deps
-        run: npm ci
+          path: public/vite-test
+          key: vite-test-${{ runner.os }}-${{ hashFiles('app/frontend/**', 'vite.config.ts', 'package-lock.json', 'tsconfig.json', 'tailwind.config.*', 'postcss.config.*') }}
 
       - name: Cache Playwright browsers
         uses: actions/cache@v5
@@ -160,38 +134,28 @@ jobs:
 
       - name: Install Playwright browser (chromium)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
-
-      - name: Install Playwright system deps only (cache hit)
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+        run: npx playwright install chromium
 
       - name: Prepare test database
         run: bin/rails db:test:prepare
 
       - name: Build Vite assets for test
+        if: steps.vite-cache.outputs.cache-hit != 'true'
         run: bin/vite build --mode test
 
       - name: Seed Playwright users
-        run: |
-          bin/rails playwright:seed_user
-          bin/rails playwright:seed_fresh_user
-          bin/rails playwright:reset_main_user
+        run: bin/rails playwright:seed_all
 
       - name: Start Rails server
         run: |
           bundle exec rails server -p 3000 -b 0.0.0.0 > /tmp/rails-server.log 2>&1 &
           echo $! > /tmp/rails-server.pid
-          for i in $(seq 1 60); do
-            if curl -sfo /dev/null http://localhost:3000/up; then
-              echo "Rails is up after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Rails failed to start in 60s"
-          tail -80 /tmp/rails-server.log
-          exit 1
+          if ! curl --silent --fail --retry 60 --retry-delay 1 --retry-all-errors --retry-connrefused --output /dev/null http://localhost:3000/up; then
+            echo "Rails failed to start"
+            tail -80 /tmp/rails-server.log
+            exit 1
+          fi
+          echo "Rails is up"
 
       - name: Run Playwright tests
         run: npx playwright test
@@ -219,51 +183,4 @@ jobs:
             playwright-report
             test-results
           retention-days: 7
-          if-no-files-found: ignore
-
-  system-test:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
-
-      # redis:
-      #   image: valkey/valkey:8
-      #   ports:
-      #     - 6379:6379
-      #   options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
-
-    steps:
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips node-gyp
-
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          bundler-cache: true
-
-      - name: Run System Tests
-        env:
-          RAILS_ENV: test
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432
-          # RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
-          # REDIS_URL: redis://localhost:6379/0
-        run: bin/rails db:test:prepare test:system
-
-      - name: Keep screenshots from failed system tests
-        uses: actions/upload-artifact@v7
-        if: failure()
-        with:
-          name: screenshots
-          path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore

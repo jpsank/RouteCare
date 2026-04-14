@@ -1,4 +1,7 @@
 namespace :playwright do
+  desc "Seed all playwright users (main + fresh + reset) in a single Rails boot"
+  task seed_all: [ :seed_user, :seed_fresh_user, :reset_main_user ]
+
   desc "Seed a deterministic test user for Playwright E2E runs (setup completed)"
   task seed_user: :environment do
     email = ENV.fetch("PLAYWRIGHT_USER_EMAIL", "playwright@example.com")
