@@ -246,6 +246,30 @@ def test_locked_visit_stays_anchored():
 # ── Adversarial: tight spacing ─────────────────────────────────────
 
 
+def test_max_spacing_soft_penalty_prefers_tighter_gap():
+    """Patient with max_gap=1 should be scheduled on consecutive-allowable days.
+
+    min_gap=0 means gap >=1 required; max_gap=1 means gap >1 is penalized.
+    With req=2 in a 5-day horizon, the envelope should prefer day pairs
+    with gap==2 (Mon/Wed style — the minimum legal, which is also at-the-max)
+    over wider gaps.
+    """
+    patients = [_mk_pat(1, "TightGap", dur=30, req=2, min_gap=1, max_gap=1)]
+    instances = [_mk_inst(f"p1_v{i}", 1, 30) for i in range(2)]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=10)
+    assert out.metadata["placed"] == 2
+    _assert_valid(out, inp)
+    dates = sorted(v.date for v in out.planned_visits)
+    from datetime import datetime as dt
+    ords = [dt.fromisoformat(d).toordinal() for d in dates]
+    gap = ords[1] - ords[0]
+    # min_gap=1 forbids gap<=1, so smallest legal gap is 2. max_gap=1 penalizes
+    # gap>1, so the envelope will still pick the smallest legal (gap=2) because
+    # penalty is smallest there.
+    assert gap == 2, f"expected tight gap=2, got gap={gap}"
+
+
 def test_min_spacing_strict():
     # req=2, min_gap=2 → need gap > 2 (≥3) between the two visits.
     # 5-day horizon: only (Mon, Thu), (Mon, Fri), (Tue, Fri) fit.
@@ -329,9 +353,9 @@ def test_conflict_generates_cuts_and_converges():
     at most 1 fits per day because 2×60min service + travel > 120min.
     Forces the envelope to spread them across different days via cuts.
 
-    Weak cuts take several rounds to enumerate the infeasible pairs.
-    The spike contract says we log but don't fail on slow convergence —
-    this test asserts the loop terminates with a valid plan, not speed.
+    With pairwise cross-vehicle cuts, the first conflict (a pair found
+    infeasible on one day) should propagate to all days simultaneously,
+    giving 2-3 round convergence instead of the 8+ we saw with weak-only.
     """
     patients = [_mk_pat(i, f"P{i}", dur=60, req=1) for i in range(1, 4)]
     instances = [
@@ -345,12 +369,51 @@ def test_conflict_generates_cuts_and_converges():
     inp = _make_input(patients, instances)
     out = solve(inp, time_budget=15)
     assert out.metadata["placed"] == 3
-    # Loop must terminate with cuts actually being generated
     assert out.metadata["cuts_generated"] >= 1
+    # Strong cuts should converge this adversarial case in few rounds
+    assert out.metadata["benders_rounds"] <= 5, (
+        f"expected ≤5 rounds with strong cuts, got {out.metadata['benders_rounds']}"
+    )
     _assert_valid(out, inp)
 
 
 # ── Calendar block exclusion ───────────────────────────────────────
+
+
+def test_warm_start_preserves_assignments_when_unchanged():
+    """Re-solving the same input with the prior output as upper_bound should
+    preserve the same (clinician, day) per instance — this is the continuity-
+    of-care mechanism."""
+    patients = [
+        _mk_pat(1, "A", dur=60, req=2, min_gap=1),
+        _mk_pat(2, "B", dur=45, req=2, min_gap=1),
+        _mk_pat(3, "C", dur=30, req=1),
+    ]
+    instances = [
+        _mk_inst("p1_v0", 1, 60), _mk_inst("p1_v1", 1, 60),
+        _mk_inst("p2_v0", 2, 45), _mk_inst("p2_v1", 2, 45),
+        _mk_inst("p3_v0", 3, 30),
+    ]
+    matrix = {
+        "home_0": {"1": 18, "2": 41, "3": 24},
+        "1": {"home_0": 18, "2": 30, "3": 12},
+        "2": {"home_0": 41, "1": 30, "3": 22},
+        "3": {"home_0": 24, "1": 12, "2": 22},
+    }
+    inp = _make_input(patients, instances, matrix=matrix)
+
+    first = solve(inp, time_budget=5)
+    assert first.metadata["placed"] == 5
+    first_days = {v.instance_id: v.date for v in first.planned_visits}
+
+    second = solve(inp, time_budget=5, upper_bound=first)
+    assert second.metadata["placed"] == 5
+    assert second.metadata["warm_start_used"] is True
+    second_days = {v.instance_id: v.date for v in second.planned_visits}
+    # Every instance should land on the same date
+    assert first_days == second_days, (
+        f"warm start didn't preserve days: {first_days} vs {second_days}"
+    )
 
 
 def test_calendar_block_respected():
@@ -373,6 +436,40 @@ def test_calendar_block_respected():
 
 
 # ── Convergence benchmark ──────────────────────────────────────────
+
+
+def test_diagnosis_window_too_short():
+    """Patient has 30-min windows but needs 60-min duration → window_too_short."""
+    patients = [_mk_pat(1, "P", dur=60, req=1)]
+    instances = [
+        _mk_inst(
+            "p1_v0", 1, 60,
+            windows={str(wd): [{"start_minute": 540, "end_minute": 570}]
+                     for wd in range(7)},
+        )
+    ]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=5)
+    assert out.metadata["placed"] == 0
+    assert len(out.metadata["unschedulable"]) == 1
+    reasons = set(out.metadata["unschedulable"][0]["reasons"])
+    assert "window_too_short" in reasons or "no_legal_slot" in reasons
+
+
+def test_diagnosis_spacing_infeasible_for_horizon():
+    """Patient needs 3 visits with min_gap=2 in a 5-day horizon.
+    Gap must be >2, so min horizon = (3-1)*3+1 = 7 days. Infeasible.
+    """
+    patients = [_mk_pat(1, "Spaced", dur=30, req=3, min_gap=2, max_gap=7)]
+    instances = [_mk_inst(f"p1_v{i}", 1, 30) for i in range(3)]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=10)
+    # At least one visit can't be placed
+    assert out.metadata["placed"] < 3
+    unsched = out.metadata["unschedulable"]
+    assert len(unsched) >= 1
+    all_reasons = {r for u in unsched for r in u["reasons"]}
+    assert "spacing_infeasible_for_horizon" in all_reasons
 
 
 def test_convergence_ceiling_on_heavy_scenario():

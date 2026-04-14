@@ -213,18 +213,33 @@ def _shrink_conflict(
     Starts from the full set (already known infeasible) and removes one
     instance at a time; if the result is still infeasible, drop it
     permanently.  Produces a small unfit subset that makes cuts stronger.
+
+    Memoizes routing results by frozenset(instance_ids) for this vehicle —
+    conflict shrinking tests many overlapping subsets and would otherwise
+    re-run the same permutation enumeration multiple times.
     """
+    cache: dict[frozenset, bool] = {}
+
+    def _is_feasible(subset: list[tuple[str, Slot]]) -> bool:
+        key = frozenset(iid for iid, _ in subset)
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        result = _route_vehicle(vehicle, subset, input, ctx)
+        feasible = not isinstance(result, Conflict)
+        cache[key] = feasible
+        return feasible
+
     remaining = list(stops)
     i = 0
     while i < len(remaining) and len(remaining) > 1:
         trial = remaining[:i] + remaining[i + 1:]
-        result = _route_vehicle(vehicle, trial, input, ctx)
-        if isinstance(result, Conflict):
-            # Still infeasible without this one → permanently drop it
-            remaining = trial
-        else:
+        if _is_feasible(trial):
             # Removing this one made it feasible → this one is part of the conflict
             i += 1
+        else:
+            # Still infeasible without this one → permanently drop it
+            remaining = trial
     return [iid for iid, _ in remaining]
 
 

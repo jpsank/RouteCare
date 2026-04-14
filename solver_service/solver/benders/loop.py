@@ -19,7 +19,7 @@ from datetime import datetime
 
 from models import SolverInput, SolverOutput, PlannedVisit
 from solver.benders.cuts import apply_cuts, generate_cuts
-from solver.benders.envelope import CutStore, Envelope, solve_envelope
+from solver.benders.envelope import CutStore, Envelope, Slot, solve_envelope
 from solver.benders.subproblem import (
     SubproblemResult,
     VehicleRoute,
@@ -122,32 +122,140 @@ def _build_lunch_placements(
     return placements
 
 
+def _envelope_from_upper_bound(
+    upper_bound: SolverOutput | None,
+    input: SolverInput,
+    ctx: SolverContext,
+) -> Envelope | None:
+    """Build a warm-start Envelope from a prior SolverOutput.
+
+    Returns None if the prior plan doesn't match the current input (instances
+    renamed, clinicians changed, etc.) or if any prior visit lands on a slot
+    that no longer exists under the current constraints.
+    """
+    if upper_bound is None or not upper_bound.planned_visits:
+        return None
+
+    instances_by_id = ctx.instances_by_id
+    env = Envelope(status="WARM_START")
+
+    for v in upper_bound.planned_visits:
+        inst = instances_by_id.get(v.instance_id)
+        if inst is None:
+            return None
+        if v.clinician_idx < 0 or v.clinician_idx >= len(input.clinicians):
+            return None
+        d_idx = ctx.date_to_idx.get(v.date)
+        if d_idx is None:
+            return None
+        # Respect eligibility
+        if inst.eligible_clinician_indices and v.clinician_idx not in inst.eligible_clinician_indices:
+            return None
+        clinician = input.clinicians[v.clinician_idx]
+        ds, de = day_bounds(clinician, v.date)
+        # Use the full day window as the hint — the envelope model will pick
+        # an exact window_idx within its legal set.  The hint is best-effort.
+        env.assignments[v.instance_id] = Slot(
+            clinician_idx=v.clinician_idx,
+            day_idx=d_idx,
+            window_idx=0,
+            window_start=ds,
+            window_end=de,
+        )
+    return env
+
+
 def _diagnose_unscheduled(
     env: Envelope,
     input: SolverInput,
     ctx: SolverContext,
 ) -> list[dict]:
-    """Per-unscheduled-instance reason set."""
+    """Per-unscheduled-instance reason set.
+
+    Inspects the instance's structural constraints to identify the most
+    specific reason it couldn't be placed.  Reasons are ordered from most
+    specific/actionable to least.
+    """
+    from solver.benders.envelope import _enumerate_slots  # late import to avoid cycle
+
+    # Re-run slot enumeration to see exactly what was legal for each instance
+    legal_slots = _enumerate_slots(input, ctx)
+
     result: list[dict] = []
+    num_clinicians = len(input.clinicians)
+    num_days = len(input.working_days)
+
     for iid in env.unscheduled:
         inst = ctx.instances_by_id.get(iid)
         if not inst:
             continue
         reasons: set[str] = set()
-        if inst.eligible_clinician_indices is not None:
-            if not inst.eligible_clinician_indices:
-                reasons.add("no_eligible_clinician")
-        # Check if patient has any availability windows
+        patient = ctx.patients_by_id.get(inst.patient_id)
+
+        eligible = inst.eligible_clinician_indices or list(range(num_clinicians))
+
+        # 1. Empty eligibility set explicitly
+        if inst.eligible_clinician_indices is not None and not inst.eligible_clinician_indices:
+            reasons.add("no_eligible_clinician")
+
+        # 2. Availability windows cover zero working days
         if inst.availability_windows:
-            any_day_has_window = any(
-                bool(inst.availability_windows.get(str(ctx.day_wdays[d])))
-                for d in range(len(input.working_days))
-            )
-            if not any_day_has_window:
-                reasons.add("availability_windows")
+            working_wdays = {str(ctx.day_wdays[d]) for d in range(num_days)}
+            usable_wdays = [
+                wd for wd in working_wdays if inst.availability_windows.get(wd)
+            ]
+            if not usable_wdays:
+                reasons.add("no_window_any_working_day")
+
+        # 3. Every window is shorter than the instance duration
+        if inst.availability_windows and not reasons:
+            all_windows: list[tuple[int, int]] = []
+            for wd, wins in inst.availability_windows.items():
+                for w in wins:
+                    all_windows.append(
+                        (int(w.get("start_minute", 0)), int(w.get("end_minute", 1440)))
+                    )
+            if all_windows and all(
+                (we - ws) < inst.duration for ws, we in all_windows
+            ):
+                reasons.add("window_too_short")
+
+        # 4. No legal slots at all (after eligibility + availability + blocks)
+        if not legal_slots.get(iid):
+            reasons.add("no_legal_slot")
+
+        # 5. Every eligible (c, d) is already at capacity from locked visits
+        all_saturated = True
+        for c_idx in eligible:
+            if c_idx >= num_clinicians:
+                continue
+            for d_idx in range(num_days):
+                vehicle = ctx.vehicle_by_key.get((c_idx, d_idx))
+                if vehicle is None:
+                    continue
+                if vehicle.capacity > 0:
+                    all_saturated = False
+                    break
+            if not all_saturated:
+                break
+        if all_saturated and eligible:
+            reasons.add("all_eligible_vehicles_locked_full")
+
+        # 6. Spacing impossibility: patient requires N visits with min_gap
+        #    but horizon can't fit them
+        if patient and patient.min_days_between_visits > 0:
+            siblings = ctx.instances_by_patient.get(inst.patient_id, [])
+            n_req = len(siblings)
+            if n_req >= 2:
+                # Minimum horizon length: (n-1)*(min_gap+1)+1 days
+                min_horizon = (n_req - 1) * (patient.min_days_between_visits + 1) + 1
+                if min_horizon > num_days:
+                    reasons.add("spacing_infeasible_for_horizon")
+
+        # 7. Fallback: ran into cuts or couldn't find legal assignment
         if not reasons:
             reasons.add("envelope_infeasible_with_cuts")
-        patient = ctx.patients_by_id.get(inst.patient_id)
+
         result.append(
             {
                 "patient_name": patient.name if patient else "Unknown",
@@ -172,6 +280,9 @@ def solve(
     cut_store = CutStore()
     deadline = time.monotonic() + time_budget
 
+    warm_start_env = _envelope_from_upper_bound(upper_bound, input, ctx)
+    warm_start_used = warm_start_env is not None
+
     best_envelope: Envelope | None = None
     best_subproblem: SubproblemResult | None = None
     benders_rounds = 0
@@ -184,7 +295,12 @@ def solve(
             break
 
         env_budget = max(0.5, remaining * ENVELOPE_BUDGET_FRAC)
-        env = solve_envelope(input, ctx, cut_store, time_budget=env_budget)
+        # Warm-start only on the first round; after that, prefer whatever the
+        # previous iteration found (not wired yet — deferred to LNS polish).
+        env_warm = warm_start_env if round_idx == 0 else None
+        env = solve_envelope(
+            input, ctx, cut_store, time_budget=env_budget, warm_start=env_warm
+        )
         cp_sat_status = env.status
         benders_rounds += 1
 
@@ -225,7 +341,7 @@ def solve(
         if is_feasible:
             break
 
-        new_cuts = generate_cuts(sub)
+        new_cuts = generate_cuts(sub, input=input, ctx=ctx)
         added = apply_cuts(cut_store, new_cuts)
         if added == 0:
             # Couldn't generate new cuts → we're stuck, bail
@@ -240,6 +356,7 @@ def solve(
                 "cp_sat_status": cp_sat_status,
                 "benders_rounds": benders_rounds,
                 "iteration_log": iteration_log,
+                "warm_start_used": warm_start_used,
             },
         )
 
@@ -276,6 +393,7 @@ def solve(
             "placed": len(planned_visits),
             "unschedulable": unschedulable,
             "iteration_log": iteration_log,
+            "warm_start_used": warm_start_used,
         },
     )
 

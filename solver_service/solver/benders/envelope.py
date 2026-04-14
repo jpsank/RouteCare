@@ -34,6 +34,7 @@ from solver.context import (
     MINUTES_PER_DAY,
     NUM_WORKERS,
     PENALTY_LOAD_IMBALANCE,
+    PENALTY_SPACING_MAX,
     PRIORITY_WEIGHT,
     SolverContext,
     day_bounds,
@@ -293,6 +294,9 @@ def solve_envelope(
                 model.add(sum(vars_on_vehicle) <= vehicle.capacity)
 
     # ── Min/max spacing between same-patient instances ────────────
+    spacing_penalty_terms: list[cp_model.LinearExpr] = []
+    spacing_penalty_cap = 0
+
     for pid, insts in ctx.instances_by_patient.items():
         patient = ctx.patients_by_id.get(pid)
         if not patient or len(insts) < 2:
@@ -311,22 +315,31 @@ def solve_envelope(
         inst_list = sorted(by_inst_day.keys())
 
         # For every pair of instances, forbid pairs of days violating min spacing
+        # and softly penalize pairs violating max spacing.
         for a in range(len(inst_list)):
             for b in range(a + 1, len(inst_list)):
                 ia, ib = inst_list[a], inst_list[b]
                 for da, va_list in by_inst_day[ia].items():
                     for db, vb_list in by_inst_day[ib].items():
                         gap = abs(da - db)
+                        va_sum = sum(va_list)
+                        vb_sum = sum(vb_list)
                         if gap == 0 or gap <= min_gap:
-                            # Both cannot be placed
-                            va_sum = sum(va_list)
-                            vb_sum = sum(vb_list)
-                            # va_sum + vb_sum <= 1
+                            # Hard: both cannot be placed
                             model.add(va_sum + vb_sum <= 1)
-
-        # Max-spacing enforcement: penalize rather than forbid (soft).
-        # For the spike, ignore max_gap when it's permissive (>= num_days).
-        # A strict max_gap would become a soft penalty term — omitted for simplicity.
+                        elif max_gap < num_days and gap > max_gap:
+                            # Soft: penalize proportional to gap excess.
+                            # both == 1 iff both chosen on these specific days.
+                            excess = gap - max_gap
+                            both = model.new_bool_var(
+                                f"maxgap_{ia}_{da}_{ib}_{db}"
+                            )
+                            model.add(both <= va_sum)
+                            model.add(both <= vb_sum)
+                            model.add(both >= va_sum + vb_sum - 1)
+                            weight = PENALTY_SPACING_MAX * excess
+                            spacing_penalty_terms.append(both * weight)
+                            spacing_penalty_cap += weight
 
     # ── Per-patient visits cap by required_visits ─────────────────
     # An instance represents a *potential* visit slot; we never place more
@@ -371,15 +384,16 @@ def solve_envelope(
 
     # Load imbalance penalty: count per clinician, penalize max - min
     clinician_counts: list[cp_model.IntVar] = []
-    max_vehicle_cap = 0
     for c_idx in range(num_clinicians):
         cnt_vars = [
             v for (iid, s), v in slot_var.items() if s.clinician_idx == c_idx
         ]
         cc = model.new_int_var(0, max(1, len(input.instances)), f"clin_count_{c_idx}")
-        model.add(cc == sum(cnt_vars) if cnt_vars else 0)
+        if cnt_vars:
+            model.add(cc == sum(cnt_vars))
+        else:
+            model.add(cc == 0)
         clinician_counts.append(cc)
-        max_vehicle_cap += len(input.instances)
 
     imbalance_term: cp_model.LinearExpr | int = 0
     imbalance_cap = 0
@@ -393,14 +407,15 @@ def solve_envelope(
         imbalance_term = spread * PENALTY_LOAD_IMBALANCE
         imbalance_cap = len(input.instances) * PENALTY_LOAD_IMBALANCE
 
-    # Placement value must strictly exceed cost + priority + imbalance
-    visit_value = cost_cap + priority_cap + imbalance_cap + 1
-    n = len(input.instances)
+    # Placement value must strictly exceed cost + priority + imbalance + spacing
+    visit_value = cost_cap + priority_cap + imbalance_cap + spacing_penalty_cap + 1
 
     objective_terms: list[cp_model.LinearExpr] = []
     for t in cost_terms:
         objective_terms.append(t)
     for t in priority_terms:
+        objective_terms.append(t)
+    for t in spacing_penalty_terms:
         objective_terms.append(t)
     if imbalance_cap > 0:
         objective_terms.append(imbalance_term)
@@ -412,11 +427,18 @@ def solve_envelope(
     model.minimize(sum(objective_terms))
 
     # ── Warm start ───────────────────────────────────────────────
+    # warm_start.assignments gives a desired (clinician, day) per instance.
+    # We hint any legal slot var matching that (iid, c, d) — the exact
+    # window_idx doesn't have to match.
     if warm_start is not None:
         for iid, prior_slot in warm_start.assignments.items():
-            key = (iid, prior_slot)
-            if key in slot_var:
-                model.add_hint(slot_var[key], 1)
+            key = (iid, prior_slot.clinician_idx, prior_slot.day_idx)
+            candidates = vehicle_slot_vars.get(key, [])
+            if not candidates:
+                continue
+            # Hint the first matching slot var; scheduled[iid] follows.
+            model.add_hint(candidates[0], 1)
+            if iid in scheduled:
                 model.add_hint(scheduled[iid], 1)
 
     # ── Solve ────────────────────────────────────────────────────
