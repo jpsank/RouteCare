@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ClinicianProfile } from "../../../types";
 
 type SettingsCallbacks = {
-  onUpdateWorkingHours: (start: number, end: number) => Promise<void>;
-  onUpdateWorkingDays: (days: number[]) => Promise<void>;
-  onUpdateLunchSettings: (start: number, duration: number, window: number) => Promise<void>;
-  onUpdateDisplayName: (name: string) => Promise<void>;
-  onUpdateSchedulingSettings: (settings: Record<string, unknown>) => Promise<void>;
-  onSetHomeFromCurrentLocation: (lat: number, lng: number) => Promise<void>;
-  onUpdateHomeLocation: (lat: number, lng: number) => Promise<void>;
+  onUpdateWorkingHours: (start: number, end: number) => Promise<boolean>;
+  onUpdateWorkingDays: (days: number[]) => Promise<boolean>;
+  onUpdateLunchSettings: (start: number, duration: number, window: number) => Promise<boolean>;
+  onUpdateDisplayName: (name: string) => Promise<boolean>;
+  onUpdateSchedulingSettings: (settings: Record<string, unknown>) => Promise<boolean>;
+  onSetHomeFromCurrentLocation: (lat: number, lng: number) => Promise<boolean>;
+  onUpdateHomeLocation: (lat: number, lng: number) => Promise<boolean>;
 };
 
 export function useSettingsState(
@@ -41,102 +41,69 @@ export function useSettingsState(
   const maxContinuousWorkMinutes = clinicianProfile?.max_continuous_work_minutes ?? 480;
   const requiredBreakMinutes = clinicianProfile?.required_break_minutes ?? 15;
 
-  // Input state synced to profile
-  const [homeLatitudeInput, setHomeLatitudeInput] = useState("");
-  const [homeLongitudeInput, setHomeLongitudeInput] = useState("");
-  const [displayNameInput, setDisplayNameInput] = useState("");
-
-  useEffect(() => {
-    setHomeLatitudeInput(clinicianProfile?.home_latitude != null ? String(clinicianProfile.home_latitude) : "");
-    setHomeLongitudeInput(clinicianProfile?.home_longitude != null ? String(clinicianProfile.home_longitude) : "");
-  }, [clinicianProfile?.home_latitude, clinicianProfile?.home_longitude]);
-
-  useEffect(() => {
-    setDisplayNameInput(clinicianProfile?.display_name ?? "");
-  }, [clinicianProfile?.display_name]);
-
-  // Saving flags
+  // Saving flags for auto-saved sections (not RHF-managed)
   const [savingHours, setSavingHours] = useState(false);
   const [savingWorkingDays, setSavingWorkingDays] = useState(false);
-  const [savingHomeLocation, setSavingHomeLocation] = useState(false);
-  const [savingHomeInput, setSavingHomeInput] = useState(false);
   const [savingLunch, setSavingLunch] = useState(false);
   const [savingSchedulingSettings, setSavingSchedulingSettings] = useState(false);
-  const [savingDisplayName, setSavingDisplayName] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Wrapped async handlers
-  const updateWorkdayRange = async (nextStart: number, nextEnd: number) => {
-    if (nextEnd <= nextStart) return;
+  const updateWorkdayRange = async (nextStart: number, nextEnd: number): Promise<boolean> => {
+    if (nextEnd <= nextStart) return false;
     setSavingHours(true);
     try {
-      await callbacks.onUpdateWorkingHours(nextStart, nextEnd);
+      return await callbacks.onUpdateWorkingHours(nextStart, nextEnd);
     } finally {
       setSavingHours(false);
     }
   };
 
-  const toggleWorkingDay = async (wday: number) => {
+  const toggleWorkingDay = async (wday: number): Promise<boolean> => {
     const next = workingDays.includes(wday) ? workingDays.filter((d) => d !== wday) : [...workingDays, wday].sort((a, b) => a - b);
-    if (next.length === 0) return;
+    if (next.length === 0) return false;
     setSavingWorkingDays(true);
     try {
-      await callbacks.onUpdateWorkingDays(next);
+      return await callbacks.onUpdateWorkingDays(next);
     } finally {
       setSavingWorkingDays(false);
     }
   };
 
-  const updateLunch = async (startMin: number, duration: number, window: number) => {
+  const updateLunch = async (startMin: number, duration: number, window: number): Promise<boolean> => {
     setSavingLunch(true);
     try {
-      await callbacks.onUpdateLunchSettings(startMin, duration, window);
+      return await callbacks.onUpdateLunchSettings(startMin, duration, window);
     } finally {
       setSavingLunch(false);
     }
   };
 
-  const updateSchedulingSettings = async (settings: Record<string, unknown>) => {
+  const updateSchedulingSettings = async (settings: Record<string, unknown>): Promise<boolean> => {
     setSavingSchedulingSettings(true);
     try {
-      await callbacks.onUpdateSchedulingSettings(settings);
+      return await callbacks.onUpdateSchedulingSettings(settings);
     } finally {
       setSavingSchedulingSettings(false);
     }
   };
 
-  const saveDisplayName = async () => {
-    setSavingDisplayName(true);
-    try {
-      await callbacks.onUpdateDisplayName(displayNameInput.trim());
-    } finally {
-      setSavingDisplayName(false);
-    }
-  };
+  // RHF-owned form actions (called from SettingsModal's submit handlers).
+  // These just forward to the clinician-profile callbacks — the form owns the
+  // values and "saving" state (via RHF's isSubmitting).
+  const saveDisplayName = (name: string) => callbacks.onUpdateDisplayName(name);
+  const saveHomeLocation = (lat: number, lng: number) => callbacks.onUpdateHomeLocation(lat, lng);
 
-  const saveHomeFromCurrentLocation = async () => {
-    const currentPosition = await new Promise<GeolocationPosition>((resolve, reject) =>
-      navigator.geolocation.getCurrentPosition(resolve, reject),
-    );
-    setSavingHomeLocation(true);
+  // Geolocation helper returns coordinates so the caller (RHF form) can
+  // populate its own fields, then save.
+  const detectCurrentLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
     try {
-      setHomeLatitudeInput(String(currentPosition.coords.latitude));
-      setHomeLongitudeInput(String(currentPosition.coords.longitude));
-      await callbacks.onSetHomeFromCurrentLocation(currentPosition.coords.latitude, currentPosition.coords.longitude);
-    } finally {
-      setSavingHomeLocation(false);
-    }
-  };
-
-  const saveHomeFromInputs = async () => {
-    const latitude = Number(homeLatitudeInput);
-    const longitude = Number(homeLongitudeInput);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
-    setSavingHomeInput(true);
-    try {
-      await callbacks.onUpdateHomeLocation(latitude, longitude);
-    } finally {
-      setSavingHomeInput(false);
+      const position = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject),
+      );
+      await callbacks.onSetHomeFromCurrentLocation(position.coords.latitude, position.coords.longitude);
+      return { latitude: position.coords.latitude, longitude: position.coords.longitude };
+    } catch {
+      return null;
     }
   };
 
@@ -155,21 +122,11 @@ export function useSettingsState(
     maxDriveMinutesPerDay,
     maxContinuousWorkMinutes,
     requiredBreakMinutes,
-    // Input state
-    homeLatitudeInput,
-    setHomeLatitudeInput,
-    homeLongitudeInput,
-    setHomeLongitudeInput,
-    displayNameInput,
-    setDisplayNameInput,
     // Saving flags
     savingHours,
     savingWorkingDays,
-    savingHomeLocation,
-    savingHomeInput,
     savingLunch,
     savingSchedulingSettings,
-    savingDisplayName,
     // Settings modal toggle
     showSettings,
     setShowSettings,
@@ -179,7 +136,7 @@ export function useSettingsState(
     updateLunch,
     updateSchedulingSettings,
     saveDisplayName,
-    saveHomeFromCurrentLocation,
-    saveHomeFromInputs,
+    saveHomeLocation,
+    detectCurrentLocation,
   };
 }

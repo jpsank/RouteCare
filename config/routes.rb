@@ -17,6 +17,7 @@ Rails.application.routes.draw do
         end
         collection do
           post :seed_demo
+          post :import
         end
       end
       resource :clinician_profile, only: %i[show update]
@@ -50,6 +51,7 @@ Rails.application.routes.draw do
         post :optimize
         post :approve
       end
+      get "schedule.pdf", to: "schedules#show", defaults: { format: :pdf }, as: :schedule_pdf
 
       resources :visits, only: %i[index create update] do
         member do

@@ -9,6 +9,7 @@ import type {
   Visit,
   WeeklySchedule,
 } from "../types";
+import { Sentry } from "./sentry";
 
 type JsonObject = Record<string, unknown>;
 
@@ -23,17 +24,33 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.set("X-CSRF-Token", csrfToken);
   }
 
-  const response = await fetch(path, {
-    ...options,
-    headers,
-    credentials: "same-origin",
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers,
+      credentials: "same-origin",
+    });
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { kind: "api_network" },
+      extra: { path, method: options.method ?? "GET" },
+    });
+    throw err;
+  }
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as JsonObject;
     const stringified = JSON.stringify(payload);
     const error = (payload.error as string) || (stringified !== "{}" ? stringified : null) || response.statusText;
-    throw new Error(error);
+    const apiError = new Error(error);
+    if (response.status >= 500) {
+      Sentry.captureException(apiError, {
+        tags: { kind: "api_5xx", status: String(response.status) },
+        extra: { path, method: options.method ?? "GET", payload },
+      });
+    }
+    throw apiError;
   }
 
   return (await response.json()) as T;
@@ -53,142 +70,6 @@ function scheduleQuery(weekStartOn?: string): string {
   return params.toString() ? `?${params.toString()}` : "";
 }
 
-export async function fetchPatients(): Promise<Patient[]> {
-  const data = await request<{ patients: Patient[] }>("/api/v1/patients");
-  return data.patients;
-}
-
-export async function fetchClinicianProfile(): Promise<ClinicianProfile> {
-  const data = await request<{ clinician_profile: ClinicianProfile }>("/api/v1/clinician_profile");
-  return data.clinician_profile;
-}
-
-export async function fetchSchedule(weekStartOn?: string): Promise<WeeklySchedule | null> {
-  try {
-    const data = await request<{ schedule: WeeklySchedule }>(`/api/v1/schedule${scheduleQuery(weekStartOn)}`);
-    return data.schedule;
-  } catch {
-    return null;
-  }
-}
-
-export async function optimizeSchedule(weekStartOn?: string): Promise<WeeklySchedule> {
-  const data = await request<{ schedule: WeeklySchedule; generated: boolean }>("/api/v1/schedule/optimize", {
-    method: "POST",
-    body: JSON.stringify({
-      week_start_on: weekStartOn,
-      client_timezone: browserTimeZone(),
-    }),
-  });
-
-  return data.schedule;
-}
-
-export async function optimizeScheduleWithStart(
-  weekStartOn: string | undefined,
-  startLatitude?: number,
-  startLongitude?: number,
-): Promise<WeeklySchedule> {
-  const data = await request<{ schedule: WeeklySchedule; generated: boolean }>("/api/v1/schedule/optimize", {
-    method: "POST",
-    body: JSON.stringify({
-      week_start_on: weekStartOn,
-      start_latitude: startLatitude,
-      start_longitude: startLongitude,
-      client_timezone: browserTimeZone(),
-    }),
-  });
-  return data.schedule;
-}
-
-export async function approveSchedule(weekStartOn?: string): Promise<WeeklySchedule> {
-  const data = await request<{ schedule: WeeklySchedule }>("/api/v1/schedule/approve", {
-    method: "POST",
-    body: JSON.stringify({ week_start_on: weekStartOn, client_timezone: browserTimeZone() }),
-  });
-  return data.schedule;
-}
-
-export async function fetchVisits(weekStartOn?: string): Promise<Visit[]> {
-  const query = weekStartOn ? `?week_start_on=${encodeURIComponent(weekStartOn)}` : "";
-  const data = await request<{ visits: Visit[] }>(`/api/v1/visits${query}`);
-  return data.visits;
-}
-
-export async function rescheduleVisit(id: number, requestedStartsAt: string): Promise<Visit> {
-  const data = await request<{ visit: Visit }>(`/api/v1/visits/${id}/reschedule`, {
-    method: "POST",
-    body: JSON.stringify({ requested_starts_at: requestedStartsAt }),
-  });
-  return data.visit;
-}
-
-export async function updateVisit(id: number, visit: Partial<Pick<Visit, "status" | "starts_at" | "ends_at" | "position_in_day" | "clinician_override">>): Promise<Visit> {
-  const data = await request<{ visit: Visit }>(`/api/v1/visits/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ visit }),
-  });
-  return data.visit;
-}
-
-export async function fetchMessages(): Promise<Message[]> {
-  const data = await request<{ messages: Message[] }>("/api/v1/messages");
-  return data.messages;
-}
-
-export async function sendVisitMessage(
-  visitId: number,
-  channel: "sms" | "email",
-  body: string,
-  sendImmediately = false,
-): Promise<Message> {
-  const data = await request<{ message: Message }>("/api/v1/messages", {
-    method: "POST",
-    body: JSON.stringify({
-      message: {
-        visit_id: visitId,
-        channel,
-        body,
-        send_immediately: sendImmediately,
-      },
-    }),
-  });
-  return data.message;
-}
-
-export async function approveMessage(id: number): Promise<Message> {
-  const data = await request<{ message: Message }>(`/api/v1/messages/${id}/approve`, {
-    method: "POST",
-  });
-  return data.message;
-}
-
-export async function selectMessageSuggestion(id: number, suggestionIndex: number): Promise<Message> {
-  const data = await request<{ message: Message }>(`/api/v1/messages/${id}/select_suggestion`, {
-    method: "POST",
-    body: JSON.stringify({ suggestion_index: suggestionIndex }),
-  });
-  return data.message;
-}
-
-export async function fetchCalendarBlocks(
-  weekStartOn?: string,
-  weekEndOn?: string,
-): Promise<CalendarBlock[]> {
-  const query = new URLSearchParams();
-  if (weekStartOn) query.set("week_start_on", weekStartOn);
-  if (weekEndOn) query.set("week_end_on", weekEndOn);
-  const data = await request<{ calendar_blocks: CalendarBlock[] }>(
-    `/api/v1/calendar_blocks${query.toString() ? `?${query.toString()}` : ""}`,
-  );
-  return data.calendar_blocks;
-}
-
-export async function fetchAlerts(): Promise<Alert[]> {
-  const data = await request<{ alerts: Alert[] }>("/api/v1/alerts");
-  return data.alerts;
-}
-
 type CreatePatientPayload = {
   full_name: string;
   phone: string;
@@ -204,20 +85,6 @@ type CreatePatientPayload = {
   latitude?: number;
   longitude?: number;
 };
-
-export async function createPatient(patient: CreatePatientPayload): Promise<{ patient: Patient }> {
-  return request<{ patient: Patient }>("/api/v1/patients", {
-    method: "POST",
-    body: JSON.stringify({ patient }),
-  });
-}
-
-export async function updatePatient(patientId: number, patient: Partial<CreatePatientPayload>): Promise<{ patient: Patient }> {
-  return request<{ patient: Patient }>(`/api/v1/patients/${patientId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ patient }),
-  });
-}
 
 export const api = {
   getSchedule: async (weekStartOn?: string) => {
@@ -260,6 +127,14 @@ export const api = {
     request<{ patients: Patient[] }>("/api/v1/patients/seed_demo", {
       method: "POST",
     }),
+  importPatients: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request<{ imported: number; errors: string[]; header_map?: Record<string, string>; patients: Patient[] }>(
+      "/api/v1/patients/import",
+      { method: "POST", body: formData },
+    );
+  },
   getClinicianProfile: () => request<{ clinician_profile: ClinicianProfile }>("/api/v1/clinician_profile"),
   updateClinicianProfile: (
     clinician_profile: Partial<

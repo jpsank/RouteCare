@@ -39,6 +39,29 @@ class Api::V1::PatientsController < Api::V1::BaseController
     render json: { patient: PatientSerializer.as_json(patient) }
   end
 
+  def import
+    file = params[:file]
+    return render_error("Missing 'file' upload") unless file.respond_to?(:read)
+
+    content =
+      begin
+        file.read.to_s
+      rescue StandardError => e
+        return render_error("Could not read upload: #{e.message}")
+      end
+
+    result = PatientCsvImporter.call(profile: current_clinician_profile, content: content)
+
+    render json: {
+      imported: result.imported,
+      errors: result.errors,
+      header_map: result.header_map,
+      patients: result.patients.map { |p| PatientSerializer.as_json(p) }
+    }, status: result.errors.empty? ? :created : :ok
+  rescue ArgumentError => e
+    render_error(e.message)
+  end
+
   def seed_demo
     profile = current_clinician_profile
     patient_ids = profile.patients.pluck(:id)

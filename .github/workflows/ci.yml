@@ -89,6 +89,138 @@ jobs:
           # REDIS_URL: redis://localhost:6379/0
         run: bin/rails db:test:prepare test
 
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Unit tests (Vitest)
+        run: npm run test
+
+  e2e:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432
+      SECRET_KEY_BASE: dummycisecretkeybasefortestingonly00000000000000000000000000000000000000000
+      PLAYWRIGHT_SKIP_SEED: "1"
+
+    steps:
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips node-gyp
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browser (chromium)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Prepare test database
+        run: bin/rails db:test:prepare
+
+      - name: Build Vite assets for test
+        run: bin/vite build --mode test
+
+      - name: Seed Playwright users
+        run: |
+          bin/rails playwright:seed_user
+          bin/rails playwright:seed_fresh_user
+          bin/rails playwright:reset_main_user
+
+      - name: Start Rails server
+        run: |
+          bundle exec rails server -p 3000 -b 0.0.0.0 > /tmp/rails-server.log 2>&1 &
+          echo $! > /tmp/rails-server.pid
+          for i in $(seq 1 60); do
+            if curl -sfo /dev/null http://localhost:3000/up; then
+              echo "Rails is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Rails failed to start in 60s"
+          tail -80 /tmp/rails-server.log
+          exit 1
+
+      - name: Run Playwright tests
+        run: npx playwright test
+
+      - name: Stop Rails server
+        if: always()
+        run: |
+          if [ -f /tmp/rails-server.pid ]; then kill "$(cat /tmp/rails-server.pid)" || true; fi
+
+      - name: Upload Rails server log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rails-server-log
+          path: /tmp/rails-server.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
   system-test:
     runs-on: ubuntu-latest
 

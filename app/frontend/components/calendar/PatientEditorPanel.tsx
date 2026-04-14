@@ -1,25 +1,119 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import type { Patient } from "../../types";
 import { useSwipeDown } from "./hooks/useSwipeDown";
-import type { PatientForm, PatientSavePayload } from "./utils";
-import { patientFormFromPatient, patientPayloadFromForm } from "./utils";
+import type { PatientSavePayload } from "./utils";
 
 type Props = {
   patient: Patient | null;
-  onSave: (patientId: number, payload: PatientSavePayload) => Promise<void>;
+  onSave: (patientId: number, payload: PatientSavePayload) => Promise<boolean>;
   onClose: () => void;
 };
 
+const patientSchema = z
+  .object({
+    full_name: z.string().trim().min(2, "Name must be at least 2 characters"),
+    phone: z
+      .string()
+      .trim()
+      .min(7, "Phone number looks too short")
+      .regex(/^[0-9+()\-\s.]+$/, "Phone contains invalid characters"),
+    email: z.string().trim().email("Invalid email").or(z.literal("")),
+    address_line1: z.string().trim().min(1, "Address is required"),
+    address_line2: z.string().trim(),
+    city: z.string().trim().min(1, "City is required"),
+    state: z.string().trim().min(2, "State is required").max(20),
+    postal_code: z.string().trim().min(3, "Postal code is required"),
+    required_visits_per_week: z
+      .number()
+      .int()
+      .min(1, "Must be at least 1")
+      .max(7, "Cannot exceed 7"),
+    visit_duration_minutes: z
+      .number()
+      .int()
+      .min(15, "Must be at least 15 minutes")
+      .max(480, "Cannot exceed 8 hours"),
+    notes: z.string(),
+    min_days_between_visits: z
+      .number()
+      .int()
+      .min(0, "Cannot be negative")
+      .max(6, "Cannot exceed 6"),
+    max_days_between_visits: z
+      .number()
+      .int()
+      .min(1, "Must be at least 1")
+      .max(7, "Cannot exceed 7"),
+    priority: z.number().int().min(0).max(10),
+  })
+  .refine((data) => data.max_days_between_visits >= data.min_days_between_visits, {
+    message: "Max days must be ≥ min days",
+    path: ["max_days_between_visits"],
+  });
+
+type PatientFormData = z.infer<typeof patientSchema>;
+
+function patientDefaults(patient: Patient): PatientFormData {
+  return {
+    full_name: patient.full_name || "",
+    phone: patient.phone || "",
+    email: patient.email || "",
+    address_line1: patient.address_line1 || "",
+    address_line2: patient.address_line2 || "",
+    city: patient.city || "",
+    state: patient.state || "",
+    postal_code: patient.postal_code || "",
+    required_visits_per_week: patient.required_visits_per_week || 1,
+    visit_duration_minutes: patient.visit_duration_minutes || 60,
+    notes: patient.notes || "",
+    min_days_between_visits: patient.min_days_between_visits ?? 1,
+    max_days_between_visits: patient.max_days_between_visits ?? 7,
+    priority: patient.priority ?? 0,
+  };
+}
+
+function toPayload(data: PatientFormData, patient: Patient): PatientSavePayload {
+  return {
+    full_name: data.full_name.trim(),
+    phone: data.phone.trim(),
+    email: data.email.trim() || undefined,
+    address_line1: data.address_line1.trim(),
+    address_line2: data.address_line2.trim() || undefined,
+    city: data.city.trim(),
+    state: data.state.trim(),
+    postal_code: data.postal_code.trim(),
+    required_visits_per_week: data.required_visits_per_week,
+    visit_duration_minutes: data.visit_duration_minutes,
+    notes: data.notes.trim() || undefined,
+    latitude: patient.latitude ?? undefined,
+    longitude: patient.longitude ?? undefined,
+    min_days_between_visits: data.min_days_between_visits,
+    max_days_between_visits: data.max_days_between_visits,
+    priority: data.priority,
+  };
+}
+
 export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
-  const [form, setForm] = useState<PatientForm | null>(null);
-  const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
   const { handleRef, sheetStyle } = useSwipeDown(onClose);
 
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<PatientFormData>({
+    resolver: zodResolver(patientSchema),
+    mode: "onBlur",
+  });
+
   useEffect(() => {
-    if (patient) setForm(patientFormFromPatient(patient));
-  }, [patient]);
+    if (patient) reset(patientDefaults(patient));
+  }, [patient, reset]);
 
   useEffect(() => {
     if (!patient) return;
@@ -30,20 +124,15 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [patient, onClose]);
 
-  if (!patient || !form) return null;
+  if (!patient) return null;
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await onSave(patient.id, patientPayloadFromForm(form));
-      onClose();
-    } finally {
-      setSaving(false);
-    }
-  };
+  const onSubmit = handleSubmit(async (data) => {
+    const ok = await onSave(patient.id, toPayload(data, patient));
+    if (ok) onClose();
+  });
 
-  const set = (key: keyof PatientForm, value: string | number) =>
-    setForm((prev) => prev ? { ...prev, [key]: value } : prev);
+  const errorText = (msg?: string) =>
+    msg ? <p className="text-[11px] text-red-600">{msg}</p> : null;
 
   return (
     <div
@@ -54,15 +143,18 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
       data-modal-overlay
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className={isMobile
-        ? "w-full max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl animate-[slideUp_0.2s_ease-out]"
-        : "w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.15s_ease-out]"}
-        style={isMobile ? sheetStyle : undefined}>
+      <form
+        onSubmit={onSubmit}
+        className={isMobile
+          ? "w-full max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl animate-[slideUp_0.2s_ease-out]"
+          : "w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.15s_ease-out]"}
+        style={isMobile ? sheetStyle : undefined}
+      >
         {isMobile && <div ref={handleRef} className="flex h-8 w-full cursor-grab items-center justify-center"><div className="h-1 w-10 rounded-full bg-gray-300" /></div>}
 
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-semibold text-gray-900">Edit Patient</h3>
-          <button className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onClick={onClose}>
+          <button type="button" className="rounded-full border-0 bg-gray-100 p-1.5 text-gray-400 shadow-none transition-colors hover:bg-gray-200 hover:text-gray-600" onClick={onClose}>
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -70,43 +162,52 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
         <div className="rc-form-grid">
           <div className="rc-field">
             <span className="rc-label">Full Name</span>
-            <input value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
+            <input {...register("full_name")} aria-invalid={errors.full_name ? "true" : "false"} />
+            {errorText(errors.full_name?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">Phone</span>
-            <input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+            <input {...register("phone")} aria-invalid={errors.phone ? "true" : "false"} />
+            {errorText(errors.phone?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">Email</span>
-            <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
+            <input type="email" {...register("email")} aria-invalid={errors.email ? "true" : "false"} />
+            {errorText(errors.email?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">Duration (min)</span>
-            <input type="number" min={15} step={5} value={form.visit_duration_minutes} onChange={(e) => set("visit_duration_minutes", Number(e.target.value) || 60)} />
+            <input type="number" min={15} step={5} {...register("visit_duration_minutes", { valueAsNumber: true })} />
+            {errorText(errors.visit_duration_minutes?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">Visits / week</span>
-            <input type="number" min={1} max={7} value={form.required_visits_per_week} onChange={(e) => set("required_visits_per_week", Number(e.target.value) || 1)} />
+            <input type="number" min={1} max={7} {...register("required_visits_per_week", { valueAsNumber: true })} />
+            {errorText(errors.required_visits_per_week?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">Address</span>
-            <input value={form.address_line1} onChange={(e) => set("address_line1", e.target.value)} />
+            <input {...register("address_line1")} aria-invalid={errors.address_line1 ? "true" : "false"} />
+            {errorText(errors.address_line1?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">Apt / Suite / Unit</span>
-            <input value={form.address_line2} onChange={(e) => set("address_line2", e.target.value)} placeholder="Apt 4B" />
+            <input {...register("address_line2")} placeholder="Apt 4B" />
           </div>
           <div className="rc-field">
             <span className="rc-label">City</span>
-            <input value={form.city} onChange={(e) => set("city", e.target.value)} />
+            <input {...register("city")} aria-invalid={errors.city ? "true" : "false"} />
+            {errorText(errors.city?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">State</span>
-            <input value={form.state} onChange={(e) => set("state", e.target.value)} />
+            <input {...register("state")} aria-invalid={errors.state ? "true" : "false"} />
+            {errorText(errors.state?.message)}
           </div>
           <div className="rc-field sm:col-span-2">
             <span className="rc-label">Postal Code</span>
-            <input value={form.postal_code} onChange={(e) => set("postal_code", e.target.value)} />
+            <input {...register("postal_code")} aria-invalid={errors.postal_code ? "true" : "false"} />
+            {errorText(errors.postal_code?.message)}
           </div>
 
           <div className="sm:col-span-2 border-t border-gray-100 pt-2 mt-1">
@@ -114,7 +215,7 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
           </div>
           <div className="rc-field">
             <span className="rc-label">Priority</span>
-            <select value={form.priority} onChange={(e) => set("priority", Number(e.target.value))}>
+            <select {...register("priority", { valueAsNumber: true })}>
               <option value={0}>Normal</option>
               <option value={5}>High</option>
               <option value={10}>Urgent</option>
@@ -122,11 +223,13 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
           </div>
           <div className="rc-field">
             <span className="rc-label">Min days between</span>
-            <input type="number" min={0} max={6} value={form.min_days_between_visits} onChange={(e) => set("min_days_between_visits", e.target.valueAsNumber || 0)} />
+            <input type="number" min={0} max={6} {...register("min_days_between_visits", { valueAsNumber: true })} />
+            {errorText(errors.min_days_between_visits?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">Max days between</span>
-            <input type="number" min={1} max={7} value={form.max_days_between_visits} onChange={(e) => set("max_days_between_visits", Number(e.target.value) || 7)} />
+            <input type="number" min={1} max={7} {...register("max_days_between_visits", { valueAsNumber: true })} />
+            {errorText(errors.max_days_between_visits?.message)}
           </div>
 
           <div className="sm:col-span-2 border-t border-gray-100 pt-2 mt-1">
@@ -136,17 +239,16 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
             <textarea
               className="w-full resize-y text-sm"
               rows={3}
-              value={form.notes}
-              onChange={(e) => set("notes", e.target.value)}
+              {...register("notes")}
               placeholder="Free-form notes about this patient..."
             />
           </div>
         </div>
 
-        <button className="btn-primary mt-3 w-full" onClick={handleSave} disabled={saving}>
-          {saving ? "Saving..." : "Save Patient"}
+        <button type="submit" className="btn-primary mt-3 w-full" disabled={isSubmitting}>
+          {isSubmitting ? "Saving..." : "Save Patient"}
         </button>
-      </div>
+      </form>
     </div>
   );
 }

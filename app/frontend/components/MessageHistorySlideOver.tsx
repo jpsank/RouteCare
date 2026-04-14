@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Message } from "../types";
+import { MessagesTrendChart } from "./calendar/MessagesTrendChart";
 
 type Props = {
   messages: Message[];
@@ -58,6 +59,7 @@ export function MessageHistorySlideOver({ messages, isOpen, onClose, onApprove }
             </svg>
           </button>
         </div>
+        <MessagesTrendChart messages={messages} />
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-4 py-3">

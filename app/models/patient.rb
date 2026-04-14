@@ -14,7 +14,9 @@ class Patient < ApplicationRecord
   validates :latitude, :longitude, numericality: true, allow_nil: true
   validate :min_days_not_greater_than_max_days
 
-  before_save :geocode_address, if: :address_changed?
+  attr_accessor :skip_geocoding
+
+  before_save :geocode_address, if: :should_geocode?
 
   scope :active, -> { where(active: true) }
 
@@ -27,6 +29,12 @@ class Patient < ApplicationRecord
   end
 
   private
+
+  def should_geocode?
+    return false if skip_geocoding
+    return false if latitude.present? && longitude.present? && !address_changed?
+    address_changed?
+  end
 
   def address_changed?
     address_line1_changed? || city_changed? || state_changed? || postal_code_changed?

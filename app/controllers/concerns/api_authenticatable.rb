@@ -9,7 +9,11 @@ module ApiAuthenticatable
 
   private
 
+  ALLOWED_NON_JSON_FORMATS = %i[pdf ics].freeze
+
   def ensure_json_request
+    return if ALLOWED_NON_JSON_FORMATS.include?(request.format.symbol)
+
     request.format = :json
   end
 

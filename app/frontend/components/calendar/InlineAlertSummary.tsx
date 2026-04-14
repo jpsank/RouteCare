@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import type { Alert } from "../../types";
+import { useClickOutside } from "../hooks/useClickOutside";
+import { AlertsTrendChart } from "./AlertsTrendChart";
 
 type Props = {
   alerts: Alert[];
-  onUpdateAlert: (alertId: number, status: Alert["status"]) => Promise<void>;
-  onExecuteAction?: (alertId: number) => Promise<void>;
+  onUpdateAlert: (alertId: number, status: Alert["status"]) => Promise<boolean>;
+  onExecuteAction?: (alertId: number) => Promise<boolean>;
 };
 
 const STATUS_OPTIONS: Array<[Alert["status"], string]> = [
@@ -27,14 +29,7 @@ export function InlineAlertSummary({ alerts, onUpdateAlert, onExecuteAction }: P
     })
     .slice(0, 5);
 
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [open]);
+  useClickOutside(ref, () => setOpen(false), open);
 
   if (openAlerts.length === 0) return null;
 
@@ -57,7 +52,8 @@ export function InlineAlertSummary({ alerts, onUpdateAlert, onExecuteAction }: P
 
       {open && (
         <div className="absolute left-0 top-full z-50 mt-1 w-[min(380px,calc(100vw-24px))] rounded-2xl bg-white p-3.5 shadow-2xl ring-1 ring-black/5 animate-[scaleIn_0.12s_ease-out]">
-          <h4 className="mb-2 text-xs font-semibold text-gray-500">Active Alerts</h4>
+          <AlertsTrendChart alerts={alerts} />
+          <h4 className="mb-2 mt-3 text-xs font-semibold text-gray-500">Active Alerts</h4>
           <div className="max-h-64 space-y-2 overflow-y-auto">
             {topAlerts.map((alert) => (
               <div

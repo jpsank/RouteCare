@@ -3,7 +3,20 @@ class Api::V1::SchedulesController < Api::V1::BaseController
     schedule = current_user.weekly_schedules.includes(visits: :patient).find_by(week_start_on: parsed_week_start(params[:week_start_on]))
     return render_not_found("Schedule") if schedule.blank?
 
-    render json: { schedule: ScheduleSerializer.as_json(schedule) }
+    respond_to do |format|
+      format.json { render json: { schedule: ScheduleSerializer.as_json(schedule) } }
+      format.pdf do
+        pdf = SchedulePdfRenderer.new(
+          schedule: schedule,
+          clinician_profile: current_user.clinician_profile,
+          timezone: request_timezone
+        ).render
+        send_data pdf,
+          filename: "routecare-week-#{schedule.week_start_on.iso8601}.pdf",
+          type: "application/pdf",
+          disposition: "attachment"
+      end
+    end
   end
 
   def optimize

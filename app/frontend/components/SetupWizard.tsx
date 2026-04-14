@@ -1,11 +1,23 @@
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { api } from "../lib/api";
 import type { ClinicianProfile } from "../types";
+
+const nameSchema = z.object({
+  displayName: z
+    .string()
+    .trim()
+    .min(2, "Please enter at least 2 characters")
+    .max(80, "Name is too long"),
+});
+type NameForm = z.infer<typeof nameSchema>;
 
 type Props = {
   clinicianProfile: ClinicianProfile | null;
   onComplete: () => void;
-  onSeedDemo: () => Promise<void>;
+  onSeedDemo: () => Promise<boolean>;
 };
 
 const DAY_LABELS: Array<[number, string]> = [
@@ -27,7 +39,6 @@ const HOUR_OPTIONS = Array.from({ length: 15 }, (_, i) => {
 export function SetupWizard({ clinicianProfile, onComplete, onSeedDemo }: Props) {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [displayName, setDisplayName] = useState(clinicianProfile?.display_name ?? "");
   const [locating, setLocating] = useState(false);
   const [locationSet, setLocationSet] = useState(false);
   const [workdayStart, setWorkdayStart] = useState(clinicianProfile?.workday_start_minute ?? 480);
@@ -35,11 +46,21 @@ export function SetupWizard({ clinicianProfile, onComplete, onSeedDemo }: Props)
   const [workingDays, setWorkingDays] = useState<number[]>(clinicianProfile?.working_days ?? [1, 2, 3, 4, 5]);
   const [loadingDemo, setLoadingDemo] = useState(false);
 
+  const nameForm = useForm<NameForm>({
+    resolver: zodResolver(nameSchema),
+    defaultValues: { displayName: clinicianProfile?.display_name ?? "" },
+    mode: "onBlur",
+  });
+
   const saveAndNext = async () => {
+    if (step === 0) {
+      const valid = await nameForm.trigger();
+      if (!valid) return;
+    }
     setSaving(true);
     try {
       if (step === 0) {
-        await api.updateClinicianProfile({ display_name: displayName.trim() });
+        await api.updateClinicianProfile({ display_name: nameForm.getValues("displayName").trim() });
       } else if (step === 1) {
         await api.updateClinicianProfile({
           workday_start_minute: workdayStart,
@@ -79,7 +100,8 @@ export function SetupWizard({ clinicianProfile, onComplete, onSeedDemo }: Props)
   const loadDemo = async () => {
     setLoadingDemo(true);
     try {
-      await onSeedDemo();
+      const ok = await onSeedDemo();
+      if (!ok) return;
       await api.updateClinicianProfile({ setup_completed_at: new Date().toISOString() });
       onComplete();
     } finally {
@@ -114,10 +136,15 @@ export function SetupWizard({ clinicianProfile, onComplete, onSeedDemo }: Props)
               <div className="rc-field">
                 <span className="rc-label">Your name</span>
                 <input
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
+                  {...nameForm.register("displayName")}
                   placeholder="Dr. Jane Smith"
+                  aria-invalid={nameForm.formState.errors.displayName ? "true" : "false"}
                 />
+                {nameForm.formState.errors.displayName && (
+                  <p className="text-xs text-red-600">
+                    {nameForm.formState.errors.displayName.message}
+                  </p>
+                )}
               </div>
 
               <div className="rc-field">

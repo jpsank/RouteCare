@@ -40,6 +40,7 @@ module Webhooks
       head :ok
     rescue StandardError => e
       Rails.logger.error("[Webhooks::Telnyx] #{e.class}: #{e.message}")
+      Sentry.capture_exception(e, tags: { webhook: "telnyx_sms" }) if defined?(Sentry) && Sentry.initialized?
       create_processing_alert!(
         "Failed to process SMS reply: #{e.message}",
         { from: from.to_s, body: body.to_s.first(200) }

@@ -1,8 +1,33 @@
 import { createPortal } from "react-dom";
 import { useMemo, useState, useRef, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { CalendarConnectionsPanel } from "./CalendarConnectionsPanel";
+import { PatientImportControl } from "./PatientImportControl";
 import type { ClinicianProfile } from "../../types";
 import type { ComponentProps } from "react";
+
+const profileSchema = z.object({
+  displayName: z
+    .string()
+    .trim()
+    .min(2, "At least 2 characters")
+    .max(80, "Too long"),
+  latitude: z
+    .string()
+    .refine(
+      (v) => v === "" || (!Number.isNaN(Number(v)) && Math.abs(Number(v)) <= 90),
+      "Must be between -90 and 90",
+    ),
+  longitude: z
+    .string()
+    .refine(
+      (v) => v === "" || (!Number.isNaN(Number(v)) && Math.abs(Number(v)) <= 180),
+      "Must be between -180 and 180",
+    ),
+});
+type ProfileForm = z.infer<typeof profileSchema>;
 
 const DAY_LABELS: Array<[number, string]> = [
   [1, "Mon"],
@@ -22,36 +47,28 @@ type SettingsModalProps = {
   clinicianProfile: ClinicianProfile | null;
   workdayStartMinute: number;
   workdayEndMinute: number;
-  onUpdateWorkdayRange: (start: number, end: number) => Promise<void>;
+  onUpdateWorkdayRange: (start: number, end: number) => Promise<boolean>;
   savingHours: boolean;
   workingDays: number[];
-  onToggleWorkingDay: (wday: number) => Promise<void>;
+  onToggleWorkingDay: (wday: number) => Promise<boolean>;
   savingWorkingDays: boolean;
-  homeLatitudeInput: string;
-  homeLongitudeInput: string;
-  onHomeLatitudeInputChange: (v: string) => void;
-  onHomeLongitudeInputChange: (v: string) => void;
-  onSaveHomeFromInputs: () => Promise<void>;
-  onSaveHomeFromCurrentLocation: () => Promise<void>;
-  savingHomeInput: boolean;
-  savingHomeLocation: boolean;
+  onSaveHomeLocation: (lat: number, lng: number) => Promise<boolean>;
+  onDetectCurrentLocation: () => Promise<{ latitude: number; longitude: number } | null>;
   lunchStartMinute: number;
   lunchDurationMinutes: number;
   lunchWindowMinutes: number;
-  onUpdateLunch: (start: number, dur: number, win: number) => Promise<void>;
+  onUpdateLunch: (start: number, dur: number, win: number) => Promise<boolean>;
   savingLunch: boolean;
-  displayNameInput: string;
-  onDisplayNameInputChange: (v: string) => void;
-  onSaveDisplayName: () => Promise<void>;
-  savingDisplayName: boolean;
+  onSaveDisplayName: (name: string) => Promise<boolean>;
   chartingBufferMinutes: number;
   scheduleDensity: number;
   maxDriveMinutesPerDay: number | null;
   maxContinuousWorkMinutes: number;
   requiredBreakMinutes: number;
-  onUpdateSchedulingSettings: (settings: Record<string, unknown>) => Promise<void>;
+  onUpdateSchedulingSettings: (settings: Record<string, unknown>) => Promise<boolean>;
   savingSchedulingSettings: boolean;
-  onSeedDemoPatients: () => Promise<void>;
+  onSeedDemoPatients: () => Promise<boolean>;
+  onImportPatients: (file: File) => Promise<{ imported: number; errors: string[]; header_map?: Record<string, string> } | undefined>;
   calendarConnectionsProps: ComponentProps<typeof CalendarConnectionsPanel>;
 };
 
@@ -269,23 +286,14 @@ export function SettingsModal({
   workingDays,
   onToggleWorkingDay,
   savingWorkingDays,
-  homeLatitudeInput,
-  homeLongitudeInput,
-  onHomeLatitudeInputChange,
-  onHomeLongitudeInputChange,
-  onSaveHomeFromInputs,
-  onSaveHomeFromCurrentLocation,
-  savingHomeInput,
-  savingHomeLocation,
+  onSaveHomeLocation,
+  onDetectCurrentLocation,
   lunchStartMinute,
   lunchDurationMinutes,
   lunchWindowMinutes,
   onUpdateLunch,
   savingLunch,
-  displayNameInput,
-  onDisplayNameInputChange,
   onSaveDisplayName,
-  savingDisplayName,
   chartingBufferMinutes,
   scheduleDensity,
   maxDriveMinutesPerDay,
@@ -294,9 +302,43 @@ export function SettingsModal({
   onUpdateSchedulingSettings,
   savingSchedulingSettings,
   onSeedDemoPatients,
+  onImportPatients,
   calendarConnectionsProps,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>("general");
+  const [detectingLocation, setDetectingLocation] = useState(false);
+
+  const profileForm = useForm<ProfileForm>({
+    resolver: zodResolver(profileSchema),
+    mode: "onBlur",
+    values: {
+      displayName: clinicianProfile?.display_name ?? "",
+      latitude: clinicianProfile?.home_latitude != null ? String(clinicianProfile.home_latitude) : "",
+      longitude: clinicianProfile?.home_longitude != null ? String(clinicianProfile.home_longitude) : "",
+    },
+  });
+
+  const submitDisplayName = profileForm.handleSubmit(async (data) => {
+    await onSaveDisplayName(data.displayName.trim());
+  });
+
+  const submitHomeLocation = profileForm.handleSubmit(async (data) => {
+    if (data.latitude === "" || data.longitude === "") return;
+    await onSaveHomeLocation(Number(data.latitude), Number(data.longitude));
+  });
+
+  const useCurrentLocation = async () => {
+    setDetectingLocation(true);
+    try {
+      const coords = await onDetectCurrentLocation();
+      if (coords) {
+        profileForm.setValue("latitude", String(coords.latitude), { shouldDirty: false });
+        profileForm.setValue("longitude", String(coords.longitude), { shouldDirty: false });
+      }
+    } finally {
+      setDetectingLocation(false);
+    }
+  };
 
   const lunchTimeOptions = useMemo(
     () =>
@@ -360,48 +402,68 @@ export function SettingsModal({
                 <div className="mt-2 grid grid-cols-2 items-start gap-3">
                   <div className="rc-field">
                     <FieldLabel>Display name</FieldLabel>
-                    <div className="flex gap-2">
+                    <form onSubmit={submitDisplayName} className="flex gap-2">
                       <input
                         className="flex-1"
-                        value={displayNameInput}
-                        onChange={(e) => onDisplayNameInputChange(e.target.value)}
+                        {...profileForm.register("displayName")}
                         placeholder="Alex Smith"
                         maxLength={80}
+                        aria-invalid={profileForm.formState.errors.displayName ? "true" : "false"}
                       />
-                      <button className="btn-sm whitespace-nowrap" onClick={onSaveDisplayName} disabled={loading || savingDisplayName}>
-                        {savingDisplayName ? "Saving..." : "Save"}
+                      <button
+                        type="submit"
+                        className="btn-sm whitespace-nowrap"
+                        disabled={loading || profileForm.formState.isSubmitting}
+                      >
+                        {profileForm.formState.isSubmitting ? "Saving..." : "Save"}
                       </button>
-                    </div>
+                    </form>
+                    {profileForm.formState.errors.displayName && (
+                      <p className="text-[11px] text-red-600">
+                        {profileForm.formState.errors.displayName.message}
+                      </p>
+                    )}
                   </div>
                   <div className="rc-field">
                     <FieldLabel>Home location</FieldLabel>
-                    <div className="flex items-center gap-2">
+                    <form onSubmit={submitHomeLocation} className="flex items-center gap-2">
                       <input
                         className="w-[80px]"
-                        value={homeLatitudeInput}
-                        onChange={(e) => onHomeLatitudeInputChange(e.target.value)}
+                        {...profileForm.register("latitude")}
                         placeholder="Lat"
+                        aria-invalid={profileForm.formState.errors.latitude ? "true" : "false"}
                       />
                       <input
                         className="w-[80px]"
-                        value={homeLongitudeInput}
-                        onChange={(e) => onHomeLongitudeInputChange(e.target.value)}
+                        {...profileForm.register("longitude")}
                         placeholder="Lng"
+                        aria-invalid={profileForm.formState.errors.longitude ? "true" : "false"}
                       />
-                      <button className="btn-sm whitespace-nowrap" onClick={onSaveHomeFromInputs} disabled={loading || savingHomeInput}>
-                        {savingHomeInput ? "Saving..." : "Save"}
+                      <button
+                        type="submit"
+                        className="btn-sm whitespace-nowrap"
+                        disabled={loading || profileForm.formState.isSubmitting}
+                      >
+                        Save
                       </button>
-                    </div>
+                    </form>
+                    {(profileForm.formState.errors.latitude || profileForm.formState.errors.longitude) && (
+                      <p className="text-[11px] text-red-600">
+                        {profileForm.formState.errors.latitude?.message ||
+                          profileForm.formState.errors.longitude?.message}
+                      </p>
+                    )}
                     <button
+                      type="button"
                       className="mt-1 flex items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-medium text-indigo-600 shadow-none hover:text-indigo-800"
-                      onClick={onSaveHomeFromCurrentLocation}
-                      disabled={loading || savingHomeLocation}
+                      onClick={useCurrentLocation}
+                      disabled={loading || detectingLocation}
                     >
                       <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
                       </svg>
-                      {savingHomeLocation ? "Detecting..." : "Use current location"}
+                      {detectingLocation ? "Detecting..." : "Use current location"}
                     </button>
                   </div>
                 </div>
@@ -520,6 +582,15 @@ export function SettingsModal({
                     </div>
                   </div>
                 </div>
+              </section>
+
+              {/* Import */}
+              <section className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-3 py-2 space-y-2">
+                <div>
+                  <span className="text-[12px] font-medium text-gray-500">Bulk import</span>
+                  <p className="text-[11px] text-gray-400">Upload a CSV of patients.</p>
+                </div>
+                <PatientImportControl onImport={onImportPatients} disabled={loading} />
               </section>
 
               {/* Demo */}

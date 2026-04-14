@@ -1,0 +1,4 @@
+{
+  "*.{ts,tsx,js,jsx}": [],
+  "*.rb": ["bin/rubocop -a --force-exclusion"]
+}

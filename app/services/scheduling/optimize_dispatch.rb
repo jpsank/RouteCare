@@ -35,6 +35,9 @@ module Scheduling
           Rails.logger.warn(
             "[OptimizeDispatch] CP-SAT failed (#{e.class}: #{e.message}); using greedy optimizer"
           )
+          if defined?(Sentry) && Sentry.initialized?
+            Sentry.capture_exception(e, level: :warning, tags: { component: "cpsat_fallback" }, extra: { user_id: user.id, week_start_on: week_start_on.to_s })
+          end
           schedule = WeeklyOptimizer.new(
             user: user, week_start_on: week_start_on, start_point: start_point
           ).call

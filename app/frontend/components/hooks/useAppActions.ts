@@ -1,108 +1,210 @@
 import { useCallback } from "react";
+import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { api } from "../../lib/api";
-import type { Alert, CalendarBlock, ClinicianProfile, Message, Patient, WeeklySchedule } from "../../types";
+import { queryKeys } from "../../lib/queries";
+import type {
+  Alert,
+  CalendarBlock,
+  ClinicianProfile,
+  Message,
+  Patient,
+  WeeklySchedule,
+} from "../../types";
 import type { PatientSavePayload } from "../calendar/utils";
 
-type Setters = {
-  setSchedule: React.Dispatch<React.SetStateAction<WeeklySchedule | null>>;
-  setPatients: React.Dispatch<React.SetStateAction<Patient[]>>;
-  setMessages: React.Dispatch<React.SetStateAction<Message[] | null>>;
-  setAlerts: React.Dispatch<React.SetStateAction<Alert[] | null>>;
-  setCalendarBlocks: React.Dispatch<React.SetStateAction<CalendarBlock[]>>;
-  setClinicianProfile: React.Dispatch<React.SetStateAction<ClinicianProfile | null>>;
-  setError: React.Dispatch<React.SetStateAction<string | null>>;
-};
+type ProfileUpdate = Parameters<typeof api.updateClinicianProfile>[0];
 
-type LoadingControls = {
-  startLoading: () => void;
-  stopLoading: () => void;
-};
+type OptimizeArgs = { latitude: number; longitude: number } | undefined;
 
-/**
- * Wraps an async action with loading/error boilerplate.
- */
-function useWrappedAction(
-  { startLoading, stopLoading }: LoadingControls,
-  setError: React.Dispatch<React.SetStateAction<string | null>>,
-) {
-  return useCallback(
-    <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
-      startLoading();
-      setError(null);
-      return fn()
-        .catch((err: Error) => {
-          setError(err.message);
-          return undefined;
-        })
-        .finally(() => stopLoading());
-    },
-    [startLoading, stopLoading, setError],
-  );
+// Global mutationCache onError surfaces failures via toast; these helpers
+// let form callers await the action without a try/catch while still being
+// able to distinguish success from failure before advancing UI state.
+async function tryRun<T>(promise: Promise<T>): Promise<T | undefined> {
+  try {
+    return await promise;
+  } catch {
+    return undefined;
+  }
 }
 
-export function useAppActions(setters: Setters, loading: LoadingControls) {
-  const {
-    setSchedule,
-    setPatients,
-    setMessages,
-    setAlerts,
-    setCalendarBlocks,
-    setClinicianProfile,
-    setError,
-  } = setters;
+async function tryRunBool(promise: Promise<unknown>): Promise<boolean> {
+  try {
+    await promise;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  const wrap = useWrappedAction(loading, setError);
+export function useAppActions() {
+  const queryClient = useQueryClient();
 
-  const optimizeAndRefreshBlocks = useCallback(async (start?: { latitude: number; longitude: number }) => {
-    const optimized = await api.optimizeSchedule(undefined, start?.latitude, start?.longitude);
-    setSchedule(optimized.schedule);
-    const refreshedBlocks = await api.listCalendarBlocks();
-    setCalendarBlocks(refreshedBlocks.calendar_blocks);
-  }, [setSchedule, setCalendarBlocks]);
-
-  /** Update clinician profile then re-optimize. Used by most settings handlers. */
-  const updateProfileAndReoptimize = useCallback(
-    (profileFields: Parameters<typeof api.updateClinicianProfile>[0]) =>
-      wrap(async () => {
-        const response = await api.updateClinicianProfile(profileFields);
-        setClinicianProfile(response.clinician_profile);
-        await optimizeAndRefreshBlocks();
-      }),
-    [wrap, setClinicianProfile, optimizeAndRefreshBlocks],
+  const setCache = useCallback(
+    <T,>(key: QueryKey, value: T) => queryClient.setQueryData<T>(key, value),
+    [queryClient],
   );
+
+  const updateCollection = useCallback(
+    <T,>(key: QueryKey, updater: (prev: T[]) => T[]) =>
+      queryClient.setQueryData<T[]>(key, (prev) => updater(prev ?? [])),
+    [queryClient],
+  );
+
+  const optimizeAndRefreshBlocks = useCallback(
+    async (start?: { latitude: number; longitude: number }) => {
+      const optimized = await api.optimizeSchedule(undefined, start?.latitude, start?.longitude);
+      setCache<WeeklySchedule | null>(queryKeys.schedule, optimized.schedule);
+      const refreshedBlocks = await api.listCalendarBlocks();
+      setCache<CalendarBlock[]>(queryKeys.calendarBlocks, refreshedBlocks.calendar_blocks);
+    },
+    [setCache],
+  );
+
+  const optimizeScheduleMutation = useMutation({
+    mutationFn: (start: OptimizeArgs) => optimizeAndRefreshBlocks(start),
+  });
+
+  const updateProfileAndReoptimizeMutation = useMutation({
+    mutationFn: async (profileFields: ProfileUpdate) => {
+      const response = await api.updateClinicianProfile(profileFields);
+      setCache<ClinicianProfile>(queryKeys.clinicianProfile, response.clinician_profile);
+      await optimizeAndRefreshBlocks();
+    },
+  });
+
+  const createPatientMutation = useMutation({
+    mutationFn: (payload: PatientSavePayload) => api.createPatient(payload),
+    onSuccess: (data) =>
+      updateCollection<Patient>(queryKeys.patients, (prev) => [data.patient, ...prev]),
+  });
+
+  const updatePatientMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: PatientSavePayload }) =>
+      api.updatePatient(id, payload),
+    onSuccess: (data, { id }) =>
+      updateCollection<Patient>(queryKeys.patients, (prev) =>
+        prev.map((p) => (p.id === id ? data.patient : p)),
+      ),
+  });
+
+  const seedDemoPatientsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.seedDemoPatients();
+      setCache<Patient[]>(queryKeys.patients, response.patients);
+      await optimizeAndRefreshBlocks();
+    },
+  });
+
+  const importPatientsMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const response = await api.importPatients(file);
+      setCache<Patient[]>(queryKeys.patients, response.patients);
+      return { imported: response.imported, errors: response.errors, header_map: response.header_map };
+    },
+  });
+
+  const updateDisplayNameMutation = useMutation({
+    mutationFn: async (displayName: string) => {
+      const response = await api.updateClinicianProfile({ display_name: displayName });
+      setCache<ClinicianProfile>(queryKeys.clinicianProfile, response.clinician_profile);
+    },
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async (args: {
+      visitId: number;
+      channel: "sms" | "email";
+      body: string;
+      sendImmediately: boolean;
+    }) => {
+      const result = await api.createMessage(args.visitId, args.channel, args.body, args.sendImmediately);
+      return result.message;
+    },
+    onSuccess: (message) =>
+      updateCollection<Message>(queryKeys.messages, (prev) => [message, ...prev]),
+  });
+
+  const bulkConfirmMessagesMutation = useMutation({
+    mutationFn: () => api.bulkConfirmMessages(),
+    onSuccess: (result) =>
+      updateCollection<Message>(queryKeys.messages, (prev) => [...result.messages, ...prev]),
+  });
+
+  const approveMessageMutation = useMutation({
+    mutationFn: async (messageId: number) => {
+      const result = await api.approveMessage(messageId);
+      return result.message;
+    },
+    onSuccess: (message) =>
+      updateCollection<Message>(queryKeys.messages, (prev) =>
+        prev.map((m) => (m.id === message.id ? message : m)),
+      ),
+  });
+
+  const selectMessageSuggestionMutation = useMutation({
+    mutationFn: async ({ messageId, suggestionIndex }: { messageId: number; suggestionIndex: number }) => {
+      const result = await api.selectMessageSuggestion(messageId, suggestionIndex);
+      return result.message;
+    },
+    onSuccess: (message) =>
+      updateCollection<Message>(queryKeys.messages, (prev) =>
+        prev.map((m) => (m.id === message.id ? message : m)),
+      ),
+  });
+
+  const executeAlertActionMutation = useMutation({
+    mutationFn: (alertId: number) => api.executeAlertAction(alertId),
+    onSuccess: (result, alertId) => {
+      updateCollection<Alert>(queryKeys.alerts, (prev) =>
+        prev.map((a) => (a.id === alertId ? result.alert : a)),
+      );
+      if (result.message) {
+        const message = result.message;
+        updateCollection<Message>(queryKeys.messages, (prev) => [message, ...prev]);
+      }
+    },
+  });
+
+  const updateAlertMutation = useMutation({
+    mutationFn: ({ alertId, status }: { alertId: number; status: string }) => api.updateAlert(alertId, status),
+    onSuccess: (result, { alertId }) =>
+      updateCollection<Alert>(queryKeys.alerts, (prev) =>
+        prev.map((a) => (a.id === alertId ? result.alert : a)),
+      ),
+  });
+
 
   const optimizeSchedule = useCallback(
     (start?: { latitude: number; longitude: number }) =>
-      wrap(() => optimizeAndRefreshBlocks(start)),
-    [wrap, optimizeAndRefreshBlocks],
+      tryRunBool(optimizeScheduleMutation.mutateAsync(start)),
+    [optimizeScheduleMutation],
   );
 
   const createPatient = useCallback(
-    (payload: PatientSavePayload) =>
-      wrap(async () => {
-        const created = await api.createPatient(payload);
-        setPatients((prev) => [created.patient, ...prev]);
-      }),
-    [wrap, setPatients],
+    (payload: PatientSavePayload) => tryRunBool(createPatientMutation.mutateAsync(payload)),
+    [createPatientMutation],
   );
 
   const updatePatient = useCallback(
-    (patientId: number, payload: PatientSavePayload) =>
-      wrap(async () => {
-        const updated = await api.updatePatient(patientId, payload);
-        setPatients((prev) => prev.map((p) => (p.id === patientId ? updated.patient : p)));
-      }),
-    [wrap, setPatients],
+    (id: number, payload: PatientSavePayload) =>
+      tryRunBool(updatePatientMutation.mutateAsync({ id, payload })),
+    [updatePatientMutation],
   );
 
   const seedDemoPatients = useCallback(
-    () =>
-      wrap(async () => {
-        const response = await api.seedDemoPatients();
-        setPatients(response.patients);
-        await optimizeAndRefreshBlocks();
-      }),
-    [wrap, setPatients, optimizeAndRefreshBlocks],
+    () => tryRunBool(seedDemoPatientsMutation.mutateAsync()),
+    [seedDemoPatientsMutation],
+  );
+
+  const importPatients = useCallback(
+    (file: File) => tryRun(importPatientsMutation.mutateAsync(file)),
+    [importPatientsMutation],
+  );
+
+  const updateProfileAndReoptimize = useCallback(
+    (profileFields: ProfileUpdate) =>
+      tryRunBool(updateProfileAndReoptimizeMutation.mutateAsync(profileFields)),
+    [updateProfileAndReoptimizeMutation],
   );
 
   const updateWorkingHours = useCallback(
@@ -122,8 +224,7 @@ export function useAppActions(setters: Setters, loading: LoadingControls) {
   );
 
   const updateWorkingDays = useCallback(
-    (workingDays: number[]) =>
-      updateProfileAndReoptimize({ working_days: workingDays }),
+    (workingDays: number[]) => updateProfileAndReoptimize({ working_days: workingDays }),
     [updateProfileAndReoptimize],
   );
 
@@ -134,79 +235,46 @@ export function useAppActions(setters: Setters, loading: LoadingControls) {
   );
 
   const updateDisplayName = useCallback(
-    (displayName: string) =>
-      wrap(async () => {
-        const response = await api.updateClinicianProfile({ display_name: displayName });
-        setClinicianProfile(response.clinician_profile);
-      }),
-    [wrap, setClinicianProfile],
+    (displayName: string) => tryRunBool(updateDisplayNameMutation.mutateAsync(displayName)),
+    [updateDisplayNameMutation],
   );
 
   const updateSchedulingSettings = useCallback(
-    (settings: Record<string, unknown>) =>
-      updateProfileAndReoptimize(settings as Parameters<typeof api.updateClinicianProfile>[0]),
+    (settings: Record<string, unknown>) => updateProfileAndReoptimize(settings as ProfileUpdate),
     [updateProfileAndReoptimize],
   );
 
   const sendMessage = useCallback(
     (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) =>
-      wrap(async () => {
-        const result = await api.createMessage(visitId, channel, body, sendImmediately);
-        setMessages((prev) => [result.message, ...(prev ?? [])]);
-        return result.message;
-      }),
-    [wrap, setMessages],
+      tryRun(sendMessageMutation.mutateAsync({ visitId, channel, body, sendImmediately })),
+    [sendMessageMutation],
   );
 
   const bulkConfirmMessages = useCallback(
-    () =>
-      wrap(async () => {
-        const result = await api.bulkConfirmMessages();
-        setMessages((prev) => [...result.messages, ...(prev ?? [])]);
-        return result;
-      }),
-    [wrap, setMessages],
+    () => tryRun(bulkConfirmMessagesMutation.mutateAsync()),
+    [bulkConfirmMessagesMutation],
   );
 
   const approveMessage = useCallback(
-    (messageId: number) =>
-      wrap(async () => {
-        const result = await api.approveMessage(messageId);
-        setMessages((prev) => (prev ?? []).map((m) => (m.id === messageId ? result.message : m)));
-        return result.message;
-      }),
-    [wrap, setMessages],
+    (messageId: number) => tryRun(approveMessageMutation.mutateAsync(messageId)),
+    [approveMessageMutation],
   );
 
   const selectMessageSuggestion = useCallback(
     (messageId: number, suggestionIndex: number) =>
-      wrap(async () => {
-        const result = await api.selectMessageSuggestion(messageId, suggestionIndex);
-        setMessages((prev) => (prev ?? []).map((m) => (m.id === messageId ? result.message : m)));
-        return result.message;
-      }),
-    [wrap, setMessages],
+      tryRun(selectMessageSuggestionMutation.mutateAsync({ messageId, suggestionIndex })),
+    [selectMessageSuggestionMutation],
   );
 
   const executeAlertAction = useCallback(
-    (alertId: number) =>
-      wrap(async () => {
-        const result = await api.executeAlertAction(alertId);
-        setAlerts((prev) => (prev ?? []).map((a) => (a.id === alertId ? result.alert : a)));
-        if (result.message) {
-          setMessages((prev) => [result.message!, ...(prev ?? [])]);
-        }
-      }),
-    [wrap, setAlerts, setMessages],
+    (alertId: number) => tryRunBool(executeAlertActionMutation.mutateAsync(alertId)),
+    [executeAlertActionMutation],
   );
 
   const updateAlert = useCallback(
     (alertId: number, status: string) =>
-      wrap(async () => {
-        const result = await api.updateAlert(alertId, status);
-        setAlerts((prev) => (prev ?? []).map((a) => (a.id === alertId ? result.alert : a)));
-      }),
-    [wrap, setAlerts],
+      tryRunBool(updateAlertMutation.mutateAsync({ alertId, status })),
+    [updateAlertMutation],
   );
 
   return {
@@ -214,6 +282,7 @@ export function useAppActions(setters: Setters, loading: LoadingControls) {
     createPatient,
     updatePatient,
     seedDemoPatients,
+    importPatients,
     updateWorkingHours,
     updateLunchSettings,
     updateWorkingDays,

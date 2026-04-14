@@ -6,6 +6,7 @@ import { AddEventPopover } from "./calendar/AddEventPopover";
 import { DailyRouteView } from "./DailyRouteView";
 import { EventEditorPanel } from "./calendar/EventEditorPanel";
 import { InlineAlertSummary } from "./calendar/InlineAlertSummary";
+import { WeekStatsPopover } from "./calendar/WeekStatsPopover";
 import { PatientEditorPanel } from "./calendar/PatientEditorPanel";
 import { SettingsModal } from "./calendar/SettingsModal";
 import { useCalendarConnections } from "./calendar/hooks/useCalendarConnections";
@@ -19,7 +20,6 @@ import {
   toLocalInputValue,
   type PatientSavePayload,
 } from "./calendar/utils";
-import { api as apiClient } from "../lib/api";
 
 const ScheduleCalendar = lazy(async () => {
   const module = await import("./calendar/ScheduleCalendar");
@@ -37,25 +37,26 @@ type Props = {
   calendarBlocks: CalendarBlock[];
   calendarConnections: CalendarConnection[];
   loading: boolean;
-  onOptimize: (start?: { latitude: number; longitude: number }) => Promise<void>;
-  onCreatePatient: (patient: PatientSavePayload) => Promise<void>;
-  onUpdatePatient: (patientId: number, patient: PatientSavePayload) => Promise<void>;
-  onSeedDemoPatients: () => Promise<void>;
+  onOptimize: (start?: { latitude: number; longitude: number }) => Promise<boolean>;
+  onCreatePatient: (patient: PatientSavePayload) => Promise<boolean>;
+  onUpdatePatient: (patientId: number, patient: PatientSavePayload) => Promise<boolean>;
+  onSeedDemoPatients: () => Promise<boolean>;
+  onImportPatients: (file: File) => Promise<{ imported: number; errors: string[]; header_map?: Record<string, string> } | undefined>;
   clinicianProfile: ClinicianProfile | null;
-  onUpdateWorkingHours: (workdayStartMinute: number, workdayEndMinute: number) => Promise<void>;
-  onUpdateWorkingDays: (workingDays: number[]) => Promise<void>;
-  onUpdateLunchSettings: (lunchStartMinute: number, lunchDurationMinutes: number, lunchWindowMinutes: number) => Promise<void>;
-  onUpdateDisplayName: (displayName: string) => Promise<void>;
-  onUpdateSchedulingSettings: (settings: Record<string, unknown>) => Promise<void>;
-  onSetHomeFromCurrentLocation: (latitude: number, longitude: number) => Promise<void>;
-  onUpdateHomeLocation: (latitude: number, longitude: number) => Promise<void>;
+  onUpdateWorkingHours: (workdayStartMinute: number, workdayEndMinute: number) => Promise<boolean>;
+  onUpdateWorkingDays: (workingDays: number[]) => Promise<boolean>;
+  onUpdateLunchSettings: (lunchStartMinute: number, lunchDurationMinutes: number, lunchWindowMinutes: number) => Promise<boolean>;
+  onUpdateDisplayName: (displayName: string) => Promise<boolean>;
+  onUpdateSchedulingSettings: (settings: Record<string, unknown>) => Promise<boolean>;
+  onSetHomeFromCurrentLocation: (latitude: number, longitude: number) => Promise<boolean>;
+  onUpdateHomeLocation: (latitude: number, longitude: number) => Promise<boolean>;
   onCalendarRefresh: () => Promise<void>;
   onBulkConfirm?: () => Promise<{ sent_count: number; skipped_count: number } | undefined>;
   onSendMessage?: (visitId: number, channel: "sms" | "email", body: string, sendImmediately: boolean) => Promise<import("../types").Message | undefined>;
   messages?: ReadonlyArray<Message> | null;
   alerts?: Alert[];
-  onUpdateAlert?: (alertId: number, status: Alert["status"]) => Promise<void>;
-  onExecuteAlertAction?: (alertId: number) => Promise<void>;
+  onUpdateAlert?: (alertId: number, status: Alert["status"]) => Promise<boolean>;
+  onExecuteAlertAction?: (alertId: number) => Promise<boolean>;
 };
 
 
@@ -69,6 +70,7 @@ export function WeeklyCalendarView({
   onCreatePatient,
   onUpdatePatient,
   onSeedDemoPatients,
+  onImportPatients,
   clinicianProfile,
   onUpdateWorkingHours,
   onUpdateWorkingDays,
@@ -157,15 +159,11 @@ export function WeeklyCalendarView({
     lunchStartMinute, lunchDurationMinutes, lunchWindowMinutes,
     chartingBufferMinutes, scheduleDensity, maxDriveMinutesPerDay,
     maxContinuousWorkMinutes, requiredBreakMinutes,
-    homeLatitudeInput, setHomeLatitudeInput,
-    homeLongitudeInput, setHomeLongitudeInput,
-    displayNameInput, setDisplayNameInput,
-    savingHours, savingWorkingDays, savingHomeLocation, savingHomeInput,
-    savingLunch, savingSchedulingSettings, savingDisplayName,
+    savingHours, savingWorkingDays, savingLunch, savingSchedulingSettings,
     showSettings, setShowSettings,
     updateWorkdayRange, toggleWorkingDay, updateLunch,
-    updateSchedulingSettings, saveDisplayName,
-    saveHomeFromCurrentLocation, saveHomeFromInputs,
+    updateSchedulingSettings,
+    saveDisplayName, saveHomeLocation, detectCurrentLocation,
   } = settings;
 
   const dayVisits = useMemo(
@@ -305,7 +303,7 @@ export function WeeklyCalendarView({
     if (!match) return;
     const visitId = Number(match[1]);
     try {
-      await apiClient.rescheduleVisit(visitId, new Date(newStartStr).toISOString());
+      await api.rescheduleVisit(visitId, new Date(newStartStr).toISOString());
       await onCalendarRefresh();
     } catch {
       await onCalendarRefresh(); // revert by refreshing
@@ -331,8 +329,8 @@ export function WeeklyCalendarView({
           <button className="btn-primary btn-sm" onClick={() => onOptimize()} disabled={loading}>
             {loading ? "Optimizing..." : "Generate Week"}
           </button>
-          <button className="btn-sm" onClick={saveHomeFromCurrentLocation} disabled={loading || savingHomeLocation}>
-            {savingHomeLocation ? "Saving..." : "Use Current Location"}
+          <button className="btn-sm" onClick={() => void detectCurrentLocation()} disabled={loading}>
+            Use Current Location
           </button>
           <button className="btn-ghost btn-sm" onClick={onSeedDemoPatients} disabled={loading}>
             Load Demo Patients
@@ -372,6 +370,22 @@ export function WeeklyCalendarView({
             onUpdateAlert={onUpdateAlert}
             onExecuteAction={onExecuteAlertAction}
           />
+        )}
+
+        <WeekStatsPopover schedule={schedule} />
+
+        {schedule && (
+          <a
+            className="flex items-center gap-1 rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium text-gray-500 shadow-none hover:bg-gray-100"
+            href={`/api/v1/schedule.pdf?week_start_on=${encodeURIComponent(schedule.week_start_on)}`}
+            target="_blank"
+            rel="noopener"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            <span className="hidden sm:inline">PDF</span>
+          </a>
         )}
 
         <button
@@ -475,23 +489,14 @@ export function WeeklyCalendarView({
           workingDays={workingDays}
           onToggleWorkingDay={toggleWorkingDay}
           savingWorkingDays={savingWorkingDays}
-          homeLatitudeInput={homeLatitudeInput}
-          homeLongitudeInput={homeLongitudeInput}
-          onHomeLatitudeInputChange={setHomeLatitudeInput}
-          onHomeLongitudeInputChange={setHomeLongitudeInput}
-          onSaveHomeFromInputs={saveHomeFromInputs}
-          onSaveHomeFromCurrentLocation={saveHomeFromCurrentLocation}
-          savingHomeInput={savingHomeInput}
-          savingHomeLocation={savingHomeLocation}
+          onSaveHomeLocation={saveHomeLocation}
+          onDetectCurrentLocation={detectCurrentLocation}
           lunchStartMinute={lunchStartMinute}
           lunchDurationMinutes={lunchDurationMinutes}
           lunchWindowMinutes={lunchWindowMinutes}
           onUpdateLunch={updateLunch}
           savingLunch={savingLunch}
-          displayNameInput={displayNameInput}
-          onDisplayNameInputChange={setDisplayNameInput}
           onSaveDisplayName={saveDisplayName}
-          savingDisplayName={savingDisplayName}
           chartingBufferMinutes={chartingBufferMinutes}
           scheduleDensity={scheduleDensity}
           maxDriveMinutesPerDay={maxDriveMinutesPerDay}
@@ -500,6 +505,7 @@ export function WeeklyCalendarView({
           onUpdateSchedulingSettings={updateSchedulingSettings}
           savingSchedulingSettings={savingSchedulingSettings}
           onSeedDemoPatients={onSeedDemoPatients}
+          onImportPatients={onImportPatients}
           calendarConnectionsProps={{
             connectingProvider,
             setConnectingProvider,
@@ -657,7 +663,7 @@ export function WeeklyCalendarView({
           onSendMessage={onSendMessage}
           onEditPatient={(patientId) => setEditingPatientId(patientId)}
           onToggleLock={async (visitId, locked) => {
-            await apiClient.updateVisit(visitId, { clinician_override: locked });
+            await api.updateVisit(visitId, { clinician_override: locked });
             await onCalendarRefresh();
           }}
         />
@@ -668,7 +674,8 @@ export function WeeklyCalendarView({
           patient={patients.find((p) => p.id === editingPatientId) ?? null}
           onSave={async (patientId, payload) => {
             const prev = patients.find((p) => p.id === patientId);
-            await onUpdatePatient(patientId, payload);
+            const ok = await onUpdatePatient(patientId, payload);
+            if (!ok) return false;
             const addressChanged =
               prev && (prev.address_line1 !== payload.address_line1 ||
                 prev.city !== payload.city ||
@@ -688,6 +695,7 @@ export function WeeklyCalendarView({
             } else {
               await onCalendarRefresh();
             }
+            return true;
           }}
           onClose={() => setEditingPatientId(null)}
         />,

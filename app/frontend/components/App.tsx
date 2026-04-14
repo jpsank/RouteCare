@@ -1,7 +1,18 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule } from "../types";
+import {
+  queryKeys,
+  useAlertsQuery,
+  useCalendarBlocksQuery,
+  useCalendarConnectionsQuery,
+  useClinicianProfileQuery,
+  useMessagesQuery,
+  usePatientsQuery,
+  useScheduleQuery,
+} from "../lib/queries";
+import type { ClinicianProfile } from "../types";
 import { SetupWizard } from "./SetupWizard";
 import { MessageHistorySlideOver } from "./MessageHistorySlideOver";
 import { useAppActions } from "./hooks/useAppActions";
@@ -25,75 +36,53 @@ function PanelFallback() {
 }
 
 export function App() {
-  const [loadingCount, setLoadingCount] = useState(0);
+  const queryClient = useQueryClient();
   const [messageSlideOverOpen, setMessageSlideOverOpen] = useState(false);
-  const loading = loadingCount > 0;
-  const startLoading = useCallback(() => setLoadingCount((c) => c + 1), []);
-  const stopLoading = useCallback(() => setLoadingCount((c) => Math.max(0, c - 1)), []);
-  const [schedule, setSchedule] = useState<WeeklySchedule | null>(null);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [messages, setMessages] = useState<Message[] | null>(null);
-  const [alerts, setAlerts] = useState<Alert[] | null>(null);
-  const [calendarBlocks, setCalendarBlocks] = useState<CalendarBlock[]>([]);
-  const [calendarConnections, setCalendarConnections] = useState<CalendarConnection[]>([]);
-  const [clinicianProfile, setClinicianProfile] = useState<ClinicianProfile | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const actions = useAppActions(
-    { setSchedule, setPatients, setMessages, setAlerts, setCalendarBlocks, setClinicianProfile, setError },
-    { startLoading, stopLoading },
-  );
+  const { data: schedule = null, isFetching: scheduleFetching } = useScheduleQuery();
+  const { data: patients = [], isFetching: patientsFetching } = usePatientsQuery();
+  const { data: messages } = useMessagesQuery();
+  const { data: calendarBlocks = [], isFetching: blocksFetching } = useCalendarBlocksQuery();
+  const { data: calendarConnections = [] } = useCalendarConnectionsQuery();
+  const { data: clinicianProfile, isFetching: profileFetching } = useClinicianProfileQuery();
+  const { data: alerts = [] } = useAlertsQuery();
 
-  const refreshData = useCallback(async () => {
-    startLoading();
-    setError(null);
-    try {
-      const [scheduleResponse, patientsResponse, blocksResponse, profileResponse] = await Promise.all([
-        api.getSchedule(),
-        api.listPatients(),
-        api.listCalendarBlocks(),
-        api.getClinicianProfile(),
-      ]);
-      setSchedule(scheduleResponse.schedule);
-      setPatients(patientsResponse.patients);
-      setCalendarBlocks(blocksResponse.calendar_blocks);
-      setClinicianProfile(profileResponse.clinician_profile);
+  const mutatingCount = useIsMutating();
+  const loading =
+    mutatingCount > 0 ||
+    scheduleFetching ||
+    patientsFetching ||
+    blocksFetching ||
+    profileFetching;
 
-      Promise.all([
-        api.listMessages(),
-        api.listAlerts(),
-        api.listCalendarConnections(),
-      ]).then(([messagesResponse, alertsResponse, connectionsResponse]) => {
-        setMessages(messagesResponse.messages);
-        setAlerts(alertsResponse.alerts);
-        setCalendarConnections(connectionsResponse.calendar_connections);
-      }).catch(() => undefined);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      stopLoading();
-    }
-  }, []);
+  const actions = useAppActions();
+
+  const refreshCalendar = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.schedule }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.patients }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.calendarBlocks }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.calendarConnections }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.messages }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.alerts }),
+    ]);
+  }, [queryClient]);
 
   useEffect(() => {
-    refreshData().catch(() => undefined);
-  }, [refreshData]);
+    if (!clinicianProfile) return;
+    if (clinicianProfile.setup_completed_at) return;
+    if (!clinicianProfile.home_latitude && patients.length === 0) return;
 
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refreshData().catch(() => undefined);
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [refreshData]);
-
-  useEffect(() => {
-    if (clinicianProfile && !clinicianProfile.setup_completed_at && (clinicianProfile.home_latitude || patients.length > 0)) {
-      api.updateClinicianProfile({ setup_completed_at: new Date().toISOString() })
-        .then(() => setClinicianProfile((prev) => prev ? { ...prev, setup_completed_at: new Date().toISOString() } : prev))
-        .catch(() => undefined);
-    }
-  }, [clinicianProfile, patients.length]);
+    const completedAt = new Date().toISOString();
+    api
+      .updateClinicianProfile({ setup_completed_at: completedAt })
+      .then(() => {
+        queryClient.setQueryData<ClinicianProfile>(queryKeys.clinicianProfile, (prev) =>
+          prev ? { ...prev, setup_completed_at: completedAt } : prev,
+        );
+      })
+      .catch(() => undefined);
+  }, [clinicianProfile, patients.length, queryClient]);
 
   const pendingMessageCount = (messages ?? []).filter((m) => m.status === "pending_approval").length;
 
@@ -104,7 +93,7 @@ export function App() {
         <div className="rc-shell">
           <SetupWizard
             clinicianProfile={clinicianProfile}
-            onComplete={refreshData}
+            onComplete={refreshCalendar}
             onSeedDemo={actions.seedDemoPatients}
           />
         </div>
@@ -161,7 +150,6 @@ export function App() {
           </div>
         </header>
 
-        {error && <div className="rc-error">{error}</div>}
         <main>
           <Suspense fallback={<PanelFallback />}>
             <WeeklyCalendarView
@@ -174,7 +162,8 @@ export function App() {
               onCreatePatient={actions.createPatient}
               onUpdatePatient={actions.updatePatient}
               onSeedDemoPatients={actions.seedDemoPatients}
-              clinicianProfile={clinicianProfile}
+              onImportPatients={actions.importPatients}
+              clinicianProfile={clinicianProfile ?? null}
               onUpdateWorkingHours={actions.updateWorkingHours}
               onUpdateWorkingDays={actions.updateWorkingDays}
               onUpdateLunchSettings={actions.updateLunchSettings}
@@ -182,11 +171,11 @@ export function App() {
               onUpdateSchedulingSettings={actions.updateSchedulingSettings}
               onSetHomeFromCurrentLocation={actions.updateHomeLocation}
               onUpdateHomeLocation={actions.updateHomeLocation}
-              onCalendarRefresh={refreshData}
+              onCalendarRefresh={refreshCalendar}
               onBulkConfirm={actions.bulkConfirmMessages}
               onSendMessage={actions.sendMessage}
-              messages={messages}
-              alerts={alerts ?? []}
+              messages={messages ?? null}
+              alerts={alerts}
               onUpdateAlert={actions.updateAlert}
               onExecuteAlertAction={actions.executeAlertAction}
             />

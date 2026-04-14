@@ -1,3 +1,4 @@
+import { format as formatDate } from "date-fns";
 import type { Patient, Visit } from "../../types";
 
 export type Point = { latitude: number; longitude: number };
@@ -73,19 +74,15 @@ export const EMPTY_PATIENT_FORM: PatientForm = {
 };
 
 export function asDateKey(value: string): string {
-  const d = new Date(value);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return formatDate(new Date(value), "yyyy-MM-dd");
 }
 
 export function fmt(date: string): string {
-  return new Date(date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return formatDate(new Date(date), "h:mm a");
 }
 
 export function toLocalInputValue(dateIso: string): string {
-  const date = new Date(dateIso);
-  const offset = date.getTimezoneOffset();
-  const adjusted = new Date(date.getTime() - offset * 60_000);
-  return adjusted.toISOString().slice(0, 16);
+  return formatDate(new Date(dateIso), "yyyy-MM-dd'T'HH:mm");
 }
 
 export function localInputToIso(value: string): string {

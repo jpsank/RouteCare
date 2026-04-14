@@ -8,19 +8,29 @@ RouteCare is a route-optimized field scheduling platform for home-visit clinicia
 
 - **Backend:** Ruby 3.4 / Rails 8.1, PostgreSQL, Solid Queue/Cache/Cable (single DB)
 - **Frontend:** React 19, TypeScript, Vite 8, Tailwind CSS 3
+- **Frontend libs:** TanStack Query, react-hook-form + zod, Recharts
 - **Email:** Postmark (via `postmark-rails` gem + ActionMailer)
 - **SMS:** Telnyx (custom REST client in `app/services/integrations/telnyx_sms_client.rb`)
 - **Auth:** Devise
+- **PDF:** Prawn + prawn-table
+- **Error tracking:** Sentry (Ruby: `sentry-rails`; JS: `@sentry/react`)
+- **E2E tests:** Playwright (`e2e/`, config at `playwright.config.ts`)
+- **Git hooks:** Husky + lint-staged (rubocop autofix on staged `*.rb`)
 - **Deploy:** Railway (Docker) and Render (`render.yaml` + `bin/render-build.sh`)
 
 ## Common commands
 
 ```bash
 bin/dev              # Start dev server (Rails + Vite)
-bin/rails test       # Run tests
+bin/rails test       # Run Rails tests
 bin/rubocop          # Lint (rubocop-rails-omakase style)
 bin/brakeman         # Security scan
 bin/bundler-audit    # Gem vulnerability scan
+npm run test         # Run Vitest unit/component tests
+npm run test:watch   # Vitest in watch mode
+bin/rails playwright:seed_user  # Seed the E2E test user (idempotent)
+npm run e2e          # Run Playwright E2E tests (requires bin/dev running on :3000)
+npm run e2e:install  # One-time: download Playwright browsers
 ```
 
 ## Code layout
@@ -61,6 +71,8 @@ Required for production (set in Railway/Render dashboard):
 - `ROUTECARE_APP_HOST` — app domain for mailer URLs
 
 Optional:
+- `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE` — enables Ruby-side error tracking
+- `VITE_SENTRY_DSN`, `VITE_SENTRY_TRACES_SAMPLE_RATE` — enables frontend error tracking
 - `ROUTECARE_POSTMARK_API_KEY` — enables email delivery
 - `ROUTECARE_TELNYX_API_KEY`, `ROUTECARE_TELNYX_FROM_NUMBER` — enables SMS
 - `ROUTECARE_LLM_API_KEY` — enables AI-drafted messages

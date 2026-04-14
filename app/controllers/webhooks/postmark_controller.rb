@@ -36,6 +36,7 @@ module Webhooks
       head :ok
     rescue StandardError => e
       Rails.logger.error("[Webhooks::Postmark] #{e.class}: #{e.message}")
+      Sentry.capture_exception(e, tags: { webhook: "postmark_inbound" }) if defined?(Sentry) && Sentry.initialized?
       create_processing_alert!(
         "Failed to process email reply: #{e.message}",
         { from: (params["From"]).to_s, body: body.to_s.first(200) }

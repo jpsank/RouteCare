@@ -6,8 +6,8 @@ import { EMPTY_PATIENT_FORM, localInputToIso, patientFormFromPatient, patientPay
 type Args = {
   visits: Visit[];
   patients: ReadonlyArray<Patient>;
-  onCreatePatient: (patient: PatientSavePayload) => Promise<void>;
-  onUpdatePatient: (patientId: number, patient: PatientSavePayload) => Promise<void>;
+  onCreatePatient: (patient: PatientSavePayload) => Promise<boolean>;
+  onUpdatePatient: (patientId: number, patient: PatientSavePayload) => Promise<boolean>;
   onCalendarRefresh: () => Promise<void>;
 };
 
@@ -46,8 +46,13 @@ export function useEventEditor({ visits, patients, onCreatePatient, onUpdatePati
     setSavingPatient(true);
     try {
       const payload = patientPayloadFromForm(patientForm);
-      if (editorMode === "add") await onCreatePatient(payload);
-      else if (editorMode === "edit" && selectedPatient) await onUpdatePatient(selectedPatient.id, payload);
+      let ok = false;
+      if (editorMode === "add") {
+        ok = await onCreatePatient(payload);
+      } else if (editorMode === "edit" && selectedPatient) {
+        ok = await onUpdatePatient(selectedPatient.id, payload);
+      }
+      if (!ok) return;
       await onCalendarRefresh();
       setEditorMode("none");
     } finally {
