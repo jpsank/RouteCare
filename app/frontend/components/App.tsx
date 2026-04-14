@@ -65,6 +65,7 @@ export function App() {
       queryClient.invalidateQueries({ queryKey: queryKeys.calendarConnections }),
       queryClient.invalidateQueries({ queryKey: queryKeys.messages }),
       queryClient.invalidateQueries({ queryKey: queryKeys.alerts }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.clinicianProfile }),
     ]);
   }, [queryClient]);
 
