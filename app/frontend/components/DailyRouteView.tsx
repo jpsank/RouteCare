@@ -60,20 +60,20 @@ export function DailyRouteView({ visits, date, onSendMessage, homeOrigin }: Prop
       {/* Progress bar */}
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
         <div
-          className="h-full rounded-full bg-indigo-500 transition-all"
+          className="h-full rounded-full bg-orange-500 transition-all"
           style={{ width: `${(completedCount / dayVisits.length) * 100}%` }}
         />
       </div>
 
       {/* Next stop hero card */}
       {nextVisit && (
-        <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-4">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-indigo-500">Next stop</p>
+        <div className="rounded-xl border-2 border-orange-200 bg-orange-50 p-4">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-orange-500">Next stop</p>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-base font-semibold text-gray-900">{nextVisit.patient_name}</p>
               <p className="text-xs text-gray-500">{nextVisit.patient_address || "No address"}</p>
-              <p className="mt-1 text-sm font-medium text-indigo-700">{fmt(nextVisit.starts_at)}</p>
+              <p className="mt-1 text-sm font-medium text-orange-700">{fmt(nextVisit.starts_at)}</p>
               {nextVisit.drive_from_previous_minutes > 0 && (
                 <p className="text-xs text-gray-400">{nextVisit.drive_from_previous_minutes} min drive</p>
               )}
@@ -104,7 +104,7 @@ export function DailyRouteView({ visits, date, onSendMessage, homeOrigin }: Prop
             <div
               key={visit.id}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${
-                isCurrent ? "bg-indigo-50 border border-indigo-200" : isPast ? "opacity-50" : "bg-white border border-gray-100"
+                isCurrent ? "bg-orange-50 border border-orange-200" : isPast ? "opacity-50" : "bg-white border border-gray-100"
               }`}
             >
               <div className="flex flex-col items-center gap-0.5">
@@ -142,7 +142,7 @@ export function DailyRouteView({ visits, date, onSendMessage, homeOrigin }: Prop
                 )}
                 {onSendMessage && !isPast && visit.status === "pending_patient_confirmation" && (
                   <button
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-400 hover:text-indigo-600"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-400 hover:text-orange-600"
                     title="Send confirmation"
                     onClick={() => onSendMessage(visit.id, "sms", "", true)}
                   >

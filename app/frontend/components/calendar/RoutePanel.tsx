@@ -140,10 +140,10 @@ export function RoutePanel({
       {dayBlocks.length > 0 && (
         <div className="mt-2 space-y-1">
           {dayBlocks.map((block) => (
-            <div key={block.id} className="flex items-center gap-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px]">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
-              <span className="font-medium text-amber-800">{block.title || "Blocked"}</span>
-              <span className="ml-auto text-amber-600">{fmt(block.starts_at)}–{fmt(block.ends_at)}</span>
+            <div key={block.id} className="flex items-center gap-2 rounded-md bg-orange-50 px-2.5 py-1.5 text-[11px]">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-400" />
+              <span className="font-medium text-orange-800">{block.title || "Blocked"}</span>
+              <span className="ml-auto text-orange-600">{fmt(block.starts_at)}–{fmt(block.ends_at)}</span>
             </div>
           ))}
         </div>

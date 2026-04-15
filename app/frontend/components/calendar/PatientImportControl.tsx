@@ -56,7 +56,7 @@ export function PatientImportControl({ onImport, disabled }: Props) {
         <input
           type="file"
           accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="cursor-pointer text-[11px] file:mr-2 file:cursor-pointer file:rounded file:border-0 file:bg-indigo-50 file:px-2 file:py-1 file:text-[11px] file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+          className="cursor-pointer text-[11px] file:mr-2 file:cursor-pointer file:rounded file:border-0 file:bg-orange-50 file:px-2 file:py-1 file:text-[11px] file:font-medium file:text-orange-700 hover:file:bg-orange-100"
           {...register("file")}
           disabled={disabled || isSubmitting}
         />
@@ -90,7 +90,7 @@ export function PatientImportControl({ onImport, disabled }: Props) {
           )}
           {result.errors.length > 0 && (
             <details>
-              <summary className="cursor-pointer text-amber-700">
+              <summary className="cursor-pointer text-orange-700">
                 {result.errors.length} row error(s)
               </summary>
               <ul className="mt-1 max-h-32 list-disc overflow-y-auto pl-4 text-gray-500">

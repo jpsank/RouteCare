@@ -62,7 +62,7 @@ export function InlineAlertSummary({ alerts, onUpdateAlert, onExecuteAction }: P
                   alert.severity === "high"
                     ? "border-l-[3px] border-l-red-500 border-gray-200"
                     : alert.severity === "medium"
-                      ? "border-l-[3px] border-l-amber-500 border-gray-200"
+                      ? "border-l-[3px] border-l-orange-500 border-gray-200"
                       : "border-gray-200"
                 }`}
               >
@@ -70,7 +70,7 @@ export function InlineAlertSummary({ alerts, onUpdateAlert, onExecuteAction }: P
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {alert.category === "unconfirmed_visit" && Boolean(alert.metadata?.visit_id) && onExecuteAction && (
                     <button
-                      className="rounded bg-indigo-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-indigo-700"
+                      className="rounded bg-orange-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-orange-700"
                       disabled={actingId === alert.id}
                       onClick={async () => {
                         setActingId(alert.id);
@@ -85,7 +85,7 @@ export function InlineAlertSummary({ alerts, onUpdateAlert, onExecuteAction }: P
                       key={value}
                       className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                         alert.status === value
-                          ? "bg-indigo-100 text-indigo-700"
+                          ? "bg-orange-100 text-orange-700"
                           : "bg-gray-100 text-gray-500 hover:bg-gray-200"
                       }`}
                       disabled={alert.status === value}

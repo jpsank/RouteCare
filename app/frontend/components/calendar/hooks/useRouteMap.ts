@@ -203,7 +203,7 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
           id: ROUTE_LAYER_ID,
           type: "line",
           source: ROUTE_SOURCE_ID,
-          paint: { "line-color": "#6366f1", "line-width": 3, "line-opacity": 0.7 },
+          paint: { "line-color": "#f97316", "line-width": 3, "line-opacity": 0.7 },
         });
       }
 

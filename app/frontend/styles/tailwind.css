@@ -37,13 +37,13 @@
   }
 
   button {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50;
   }
 
   input,
   select,
   textarea {
-    @apply w-full min-w-0 box-border rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 transition-colors placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500;
+    @apply w-full min-w-0 box-border rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 transition-colors placeholder:text-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500;
   }
 
   textarea {
@@ -67,7 +67,7 @@
 
   /* ── Buttons ── */
   .btn-primary {
-    @apply border-indigo-600 bg-indigo-600 text-white shadow-sm hover:bg-indigo-700;
+    @apply border-orange-600 bg-orange-600 text-white shadow-sm hover:bg-orange-700;
   }
 
   .btn-secondary {
@@ -79,7 +79,7 @@
   }
 
   .btn-link {
-    @apply border-transparent bg-transparent p-0 text-sm font-medium text-indigo-600 shadow-none hover:text-indigo-800 hover:underline;
+    @apply border-transparent bg-transparent p-0 text-sm font-medium text-orange-600 shadow-none hover:text-orange-800 hover:underline;
   }
 
   .btn-danger {
@@ -173,7 +173,7 @@
     @apply relative flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-gray-50;
   }
   .rc-timeline-stop.active {
-    @apply bg-indigo-50;
+    @apply bg-orange-50;
   }
 
   .rc-stop-dot {
@@ -212,7 +212,7 @@
     @apply bg-emerald-50 text-emerald-700;
   }
   .rc-badge-warning {
-    @apply bg-amber-50 text-amber-700;
+    @apply bg-orange-50 text-orange-700;
   }
   .rc-badge-danger {
     @apply bg-red-50 text-red-700;
@@ -226,7 +226,7 @@
     @apply rounded-md border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors;
   }
   .rc-day-btn.active {
-    @apply border-indigo-300 bg-indigo-50 text-indigo-700;
+    @apply border-orange-300 bg-orange-50 text-orange-700;
   }
 
   /* ── Inline settings row ── */
@@ -268,7 +268,7 @@
     @apply border-l-[3px] border-l-red-500;
   }
   .rc-alert-item.sev-medium {
-    @apply border-l-[3px] border-l-amber-500;
+    @apply border-l-[3px] border-l-orange-500;
   }
   .rc-alert-item.sev-low {
     @apply border-l-[3px] border-l-blue-500;
@@ -334,8 +334,8 @@
 
 .fc .fc-button-primary:not(:disabled).fc-button-active,
 .fc .fc-button-primary:not(:disabled):active {
-  background-color: #4f46e5 !important;
-  border-color: #4338ca !important;
+  background-color: #ea580c !important;
+  border-color: #c2410c !important;
   color: #fff !important;
 }
 
@@ -363,15 +363,15 @@
 
 /* Today column highlight */
 .fc .fc-day-today {
-  background: rgb(99 102 241 / 0.04) !important;
+  background: rgb(249 115 22 / 0.04) !important;
 }
 
 .fc .fc-col-header-cell.fc-day-today {
-  background: rgb(99 102 241 / 0.08) !important;
+  background: rgb(249 115 22 / 0.08) !important;
 }
 
 .fc .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion {
-  color: #4f46e5 !important;
+  color: #ea580c !important;
   font-weight: 600 !important;
 }
 
@@ -597,7 +597,7 @@
 
 /* Selected visit */
 .fc .visit-selected {
-  outline: 2px solid #4f46e5 !important;
+  outline: 2px solid #ea580c !important;
   outline-offset: -2px !important;
 }
 
@@ -613,7 +613,7 @@
   width: 14px;
   height: 14px;
   border-radius: 3px;
-  background: #4f46e5;
+  background: #ea580c;
   color: #fff;
   font-size: 9px;
   line-height: 14px;
@@ -632,7 +632,7 @@
 }
 
 .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
-  background: #4f46e5 !important;
+  background: #ea580c !important;
   color: #fff !important;
   border-radius: 9999px !important;
   width: 22px !important;

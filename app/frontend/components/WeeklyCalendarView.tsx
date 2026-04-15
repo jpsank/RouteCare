@@ -1,4 +1,5 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { useClickOutside } from "./hooks/useClickOutside";
 import { createPortal } from "react-dom";
 import { api } from "../lib/api";
 import type { Alert, CalendarBlock, CalendarConnection, ClinicianProfile, Message, Patient, WeeklySchedule, Visit } from "../types";
@@ -37,6 +38,9 @@ type Props = {
   calendarBlocks: CalendarBlock[];
   calendarConnections: CalendarConnection[];
   loading: boolean;
+  pendingMessageCount?: number;
+  onOpenMessages?: () => void;
+  onSignOut?: () => void;
   onOptimize: (start?: { latitude: number; longitude: number }) => Promise<boolean>;
   onCreatePatient: (patient: PatientSavePayload) => Promise<boolean>;
   onUpdatePatient: (patientId: number, patient: PatientSavePayload) => Promise<boolean>;
@@ -66,6 +70,9 @@ export function WeeklyCalendarView({
   calendarBlocks,
   calendarConnections,
   loading,
+  pendingMessageCount = 0,
+  onOpenMessages,
+  onSignOut,
   onOptimize,
   onCreatePatient,
   onUpdatePatient,
@@ -134,6 +141,9 @@ export function WeeklyCalendarView({
   const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
   const [mobileToday, setMobileToday] = useState(false);
   const [mobileTodayInitialized, setMobileTodayInitialized] = useState(false);
+  const [warningsExpanded, setWarningsExpanded] = useState(false);
+  const warningsRef = useRef<HTMLDivElement>(null);
+  useClickOutside(warningsRef, () => setWarningsExpanded(false), warningsExpanded);
 
 
   const homeOrigin = useMemo(() => {
@@ -342,22 +352,130 @@ export function WeeklyCalendarView({
 
   return (
     <div className="space-y-1 sm:space-y-2">
-      {/* Compact toolbar */}
-      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+      {/* Compact nav + toolbar (single row) */}
+      <div className="mb-2 flex flex-wrap items-center gap-1.5 border-b border-gray-200 pb-2 sm:gap-2">
+        <div className="flex items-center">
+          <svg className="mr-1 h-5 w-5 flex-none text-orange-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
+          </svg>
+          <span className="mr-2 hidden text-sm font-bold tracking-tight text-gray-900 sm:inline sm:mr-3">RouteCare</span>
+        </div>
+
         <button className="btn-primary btn-sm" onClick={() => onOptimize()} disabled={loading}>
           {loading ? "Optimizing..." : "Re-optimize"}
         </button>
 
+        {/* Consolidated schedule-warning pill (inline in toolbar) */}
+        {(() => {
+          const contactedPatientIds = new Set(
+            (messages ?? []).filter((m) => m.direction === "outbound").map((m) => m.patient_id),
+          );
+          const unconfirmedCount = (messages && onBulkConfirm)
+            ? visits.filter(
+                (v) => v.status === "pending_patient_confirmation" && !contactedPatientIds.has(v.patient_id),
+              ).length
+            : 0;
+
+          const unschedulable = schedule?.optimization_summary?.unschedulable ?? [];
+          const reasonLabels: Record<string, string> = {
+            min_days_between_visits: "min days between visits",
+            day_capacity: "not enough time in day",
+            availability_windows: "no patient availability",
+            routing_or_drive_limit: "drive limit or routing",
+            no_working_days_available: "no working days available",
+          };
+          const byPatient = new Map<string, Set<string>>();
+          for (const u of unschedulable) {
+            const existing = byPatient.get(u.patient_name) ?? new Set();
+            for (const r of u.reasons ?? []) existing.add(reasonLabels[r] ?? r);
+            byPatient.set(u.patient_name, existing);
+          }
+
+          const violations = schedule?.optimization_summary?.drive_violations ?? [];
+
+          const hasError = byPatient.size > 0;
+          const hasWarn = unconfirmedCount > 0 || violations.length > 0;
+          if (!hasError && !hasWarn) return null;
+
+          const tone = hasError
+            ? { pill: "border-red-200 bg-red-50 text-red-800 hover:bg-red-100", dot: "bg-red-500" }
+            : { pill: "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100", dot: "bg-orange-500" };
+
+          const summaryParts: string[] = [];
+          if (unconfirmedCount > 0) summaryParts.push(`${unconfirmedCount} unconfirmed`);
+          if (byPatient.size > 0) summaryParts.push(`${byPatient.size} unschedulable`);
+          if (violations.length > 0) summaryParts.push(`drive limit ${violations.length}d`);
+          const hasDetails = byPatient.size > 0 || violations.length > 0;
+
+          return (
+            <div ref={warningsRef} className="relative flex items-center gap-1">
+              <button
+                type="button"
+                className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium shadow-none ${tone.pill}`}
+                onClick={() => hasDetails && setWarningsExpanded((v) => !v)}
+                aria-expanded={warningsExpanded}
+              >
+                <span className={`h-1.5 w-1.5 flex-none rounded-full ${tone.dot}`} />
+                <span>{summaryParts.join(" · ")}</span>
+                {hasDetails && (
+                  <svg
+                    className={`h-3 w-3 flex-none transition-transform ${warningsExpanded ? "rotate-180" : ""}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                  </svg>
+                )}
+              </button>
+              {unconfirmedCount > 0 && onBulkConfirm && (
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  onClick={() => onBulkConfirm()}
+                  disabled={loading}
+                >
+                  Send All
+                </button>
+              )}
+              {warningsExpanded && hasDetails && (
+                <div className="absolute left-0 top-full z-50 mt-1 w-[min(420px,calc(100vw-24px))] space-y-1.5 rounded-2xl bg-white p-3 text-xs shadow-2xl ring-1 ring-black/5 sm:text-sm">
+                  {byPatient.size > 0 && (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-semibold text-red-800">Could not schedule:</span>
+                      {[...byPatient.entries()].map(([name, reasons]) => (
+                        <div key={name} className="ml-3 text-red-700">
+                          <strong>{name}</strong>{reasons.size > 0 && ` — ${[...reasons].join(", ")}`}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {violations.length > 0 && (
+                    <div className="text-orange-800">
+                      <span className="font-semibold">Drive time exceeds limit:</span>{" "}
+                      {violations.map((v) => {
+                        const d = new Date(v.date + "T12:00:00");
+                        return `${d.toLocaleDateString([], { weekday: "short" })} (${v.drive_minutes}min / ${v.max_drive}min)`;
+                      }).join(", ")}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Mobile today/calendar toggle — inline in toolbar */}
         <div className="flex items-center gap-0.5 sm:hidden">
           <button
-            className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${mobileToday ? "bg-indigo-100 text-indigo-700" : "bg-transparent text-gray-400"}`}
+            className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${mobileToday ? "bg-orange-100 text-orange-700" : "bg-transparent text-gray-400"}`}
             onClick={() => setMobileToday(true)}
           >
             Today
           </button>
           <button
-            className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${!mobileToday ? "bg-indigo-100 text-indigo-700" : "bg-transparent text-gray-400"}`}
+            className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${!mobileToday ? "bg-orange-100 text-orange-700" : "bg-transparent text-gray-400"}`}
             onClick={() => setMobileToday(false)}
           >
             Week
@@ -388,94 +506,57 @@ export function WeeklyCalendarView({
           </a>
         )}
 
-        <button
-          className="flex items-center gap-1 rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium text-gray-500 shadow-none hover:bg-gray-100 ml-auto sm:ml-0"
-          onClick={() => setShowSettings(!showSettings)}
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-          </svg>
-          <span className="hidden sm:inline">Settings</span>
-        </button>
-      </div>
-
-      {/* Bulk confirm banner */}
-      {(() => {
-        if (!messages || !onBulkConfirm) return null;
-        const contactedPatientIds = new Set(messages.filter((m) => m.direction === "outbound").map((m) => m.patient_id));
-        const unconfirmedCount = visits.filter(
-          (v) => v.status === "pending_patient_confirmation" && !contactedPatientIds.has(v.patient_id),
-        ).length;
-        if (unconfirmedCount === 0) return null;
-        return (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs sm:gap-3 sm:px-3 sm:py-2 sm:text-sm">
-            <span className="text-amber-800">
-              <strong>{unconfirmedCount}</strong> unconfirmed
-            </span>
-            <button
-              className="btn-primary btn-sm ml-auto"
-              onClick={() => onBulkConfirm()}
-              disabled={loading}
-            >
-              Send All
-            </button>
-          </div>
-        );
-      })()}
-
-      {/* Unschedulable visits warning */}
-      {(() => {
-        const items = schedule?.optimization_summary?.unschedulable ?? [];
-        if (items.length === 0) return null;
-        const reasonLabels: Record<string, string> = {
-          min_days_between_visits: "min days between visits",
-          day_capacity: "not enough time in day",
-          availability_windows: "no patient availability",
-          routing_or_drive_limit: "drive limit or routing",
-          no_working_days_available: "no working days available",
-        };
-        const byPatient = new Map<string, Set<string>>();
-        for (const u of items) {
-          const existing = byPatient.get(u.patient_name) ?? new Set();
-          for (const r of u.reasons ?? []) existing.add(reasonLabels[r] ?? r);
-          byPatient.set(u.patient_name, existing);
-        }
-        return (
-          <div className="flex flex-col gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm">
-            <div className="flex items-center gap-2">
-              <svg className="h-4 w-4 flex-none text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-              </svg>
-              <span className="text-red-800">Could not schedule all visits:</span>
-            </div>
-            {[...byPatient.entries()].map(([name, reasons]) => (
-              <div key={name} className="ml-6 text-red-700">
-                <strong>{name}</strong>{reasons.size > 0 && ` — ${[...reasons].join(", ")}`}
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
-      {/* Drive time violations warning */}
-      {(() => {
-        const violations = schedule?.optimization_summary?.drive_violations ?? [];
-        if (violations.length === 0) return null;
-        return (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs sm:gap-3 sm:px-3 sm:py-2 sm:text-sm">
-            <svg className="h-4 w-4 flex-none text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+        {/* Right cluster: spinner, messages, settings, sign out */}
+        <div className="ml-auto flex items-center gap-1">
+          {loading && (
+            <svg className="h-3.5 w-3.5 animate-spin text-orange-400" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            <span className="text-amber-800">
-              Drive time exceeds limit on {violations.map((v) => {
-                const d = new Date(v.date + "T12:00:00");
-                return `${d.toLocaleDateString([], { weekday: "short" })} (${v.drive_minutes}min / ${v.max_drive}min)`;
-              }).join(", ")}
-            </span>
-          </div>
-        );
-      })()}
+          )}
+
+          {onOpenMessages && (
+            <button
+              className="relative flex items-center gap-1 rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium text-gray-500 shadow-none hover:bg-gray-100"
+              onClick={onOpenMessages}
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+              </svg>
+              <span className="hidden sm:inline">Messages</span>
+              {pendingMessageCount > 0 && (
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {pendingMessageCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          <button
+            className="flex items-center gap-1 rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium text-gray-500 shadow-none hover:bg-gray-100"
+            onClick={() => setShowSettings(!showSettings)}
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            <span className="hidden sm:inline">Settings</span>
+          </button>
+
+          {onSignOut && (
+            <button
+              className="rounded-lg border-0 bg-transparent px-2 py-1.5 text-xs font-medium text-gray-400 shadow-none hover:bg-gray-100 hover:text-gray-600"
+              onClick={onSignOut}
+              title="Sign out"
+            >
+              <svg className="h-4 w-4 sm:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+              </svg>
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
+          )}
+        </div>
+      </div>
 
       {showSettings && (
         <SettingsModal

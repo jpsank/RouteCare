@@ -114,7 +114,7 @@ export function AlertsPanel({ alerts, onUpdateAlert, onExecuteAction }: Props) {
               <div className="flex flex-none items-center gap-1.5">
                 {alert.category === "unconfirmed_visit" && Boolean(alert.metadata?.visit_id) && alert.status === "open" && onExecuteAction && (
                   <button
-                    className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white transition-colors hover:bg-indigo-700"
+                    className="rounded-md bg-orange-600 px-2 py-1 text-[10px] font-medium text-white transition-colors hover:bg-orange-700"
                     disabled={actingId === alert.id}
                     onClick={async () => {
                       setActingId(alert.id);
@@ -129,7 +129,7 @@ export function AlertsPanel({ alerts, onUpdateAlert, onExecuteAction }: Props) {
                     key={value}
                     className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
                       alert.status === value
-                        ? "bg-indigo-100 text-indigo-700"
+                        ? "bg-orange-100 text-orange-700"
                         : "bg-gray-100 text-gray-500 hover:bg-gray-200"
                     }`}
                     disabled={alert.status === value || updatingId === alert.id}

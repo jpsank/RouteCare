@@ -211,7 +211,7 @@ function TimeWindowGrid({
         "relative flex-1 h-7 overflow-hidden",
         bare ? "bg-gray-100/80" : "rounded-md border border-gray-200 bg-gray-100",
         !disabled ? "cursor-col-resize" : "cursor-default opacity-40",
-        !bare && !disabled ? "hover:border-indigo-300" : "",
+        !bare && !disabled ? "hover:border-orange-300" : "",
       ].filter(Boolean).join(" ")}
       style={{ userSelect: "none" }}
       onMouseDown={(e) => {
@@ -235,7 +235,7 @@ function TimeWindowGrid({
       ))}
       {/* Selected range */}
       <div
-        className="absolute inset-y-[2px] rounded-[3px] bg-indigo-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]"
+        className="absolute inset-y-[2px] rounded-[3px] bg-orange-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]"
         style={{
           left: `${leftPct}%`,
           width: `${widthPct}%`,
@@ -382,7 +382,7 @@ export function SettingsModal({
               onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-1.5 rounded-lg border-0 px-3 py-1.5 text-[12px] font-medium shadow-none transition-colors ${
                 activeTab === tab.key
-                  ? "bg-indigo-50 text-indigo-700"
+                  ? "bg-orange-50 text-orange-700"
                   : "bg-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-700"
               }`}
             >
@@ -455,7 +455,7 @@ export function SettingsModal({
                     )}
                     <button
                       type="button"
-                      className="mt-1 flex items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-medium text-indigo-600 shadow-none hover:text-indigo-800"
+                      className="mt-1 flex items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-medium text-orange-600 shadow-none hover:text-orange-800"
                       onClick={useCurrentLocation}
                       disabled={loading || detectingLocation}
                     >
@@ -513,14 +513,14 @@ export function SettingsModal({
                           <button
                             type="button"
                             className={`flex h-10 w-[52px] shrink-0 items-center justify-center gap-1 border-0 border-r border-gray-100 text-[11px] font-semibold shadow-none transition-colors
-                              ${active ? "bg-indigo-50/80 text-indigo-700" : "bg-gray-50 text-gray-400"}`}
+                              ${active ? "bg-orange-50/80 text-orange-700" : "bg-gray-50 text-gray-400"}`}
                             onClick={() => onToggleWorkingDay(wday)}
                             disabled={loading || savingWorkingDays}
                             title={active ? `${label} is a working day (click to disable)` : `${label} is off (click to enable)`}
                           >
                             {label}
                             {hasCustom && (
-                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400" title="Custom hours" />
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-400" title="Custom hours" />
                             )}
                           </button>
                           <div className="mx-2 flex flex-1 items-center py-1.5">

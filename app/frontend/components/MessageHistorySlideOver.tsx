@@ -66,12 +66,12 @@ export function MessageHistorySlideOver({ messages, isOpen, onClose, onApprove }
           {/* Pending approvals */}
           {pendingMessages.length > 0 && (
             <div className="mb-4">
-              <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-600">
+              <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-orange-600">
                 Needs Approval ({pendingMessages.length})
               </h4>
               <div className="space-y-2">
                 {pendingMessages.map((msg) => (
-                  <div key={msg.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+                  <div key={msg.id} className="rounded-lg border border-orange-200 bg-orange-50 p-2.5">
                     <div className="flex items-center gap-2 text-xs text-gray-500">
                       {msg.patient_name && <span className="font-semibold text-gray-800">{msg.patient_name}</span>}
                       <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium">{msg.channel === "sms" ? "SMS" : "Email"}</span>
@@ -98,7 +98,7 @@ export function MessageHistorySlideOver({ messages, isOpen, onClose, onApprove }
             {recentMessages.map((msg) => {
               const isInbound = msg.direction === "inbound";
               return (
-                <div key={msg.id} className={`rounded-lg border border-gray-100 p-2.5 ${isInbound ? "border-l-[3px] border-l-indigo-400" : ""}`}>
+                <div key={msg.id} className={`rounded-lg border border-gray-100 p-2.5 ${isInbound ? "border-l-[3px] border-l-orange-400" : ""}`}>
                   <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
                     {msg.patient_name && <span className="font-medium text-gray-800">{msg.patient_name}</span>}
                     <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium">{msg.channel === "sms" ? "SMS" : "Email"}</span>

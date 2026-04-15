@@ -56,7 +56,7 @@ export function MessagesTrendChart({ messages, days = 14 }: Props) {
             <XAxis dataKey="day" tick={{ fontSize: 9, fill: "#9ca3af" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 9, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
             <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e5e7eb" }} />
-            <Bar dataKey="outbound" stackId="dir" fill="#6366f1" name="Sent" />
+            <Bar dataKey="outbound" stackId="dir" fill="#f97316" name="Sent" />
             <Bar dataKey="inbound" stackId="dir" fill="#10b981" name="Received" />
           </BarChart>
         </ResponsiveContainer>

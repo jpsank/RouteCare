@@ -159,7 +159,7 @@ export function WeekStatsPopover({ schedule }: Props) {
                   contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e5e7eb" }}
                   formatter={(value, name) => [`${value} min`, name === "driveMinutes" ? "Drive" : String(name)]}
                 />
-                <Bar dataKey="driveMinutes" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="driveMinutes" fill="#f97316" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

@@ -118,7 +118,7 @@ export function SetupWizard({ clinicianProfile, onComplete, onSeedDemo }: Props)
             <div
               key={i}
               className={`h-1.5 w-12 rounded-full transition-colors ${
-                i <= step ? "bg-indigo-500" : "bg-gray-200"
+                i <= step ? "bg-orange-500" : "bg-gray-200"
               }`}
             />
           ))}
@@ -128,7 +128,7 @@ export function SetupWizard({ clinicianProfile, onComplete, onSeedDemo }: Props)
           {step === 0 && (
             <div className="space-y-5">
               <div className="text-center">
-                <p className="text-sm font-semibold uppercase tracking-widest text-indigo-600">Welcome to RouteCare</p>
+                <p className="text-sm font-semibold uppercase tracking-widest text-orange-600">Welcome to RouteCare</p>
                 <h1 className="mt-2 text-xl font-bold tracking-tight text-gray-900">Let's get you set up</h1>
                 <p className="mt-1 text-sm text-gray-500">This takes about 30 seconds.</p>
               </div>
@@ -176,7 +176,7 @@ export function SetupWizard({ clinicianProfile, onComplete, onSeedDemo }: Props)
                       key={wday}
                       className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                         workingDays.includes(wday)
-                          ? "bg-indigo-100 text-indigo-700 border-indigo-200"
+                          ? "bg-orange-100 text-orange-700 border-orange-200"
                           : "bg-gray-50 text-gray-400 border-gray-200"
                       }`}
                       onClick={() => {
