@@ -594,6 +594,7 @@ def solve_envelope_partial(
     precomputed_slots: dict[str, list[Slot]],
     precomputed_approx_costs: dict[tuple[str, int], int],
     marginal_costs: dict[tuple[str, int, int], int] | None = None,
+    prior_assignments: dict[str, Slot] | None = None,
     time_budget: float = 1.0,
 ) -> Envelope | None:
     """Solve only for `destroyed_ids`, hard-fixing everyone else.
@@ -607,6 +608,12 @@ def solve_envelope_partial(
       - No-good cuts referencing only locked triples are auto-
         satisfied (subset would already be forbidden by locks)
       - Continuity is enforced by construction (locks can't move)
+
+    `prior_assignments`, when provided, supplies (clinician, day) hints
+    for the destroyed instances — typically the current LNS incumbent's
+    placements.  CP-SAT uses these as starting guesses via `add_hint`,
+    which often lets the search skip cold-start work when the improved
+    solution is structurally close to the current one.
 
     Returns a full Envelope (locked ⊕ newly-placed destroyed) or
     None if CP-SAT is infeasible.
@@ -796,6 +803,26 @@ def solve_envelope_partial(
 
     if objective:
         model.minimize(sum(objective))
+
+    # ── Hints from prior_assignments ─────────────────────────────
+    # Seed CP-SAT with the current incumbent's placements for the
+    # destroyed instances.  Hint any slot var matching (iid, c, d)
+    # from the prior assignment — window_idx doesn't have to match.
+    # Hints are soft: CP-SAT can still find a strictly better
+    # solution, it just starts closer to a known-good state.
+    if prior_assignments:
+        for iid in destroyed_ids:
+            prior = prior_assignments.get(iid)
+            if prior is None:
+                continue
+            candidates = vehicle_slot_vars.get(
+                (iid, prior.clinician_idx, prior.day_idx), []
+            )
+            if not candidates:
+                continue
+            model.add_hint(candidates[0], 1)
+            if iid in scheduled:
+                model.add_hint(scheduled[iid], 1)
 
     # ── Solve ────────────────────────────────────────────────────
     solver = cp_model.CpSolver()

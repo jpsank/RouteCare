@@ -448,6 +448,14 @@ def polish(
                 cut_store=cut_store,
                 precomputed_slots=precomputed_slots,
                 precomputed_approx_costs=precomputed_approx_costs,
+                # Hint CP-SAT with the incumbent's placements for the
+                # destroyed instances — warms the search toward a
+                # known-good starting point.
+                prior_assignments={
+                    iid: best_env.assignments[iid]
+                    for iid in destroyed_ids
+                    if iid in best_env.assignments
+                },
                 time_budget=iter_budget,
             )
         except Exception as e:
