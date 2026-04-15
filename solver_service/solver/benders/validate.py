@@ -115,15 +115,20 @@ def validate_plan(output: SolverOutput, input: SolverInput) -> None:
         if not patient:
             continue
         ords = sorted(datetime.fromisoformat(d).toordinal() for d in set(dates))
-        # Semantic: min_days_between_visits means gap must be STRICTLY greater.
-        # i.e. min_gap=1 → visits on consecutive days OK, same day forbidden.
-        # min_gap=2 → gap must be ≥3 days.  Matches the envelope model.
+        # Semantic of min_days_between_visits:
+        #   = "minimum number of clear days between two visits of this patient"
+        # i.e. min_gap=0 → consecutive days OK, same day forbidden.
+        #      min_gap=1 → need 1 clear day between (Mon+Wed OK, Mon+Tue forbidden).
+        #      min_gap=2 → need 2 clear days between (Mon+Thu OK, Mon+Wed forbidden).
+        # Implemented as: day-index gap must be STRICTLY greater than min_gap.
         for i in range(len(ords) - 1):
             gap = ords[i + 1] - ords[i]
             if gap <= patient.min_days_between_visits:
                 raise ValidationError(
                     "min_spacing",
-                    f"patient {pid}: consecutive visits {gap} days apart (min_gap {patient.min_days_between_visits}, gap must be > min_gap)",
+                    f"patient {pid}: consecutive visits {gap} days apart "
+                    f"(min_days_between_visits={patient.min_days_between_visits}, "
+                    f"requires at least {patient.min_days_between_visits + 1} days between visit dates)",
                 )
 
     # ── 7. Time windows (availability and day bounds) ───────────

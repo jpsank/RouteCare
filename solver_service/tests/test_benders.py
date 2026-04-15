@@ -270,6 +270,60 @@ def test_max_spacing_soft_penalty_prefers_tighter_gap():
     assert gap == 2, f"expected tight gap=2, got gap={gap}"
 
 
+def test_min_gap_semantic_zero_allows_consecutive_forbids_same_day():
+    """min_days_between_visits=0 → 0 clear days required between visits.
+    Same day forbidden, consecutive days allowed."""
+    patients = [_mk_pat(1, "P", dur=30, req=2, min_gap=0, max_gap=7)]
+    instances = [_mk_inst(f"p1_v{i}", 1, 30) for i in range(2)]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=5)
+    assert out.metadata["placed"] == 2
+    _assert_valid(out, inp)
+    dates = sorted(v.date for v in out.planned_visits)
+    from datetime import datetime as dt
+    ords = [dt.fromisoformat(d).toordinal() for d in dates]
+    gap = ords[1] - ords[0]
+    assert gap >= 1, f"same-day forbidden, got gap={gap}"
+    # Consecutive days (gap=1) are legal under min_gap=0
+
+
+def test_min_gap_semantic_one_requires_one_clear_day():
+    """min_days_between_visits=1 → 1 clear day required between visits.
+    Smallest legal placement: Mon+Wed (Tuesday between = 1 clear day)."""
+    patients = [_mk_pat(1, "P", dur=30, req=2, min_gap=1, max_gap=7)]
+    instances = [_mk_inst(f"p1_v{i}", 1, 30) for i in range(2)]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=5)
+    assert out.metadata["placed"] == 2
+    _assert_valid(out, inp)
+    dates = sorted(v.date for v in out.planned_visits)
+    from datetime import datetime as dt
+    ords = [dt.fromisoformat(d).toordinal() for d in dates]
+    gap = ords[1] - ords[0]
+    assert gap >= 2, (
+        f"min_gap=1 requires 1 clear day → gap ≥ 2, got gap={gap} "
+        f"(consecutive days should be forbidden)"
+    )
+
+
+def test_min_gap_semantic_two_requires_two_clear_days():
+    """min_days_between_visits=2 → 2 clear days required between visits.
+    Smallest legal placement: Mon+Thu (Tue, Wed between = 2 clear days)."""
+    patients = [_mk_pat(1, "P", dur=30, req=2, min_gap=2, max_gap=7)]
+    instances = [_mk_inst(f"p1_v{i}", 1, 30) for i in range(2)]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=5)
+    assert out.metadata["placed"] == 2
+    _assert_valid(out, inp)
+    dates = sorted(v.date for v in out.planned_visits)
+    from datetime import datetime as dt
+    ords = [dt.fromisoformat(d).toordinal() for d in dates]
+    gap = ords[1] - ords[0]
+    assert gap >= 3, (
+        f"min_gap=2 requires 2 clear days → gap ≥ 3, got gap={gap}"
+    )
+
+
 def test_min_spacing_strict():
     # req=2, min_gap=2 → need gap > 2 (≥3) between the two visits.
     # 5-day horizon: only (Mon, Thu), (Mon, Fri), (Tue, Fri) fit.
