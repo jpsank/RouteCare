@@ -275,6 +275,55 @@ class AdaptiveWeights:
 # ── Repair helpers ──────────────────────────────────────────────────
 
 
+def _changed_route_keys(
+    old: SubproblemResult,
+    new: SubproblemResult,
+) -> list[tuple[int, int]]:
+    """Return the (clinician_idx, day_idx) keys of routes whose ordered
+    instance sets differ between old and new — these are the ones that
+    need concrete-timing re-verification after a repair iteration."""
+    changed: list[tuple[int, int]] = []
+    all_keys = set(old.routes.keys()) | set(new.routes.keys())
+    for key in all_keys:
+        old_route = old.routes.get(key)
+        new_route = new.routes.get(key)
+        old_ids = frozenset(old_route.ordered) if old_route else frozenset()
+        new_ids = frozenset(new_route.ordered) if new_route else frozenset()
+        if old_ids != new_ids:
+            changed.append(key)
+    return changed
+
+
+def _timing_drops_any(
+    sub: SubproblemResult,
+    vehicle_keys: list[tuple[int, int]],
+    input: SolverInput,
+    ctx: SolverContext,
+) -> bool:
+    """Run concrete timing on the specified vehicles and return True if
+    any drops a visit.  Used as an LNS-iteration acceptance gate: a
+    route that the subproblem forward pass accepts but cpsat_timing
+    would drop is worthless — we should reject it and try a different
+    destroy/repair combination."""
+    from solver.cpsat_timing import cpsat_time_vehicle_route  # late import
+
+    for key in vehicle_keys:
+        route = sub.routes.get(key)
+        if not route or not route.ordered:
+            continue
+        vehicle = ctx.vehicle_by_key.get(key)
+        if vehicle is None:
+            continue
+        instances = [ctx.instances_by_id[iid] for iid in route.ordered]
+        try:
+            tr = cpsat_time_vehicle_route(vehicle, instances, input, ctx)
+        except Exception:
+            return True
+        if getattr(tr, "dropped", None):
+            return True
+    return False
+
+
 def _remove_from_envelope(env: Envelope, destroyed_ids: set[str]) -> Envelope:
     """Return a new Envelope with the destroyed instances removed.
 
@@ -432,22 +481,36 @@ def polish(
             continue
 
         new_cost = new_sub.total_drive()
-        if new_cost < best_cost:
-            delta = best_cost - new_cost
-            logger.info(
-                "lns.iter %d op=%s k=%d improved %d → %d (−%d)",
-                iteration, op_name, k, best_cost, new_cost, delta,
-            )
-            best_env = new_env
-            best_sub = new_sub
-            best_cost = new_cost
-            result.improvements += 1
-            weights.record(op_name, improved=True)
-            no_improve_streak = 0
-        else:
+        if new_cost >= best_cost:
             result.rejected += 1
             weights.record(op_name, improved=False)
             no_improve_streak += 1
+            continue
+
+        # Concrete-timing acceptance gate.  The subproblem's forward
+        # pass reserves lunch capacity but can't exactly predict what
+        # cpsat_timing will do in edge cases (block + lunch + tight
+        # windows).  Check that the new plan actually times cleanly
+        # on the routes that changed vs the current best — if any
+        # visit is dropped, reject and let LNS try a different path.
+        changed_keys = _changed_route_keys(best_sub, new_sub)
+        if changed_keys and _timing_drops_any(new_sub, changed_keys, input, ctx):
+            result.rejected += 1
+            weights.record(op_name, improved=False)
+            no_improve_streak += 1
+            continue
+
+        delta = best_cost - new_cost
+        logger.info(
+            "lns.iter %d op=%s k=%d improved %d → %d (−%d)",
+            iteration, op_name, k, best_cost, new_cost, delta,
+        )
+        best_env = new_env
+        best_sub = new_sub
+        best_cost = new_cost
+        result.improvements += 1
+        weights.record(op_name, improved=True)
+        no_improve_streak = 0
 
     if not result.stopped_reason:
         result.stopped_reason = "max_iterations"
