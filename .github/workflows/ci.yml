@@ -96,6 +96,33 @@ jobs:
       - name: Unit tests (Vitest)
         run: npm run test
 
+  solver:
+    name: solver suites (pytest + benchmark scenarios)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Force single-worker CP-SAT for deterministic test runs.
+      # Parallel CP-SAT search is non-deterministic across runs even
+      # with a fixed seed and would make the benchmark suites flaky.
+      SOLVER_NUM_WORKERS: '1'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: solver_service/requirements.txt
+
+      - name: Install solver dependencies
+        working-directory: solver_service
+        run: pip install -r requirements.txt
+
+      - name: Run solver test suites (including slow benchmark scenarios)
+        working-directory: solver_service
+        run: python -m pytest tests/ --run-slow -v
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
