@@ -502,9 +502,29 @@ def solve(
                 precomputed_approx_costs=precomputed_approx_costs,
                 time_budget=lns_budget,
             )
+
             if lns_result.final_cost < lns_result.initial_cost:
-                best_envelope = lns_result.envelope
-                best_subproblem = lns_result.subproblem
+                # Verify via concrete timing — the subproblem's forward
+                # pass is lunch-aware but edge-case interactions can
+                # still cause cpsat_timing to drop a visit.  If timing
+                # drops anything, fall back to the pre-LNS incumbent.
+                trial_timed = _run_concrete_timing(
+                    ctx, input, lns_result.subproblem.routes
+                )
+                trial_dropped = sum(
+                    len(getattr(tr, "dropped", []) or [])
+                    for tr in trial_timed.values()
+                )
+                if trial_dropped == 0:
+                    best_envelope = lns_result.envelope
+                    best_subproblem = lns_result.subproblem
+                else:
+                    logger.info(
+                        "lns.polish output dropped %d visits in concrete "
+                        "timing — reverting to pre-LNS incumbent",
+                        trial_dropped,
+                    )
+
             lns_metadata = {
                 "lns_iterations": lns_result.iterations,
                 "lns_improvements": lns_result.improvements,

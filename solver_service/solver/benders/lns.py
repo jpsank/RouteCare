@@ -31,7 +31,13 @@ import time
 from dataclasses import dataclass, field
 
 from models import SolverInput
-from solver.benders.envelope import CutStore, Envelope, Slot, solve_envelope
+from solver.benders.envelope import (
+    CutStore,
+    Envelope,
+    Slot,
+    solve_envelope,
+    solve_envelope_partial,
+)
 from solver.benders.subproblem import SubproblemResult, solve_subproblems
 from solver.context import SolverContext
 
@@ -373,20 +379,30 @@ def polish(
             no_improve_streak += 1
             continue
 
-        # Repair — partial envelope + continuity-weighted re-solve
-        partial = _remove_from_envelope(best_env, destroyed_ids)
+        # Repair — partial envelope: CP-SAT variables only for the
+        # destroyed instances, everything else hard-fixed.  Much
+        # smaller model than full envelope re-solve, so iterations
+        # run faster on large problems.
+        locked_assignments = {
+            iid: slot
+            for iid, slot in best_env.assignments.items()
+            if iid not in destroyed_ids
+        }
         iter_budget = max(0.3, min(2.0, remaining * 0.25))
 
         try:
-            new_env = solve_envelope(
-                input, ctx, cut_store,
-                time_budget=iter_budget,
-                warm_start=partial,
+            new_env = solve_envelope_partial(
+                destroyed_ids=destroyed_ids,
+                locked_assignments=locked_assignments,
+                input=input,
+                ctx=ctx,
+                cut_store=cut_store,
                 precomputed_slots=precomputed_slots,
                 precomputed_approx_costs=precomputed_approx_costs,
+                time_budget=iter_budget,
             )
         except Exception as e:
-            logger.warning("lns.iter %d envelope solve raised %s", iteration, e)
+            logger.warning("lns.iter %d partial solve raised %s", iteration, e)
             result.rejected += 1
             weights.record(op_name, improved=False)
             no_improve_streak += 1
@@ -394,7 +410,7 @@ def polish(
 
         result.iterations = iteration + 1
 
-        if new_env.status not in ("OPTIMAL", "FEASIBLE"):
+        if new_env is None or new_env.status not in ("OPTIMAL", "FEASIBLE"):
             result.rejected += 1
             weights.record(op_name, improved=False)
             no_improve_streak += 1

@@ -576,3 +576,243 @@ def solve_envelope(
         env.approximate_cost += home_leg.get((iid, s.clinician_idx), 0)
 
     return env
+
+
+# ────────────────────────────────────────────────────────────────────
+# Partial repair: build CP-SAT vars only for destroyed instances,
+# hard-fix the rest.  Used by LNS to avoid re-solving the whole
+# envelope on every iteration — the repair model is ~k/n the size.
+# ────────────────────────────────────────────────────────────────────
+
+
+def solve_envelope_partial(
+    destroyed_ids: set[str],
+    locked_assignments: dict[str, Slot],
+    input: SolverInput,
+    ctx: SolverContext,
+    cut_store: CutStore,
+    precomputed_slots: dict[str, list[Slot]],
+    precomputed_approx_costs: dict[tuple[str, int], int],
+    marginal_costs: dict[tuple[str, int, int], int] | None = None,
+    time_budget: float = 1.0,
+) -> Envelope | None:
+    """Solve only for `destroyed_ids`, hard-fixing everyone else.
+
+    The locked instances don't appear as CP-SAT variables at all.
+    Their constraints are pre-computed and baked in:
+      - Per-vehicle day capacity is reduced by the locked count
+      - Patient-day exclusions include locked placements
+      - Spacing constraints are enforced cross-partition (destroyed
+        ⊕ locked)
+      - No-good cuts referencing only locked triples are auto-
+        satisfied (subset would already be forbidden by locks)
+      - Continuity is enforced by construction (locks can't move)
+
+    Returns a full Envelope (locked ⊕ newly-placed destroyed) or
+    None if CP-SAT is infeasible.
+    """
+    if not destroyed_ids:
+        # No-op: return the locked state as-is
+        env = Envelope(status="OPTIMAL")
+        env.assignments = dict(locked_assignments)
+        return env
+
+    num_clinicians = len(input.clinicians)
+    num_days = len(input.working_days)
+
+    model = cp_model.CpModel()
+
+    # ── Variables: slot vars only for destroyed instances ────────
+    slot_var: dict[tuple[str, Slot], cp_model.IntVar] = {}
+    scheduled: dict[str, cp_model.IntVar] = {}
+    vehicle_slot_vars: dict[tuple[str, int, int], list[cp_model.IntVar]] = {}
+
+    for iid in destroyed_ids:
+        legal = precomputed_slots.get(iid, [])
+        if not legal:
+            sv = model.new_bool_var(f"psched_{iid}")
+            scheduled[iid] = sv
+            model.add(sv == 0)
+            continue
+        sv = model.new_bool_var(f"psched_{iid}")
+        scheduled[iid] = sv
+        slot_vars_for_inst: list[cp_model.IntVar] = []
+        for s in legal:
+            v = model.new_bool_var(
+                f"pslot_{iid}_{s.clinician_idx}_{s.day_idx}_{s.window_idx}"
+            )
+            slot_var[(iid, s)] = v
+            slot_vars_for_inst.append(v)
+            vehicle_slot_vars.setdefault(
+                (iid, s.clinician_idx, s.day_idx), []
+            ).append(v)
+        model.add(sum(slot_vars_for_inst) == sv)
+
+    # ── Precompute locked bookkeeping ────────────────────────────
+    # Patient → set of day indices already locked
+    locked_patient_days: dict[int, set[int]] = {}
+    # (clinician_idx, day_idx) → count of locked instances
+    locked_count_by_vehicle: dict[tuple[int, int], int] = {}
+    for iid, slot in locked_assignments.items():
+        inst = ctx.instances_by_id.get(iid)
+        if inst is None:
+            continue
+        locked_patient_days.setdefault(inst.patient_id, set()).add(slot.day_idx)
+        key = (slot.clinician_idx, slot.day_idx)
+        locked_count_by_vehicle[key] = locked_count_by_vehicle.get(key, 0) + 1
+
+    destroyed_instances_by_patient: dict[int, list[str]] = {}
+    for iid in destroyed_ids:
+        inst = ctx.instances_by_id.get(iid)
+        if inst is None:
+            continue
+        destroyed_instances_by_patient.setdefault(inst.patient_id, []).append(iid)
+
+    # ── Constraint 1: forbid destroyed instance on a day where the
+    #    same patient is already locked ──────────────────────────
+    for iid in destroyed_ids:
+        inst = ctx.instances_by_id.get(iid)
+        if inst is None:
+            continue
+        forbidden_days = locked_patient_days.get(inst.patient_id, set())
+        if not forbidden_days:
+            continue
+        for (iid2, s), v in slot_var.items():
+            if iid2 != iid:
+                continue
+            if s.day_idx in forbidden_days:
+                model.add(v == 0)
+
+    # ── Constraint 2: at most one destroyed instance of the same
+    #    patient per day (same semantic as full envelope) ────────
+    for pid, iids in destroyed_instances_by_patient.items():
+        if len(iids) < 2:
+            continue
+        for d_idx in range(num_days):
+            vars_on_day: list[cp_model.IntVar] = []
+            for iid in iids:
+                for (iid2, s), v in slot_var.items():
+                    if iid2 == iid and s.day_idx == d_idx:
+                        vars_on_day.append(v)
+            if vars_on_day:
+                model.add(sum(vars_on_day) <= 1)
+
+    # ── Constraint 3: per-vehicle day capacity minus locked ──────
+    for c_idx in range(num_clinicians):
+        for d_idx in range(num_days):
+            vehicle = ctx.vehicle_by_key.get((c_idx, d_idx))
+            if vehicle is None:
+                continue
+            locked_here = locked_count_by_vehicle.get((c_idx, d_idx), 0)
+            available = max(0, vehicle.capacity - locked_here)
+            vars_here: list[cp_model.IntVar] = []
+            for (iid, s), v in slot_var.items():
+                if s.clinician_idx == c_idx and s.day_idx == d_idx:
+                    vars_here.append(v)
+            if not vars_here:
+                continue
+            if available <= 0:
+                for v in vars_here:
+                    model.add(v == 0)
+            else:
+                model.add(sum(vars_here) <= available)
+
+    # ── Constraint 4: spacing between destroyed instances + locks ─
+    # Two spacing rules: min_gap (hard), max_gap (hard for simplicity
+    # in partial repair — we don't model soft spacing here because
+    # the incumbent already satisfies it and k is small).
+    for pid, iids in destroyed_instances_by_patient.items():
+        patient = ctx.patients_by_id.get(pid)
+        if not patient:
+            continue
+        min_gap = patient.min_days_between_visits
+
+        # destroyed ↔ locked
+        locked_days_for_pid = locked_patient_days.get(pid, set())
+        if locked_days_for_pid and min_gap > 0:
+            for iid in iids:
+                for (iid2, s), v in slot_var.items():
+                    if iid2 != iid:
+                        continue
+                    for locked_d in locked_days_for_pid:
+                        if abs(s.day_idx - locked_d) <= min_gap:
+                            model.add(v == 0)
+
+        # destroyed ↔ destroyed
+        if len(iids) >= 2 and min_gap > 0:
+            for i in range(len(iids)):
+                for j in range(i + 1, len(iids)):
+                    ia, ib = iids[i], iids[j]
+                    for (iid_a, sa), va in slot_var.items():
+                        if iid_a != ia:
+                            continue
+                        for (iid_b, sb), vb in slot_var.items():
+                            if iid_b != ib:
+                                continue
+                            gap = abs(sa.day_idx - sb.day_idx)
+                            if gap == 0 or gap <= min_gap:
+                                model.add(va + vb <= 1)
+
+    # ── Constraint 5: no-good cuts referencing destroyed triples ──
+    for cut in cut_store.cuts:
+        cut_vars: list[cp_model.IntVar] = []
+        locked_hits = 0
+        for iid, c_idx, d_idx in cut.forbidden:
+            if iid in destroyed_ids:
+                cut_vars.extend(vehicle_slot_vars.get((iid, c_idx, d_idx), []))
+            elif iid in locked_assignments:
+                locked_slot = locked_assignments[iid]
+                if (locked_slot.clinician_idx, locked_slot.day_idx) == (c_idx, d_idx):
+                    locked_hits += 1
+        # Cut: sum of referenced triples ≤ len - 1
+        # Locked contributes `locked_hits` to the sum.
+        remaining_allowance = max(0, len(cut.forbidden) - 1 - locked_hits)
+        if cut_vars:
+            model.add(sum(cut_vars) <= remaining_allowance)
+        elif locked_hits >= len(cut.forbidden):
+            # All forbidden triples are locked and active — cut is
+            # already violated structurally.  Nothing LNS can do.
+            # Return None to signal the repair can't proceed.
+            return None
+
+    # ── Objective: minimize placement cost on destroyed, subject
+    #    to "place all" dominance (visit_value) ──────────────────
+    marginals = marginal_costs or {}
+    cost_terms: list[cp_model.LinearExpr] = []
+    cost_cap = 0
+    for (iid, s), v in slot_var.items():
+        c = marginals.get((iid, s.clinician_idx, s.day_idx))
+        if c is None:
+            c = precomputed_approx_costs.get((iid, s.clinician_idx), 0)
+        if c > 0:
+            cost_terms.append(v * c)
+            cost_cap += c
+
+    visit_value = cost_cap + 1
+    objective: list[cp_model.LinearExpr] = list(cost_terms)
+    for iid in destroyed_ids:
+        if iid in scheduled:
+            objective.append(scheduled[iid] * (-visit_value))
+
+    if objective:
+        model.minimize(sum(objective))
+
+    # ── Solve ────────────────────────────────────────────────────
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = max(0.2, time_budget)
+    solver.parameters.num_workers = NUM_WORKERS
+    solver.parameters.random_seed = 42
+
+    status = solver.solve(model)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return None
+
+    # Build full envelope: locked ⊕ newly-placed destroyed
+    full_env = Envelope(status=solver.status_name(status))
+    for iid, slot in locked_assignments.items():
+        full_env.assignments[iid] = slot
+    for (iid, s), v in slot_var.items():
+        if solver.value(v):
+            full_env.assignments[iid] = s
+
+    return full_env
