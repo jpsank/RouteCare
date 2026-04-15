@@ -57,6 +57,12 @@ __pycache__/
 # CPython 3 tag files (e.g. .cpython-311.pyc); usually only appear under __pycache__/
 *.cpython-*.pyc
 .python-version
+# Coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
 
 # Generated graph/dot files
 *.dot

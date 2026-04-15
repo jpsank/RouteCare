@@ -29,84 +29,13 @@ from models import (  # noqa: E402
     VisitInstanceData,
 )
 from solver.benders import solve, validate_plan, ValidationError  # noqa: E402
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
-WORKING_DAYS_WEEK = [
-    "2026-04-20",  # Mon
-    "2026-04-21",
-    "2026-04-22",
-    "2026-04-23",
-    "2026-04-24",  # Fri
-]
-
-
-def _make_input(
-    patients,
-    instances,
-    clinicians=None,
-    matrix=None,
-    working_days=WORKING_DAYS_WEEK,
-    locked_visits=None,
-    calendar_blocks=None,
-) -> SolverInput:
-    if clinicians is None:
-        clinicians = [ClinicianData()]
-    if matrix is None:
-        # Build a symmetric matrix from patient/home stubs
-        ids = [str(p.id) for p in patients]
-        home_keys = [f"home_{i}" for i in range(len(clinicians))]
-        matrix = {}
-        for k in home_keys + ids:
-            matrix[k] = {}
-            for k2 in home_keys + ids:
-                if k == k2:
-                    matrix[k][k2] = 0
-                else:
-                    matrix[k][k2] = 20
-    return SolverInput(
-        patients=patients,
-        instances=instances,
-        clinicians=clinicians,
-        travel_matrix=matrix,
-        start_date=working_days[0],
-        working_days=working_days,
-        locked_visits=locked_visits or [],
-        calendar_blocks=calendar_blocks or [],
-    )
-
-
-def _mk_pat(pid, name="P", dur=60, req=1, min_gap=1, max_gap=7, priority=0):
-    return PatientData(
-        id=pid,
-        name=name,
-        visit_duration_minutes=dur,
-        required_visits=req,
-        min_days_between_visits=min_gap,
-        max_days_between_visits=max_gap,
-        priority=priority,
-    )
-
-
-def _mk_inst(iid, pid, dur=60, eligible=None, windows=None):
-    return VisitInstanceData(
-        id=iid,
-        patient_id=pid,
-        duration=dur,
-        eligible_clinician_indices=eligible or [],
-        availability_windows=windows or {},
-    )
-
-
-# ── Property: validate_plan passes on all test outputs ─────────────
-
-
-def _assert_valid(out, inp):
-    # Raises if invalid — fail the test with the rule name
-    validate_plan(out, inp)
-    assert out.metadata.get("validated") is True
+from tests.helpers import (  # noqa: E402
+    WORKING_DAYS_WEEK,
+    assert_valid as _assert_valid,
+    make_input as _make_input,
+    mk_instance as _mk_inst,
+    mk_patient as _mk_pat,
+)
 
 
 # ── Small scenarios mirroring benchmark.py ─────────────────────────

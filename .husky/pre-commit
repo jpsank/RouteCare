@@ -1,1 +1,26 @@
+#!/usr/bin/env sh
+# Pre-commit hook.
+#
+# Runs two gates:
+# 1. lint-staged — rubocop autofix on staged *.rb files (existing)
+# 2. Solver fast tests — only when files under solver_service/ are
+#    staged.  Skipped on Ruby-only or frontend-only commits so we
+#    don't slow them down.
+
+set -e
+
 npx lint-staged
+
+# If any staged file is under solver_service/, run the fast pytest suite.
+# Slow scenarios (scale ≥100, warm_start, adv_tight_windows) are skipped —
+# they run in CI with --run-slow.
+if git diff --cached --name-only --diff-filter=ACMR | grep -q '^solver_service/'; then
+  echo "→ solver_service/ changes detected — running fast solver tests"
+  (cd solver_service && python3 -m pytest tests/ -q --no-header) || {
+    echo ""
+    echo "✗ Solver tests failed — commit aborted."
+    echo "  Run 'cd solver_service && python3 -m pytest tests/ -v' for details."
+    echo "  For full suite including slow tests: add --run-slow"
+    exit 1
+  }
+fi

@@ -119,9 +119,20 @@ jobs:
         working-directory: solver_service
         run: pip install -r requirements.txt
 
-      - name: Run solver test suites (including slow benchmark scenarios)
+      - name: Run solver test suites with coverage (including slow scenarios)
         working-directory: solver_service
-        run: python -m pytest tests/ --run-slow -v
+        run: |
+          python -m pytest tests/ --run-slow -v \
+            --cov=solver --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: solver-coverage
+          path: solver_service/coverage.xml
+          retention-days: 14
+          if-no-files-found: ignore
 
   e2e:
     runs-on: ubuntu-latest
