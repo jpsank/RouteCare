@@ -41,6 +41,15 @@ npm run e2e:install  # One-time: download Playwright browsers
 - `app/controllers/webhooks/` — Inbound webhooks (Telnyx SMS, Postmark email)
 - `app/jobs/` — Async jobs (message delivery, alerts generation, cleanup)
 - `config/recurring.yml` — Solid Queue scheduled tasks
+- `solver_service/` — Python CP-SAT + LNS microservice (FastAPI, OR-Tools, pytest benchmarks)
+
+## Patient import
+
+Patient roster import accepts both CSV and Excel (`.xlsx`/`.xls`) via `POST /api/v1/patients/import` (spreadsheet parsing via the `roo` gem).
+
+## Solver architecture
+
+The CP-SAT pipeline uses Large Neighborhood Search with Shaw and worst-vehicle destroy operators, adaptive operator weights, and warm-start partial repair seeded from the incumbent. Travel matrix is precomputed once per optimization and LNS iterations are gated by a per-iteration timing budget. On solver transport/HTTP failure, Rails automatically falls back to the greedy Ruby optimizer and records `optimization_summary.scheduler_fallback`. The solver's own tests live in `solver_service/tests/` and run as a dedicated pytest CI job (including slow benchmark suites).
 
 ## Architecture decisions
 

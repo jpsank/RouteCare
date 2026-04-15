@@ -8,24 +8,30 @@ It solves three core workflow gaps:
 2. Patient time confirmation requires repetitive back-and-forth over SMS/email.
 3. Clinicians need their external calendar and route plan kept in sync.
 
-This repository is built with a TariffNinja-style stack: <!-- pragma: allowlist secret -->
+## Tech stack
 
-- Rails 8 + Ruby 3.4
+- Rails 8.1 + Ruby 3.4
 - PostgreSQL 16
-- Solid Queue / Solid Cache / Solid Cable
-- React + TypeScript frontend via Vite
+- Solid Queue / Solid Cache / Solid Cable (single DB, no Redis)
+- React 19 + TypeScript via Vite 8, Tailwind CSS 3
+- TanStack Query, react-hook-form + zod, Recharts
+- Devise authentication
+- Prawn + prawn-table for PDF export
+- Sentry error tracking (Ruby + JS)
+- Playwright E2E tests, Vitest unit tests
+- Python CP-SAT microservice (`solver_service/`) using OR-Tools + LNS for schedule optimization
 - Service object architecture in `app/services`
 - JSON API under `app/controllers/api/v1`
 
 ## Current V1 Scope
 
-Implemented foundation:
-
-- Patient roster management (CRUD + deactivation)
+- Patient roster management (CRUD + deactivation), CSV and Excel (`.xlsx`/`.xls`) import
 - Weekly schedule optimization with:
   - hard calendar block constraints
-  - patient availability window preference
-  - route/travel-time-aware ordering
+  - per-day patient availability windows
+  - route/travel-time-aware ordering with precomputed travel matrix
+  - CP-SAT solver with Large Neighborhood Search (Shaw + worst-vehicle destroy operators, adaptive weights, warm-start partial repair)
+  - automatic fallback to a Ruby greedy optimizer if the solver service is unreachable
   - optimized vs baseline drive-time metrics
 - Visit editing and quick rescheduling
 - Patient communication lifecycle:
@@ -48,12 +54,19 @@ Implemented foundation:
 ```text
 app/
   controllers/api/v1/      # Thin JSON controllers
+  controllers/webhooks/    # Telnyx SMS + Postmark email inbound webhooks
   models/                  # Domain models and validations
   services/                # Business logic / integrations
+  services/integrations/   # External API clients (Telnyx, LLM, geocoding, routing)
+  services/messaging/      # Outbound dispatch, inbound reply processing
   serializers/             # API payload serializers
+  jobs/                    # Async jobs (delivery, alerts, cleanup)
   frontend/                # React + TypeScript UI
 db/
-  migrate/                 # RouteCare schema
+  migrate/                 # RouteCare schema (incl. Solid Queue tables)
+solver_service/            # Python CP-SAT microservice (FastAPI + OR-Tools)
+e2e/                       # Playwright end-to-end tests
+config/recurring.yml       # Solid Queue scheduled tasks
 ```
 
 ## Local Development
@@ -63,6 +76,7 @@ db/
 - Ruby 3.4+
 - Node 22+
 - PostgreSQL 16+
+- Python 3.11+ (optional, for the CP-SAT solver service)
 
 ### 2) Install dependencies
 
@@ -74,8 +88,6 @@ gem install foreman
 
 ### 3) Database setup
 
-Update `config/database.yml` credentials as needed, then:
-
 ```bash
 bin/rails db:prepare
 ```
@@ -86,8 +98,30 @@ bin/rails db:prepare
 bin/dev
 ```
 
-`bin/dev` uses `Procfile.dev` via Foreman to run both Rails and Vite.
 Rails runs on port `3000`, Vite dev server on `3036`.
+
+### 5) (Optional) Run the CP-SAT solver service
+
+```bash
+cd solver_service
+pip install -r requirements.txt
+uvicorn main:app --port 8000
+```
+
+Then point Rails at it with `PYTHON_SOLVER_URL=http://localhost:8000`. Without it, Rails falls back to the greedy Ruby optimizer.
+
+## Common commands
+
+```bash
+bin/dev              # Start dev server (Rails + Vite)
+bin/rails test       # Run Rails tests
+bin/rubocop          # Lint (rubocop-rails-omakase)
+bin/brakeman         # Security scan
+bin/bundler-audit    # Gem vulnerability scan
+npm run test         # Vitest unit/component tests
+npm run e2e          # Playwright E2E (requires bin/dev running)
+bin/rails playwright:seed_user  # Seed the E2E test user
+```
 
 ## Key API Endpoints
 
@@ -95,6 +129,7 @@ Rails runs on port `3000`, Vite dev server on `3036`.
 - `POST /api/v1/patients`
 - `PATCH /api/v1/patients/:id`
 - `POST /api/v1/patients/:id/deactivate`
+- `POST /api/v1/patients/import` (CSV or Excel)
 - `GET /api/v1/schedule?week_start_on=YYYY-MM-DD`
 - `POST /api/v1/schedule/optimize`
 - `POST /api/v1/schedule/approve`
@@ -105,58 +140,58 @@ Rails runs on port `3000`, Vite dev server on `3036`.
 - `POST /api/v1/messages`
 - `POST /api/v1/messages/:id/approve`
 - `POST /api/v1/messages/:id/select_suggestion`
-- `POST /api/v1/messages/inbound`
 - `GET /api/v1/calendar_blocks`
 - `POST /api/v1/calendar_blocks`
 - `GET /api/v1/alerts`
 - `PATCH /api/v1/alerts/:id`
-- `POST /webhooks/twilio/sms` (Twilio inbound SMS webhook)
-- `POST /webhooks/mailgun/inbound` (Mailgun inbound email webhook)
+- `POST /webhooks/telnyx` (inbound SMS)
+- `POST /webhooks/postmark` (inbound email)
 
-## Integrations (Pluggable Boundaries)
+## Integrations
 
-Service boundaries are already in place for:
+- **SMS:** Telnyx (`app/services/integrations/telnyx_sms_client.rb`, Ed25519 webhook signature verification)
+- **Email:** Postmark via `postmark-rails` gem + ActionMailer (token-based webhook auth)
+- **Calendar:** Google + Outlook (`app/services/integrations/calendar`)
+- **Routing/geocoding:** `app/services/integrations/routing_client.rb`, `geocoding_client.rb`
+- **LLM-assisted drafting and reply interpretation:** `app/services/integrations/llm_client.rb`
 
-- Calendar: Google + Outlook (`app/services/integrations/calendar`)
-- Routing/geocoding (`app/services/integrations/routing_client.rb`, `geocoding_client.rb`)
-- Messaging dispatch (Twilio/email provider adapter entrypoint is `MessageDeliveryJob`)
-- LLM-assisted message drafting and reply interpretation (`app/services/integrations/llm_client.rb`)
-
-The current implementation includes safe local fallbacks/mocks for development and testing.
+Safe local fallbacks/mocks are included for development and testing.
 
 ### Background jobs
 
-- `AlertsGenerationJob` — scans all clinician users and creates/updates alerts for unconfirmed visits, calendar conflicts, and significant schedule changes. Run periodically (e.g., every 15 minutes via cron or `recurring` Solid Queue config).
+- `AlertsGenerationJob` — scans clinician users and creates/updates alerts for unconfirmed visits, calendar conflicts, and significant schedule changes. Scheduled via `config/recurring.yml`.
 
-### Optional LLM configuration
+## Environment variables
 
-Natural-language messaging can use an OpenAI-compatible chat API when configured:
+Required for production:
 
-- `ROUTECARE_LLM_API_KEY`
-- `ROUTECARE_LLM_BASE_URL` (optional, default `https://api.openai.com/v1`)
-- `ROUTECARE_LLM_MODEL` (optional, default `gpt-4o-mini`)
+- `RAILS_MASTER_KEY`
+- `DATABASE_URL`
+- `RAILS_ENV=production`
+- `SOLID_QUEUE_IN_PUMA=true`
+- `ROUTECARE_APP_HOST`
 
-If these are not set (or the provider call fails), RouteCare falls back to deterministic local templates and rule-based parsing.
+Optional:
 
-### Messaging delivery configuration
+- `SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`
+- `VITE_SENTRY_DSN`, `VITE_SENTRY_TRACES_SAMPLE_RATE`
+- `ROUTECARE_POSTMARK_API_KEY`
+- `ROUTECARE_TELNYX_API_KEY`, `ROUTECARE_TELNYX_FROM_NUMBER`
+- `ROUTECARE_LLM_API_KEY`, `ROUTECARE_LLM_BASE_URL`, `ROUTECARE_LLM_MODEL`
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`
 
-To send real outbound messages, configure SMS and/or SMTP:
+Scheduling / CP-SAT microservice:
 
-- SMS (Twilio)
-  - `ROUTECARE_TWILIO_ACCOUNT_SID`
-  - `ROUTECARE_TWILIO_AUTH_TOKEN`
-  - `ROUTECARE_TWILIO_FROM_NUMBER` (E.164 format, e.g. `+15551234567`)
-- Email (SMTP + mailer sender)
-  - `ROUTECARE_MAILER_FROM` (e.g. `care@yourdomain.com`)
-  - `ROUTECARE_SMTP_ADDRESS`
-  - `ROUTECARE_SMTP_PORT` (default `587`)
-  - `ROUTECARE_SMTP_USERNAME`
-  - `ROUTECARE_SMTP_PASSWORD`
-  - `ROUTECARE_SMTP_DOMAIN` (optional)
-  - `ROUTECARE_SMTP_AUTH` (default `plain`)
-  - `ROUTECARE_SMTP_STARTTLS` (default `true`)
+- `PYTHON_SOLVER_URL` — base URL of the `solver_service/` FastAPI app (default `http://localhost:8000`). On Railway private DNS, include the port.
+- `ROUTECARE_SCHEDULER_BACKEND` — `cpsat` (default) or `greedy`. Automatic fallback to greedy on solver transport/HTTP errors, exposed via `optimization_summary.scheduler_fallback`.
+- `ROUTECARE_CPSAT_TIME_BUDGET` — CP-SAT wall time in seconds (10–7200). Overrides the quality preset.
+- `ROUTECARE_SCHEDULE_QUALITY` — `fast` (30s), `balanced` (60s, default), or `deep` (120s).
 
-If delivery is not configured for a selected channel, queued messages will be marked `failed` with a provider error in message metadata.
+## Deployment
+
+- **Railway:** Docker-based; Rails and `solver_service/` deploy as two services. Both `railway.toml` files set watch paths so solver-only or Rails-only commits don't rebuild the other service. `bin/railway-add-solver-service` creates the solver service; set its Root Directory and config path in the Railway dashboard.
+- **Render:** `render.yaml` + `bin/render-build.sh`.
+- No Thruster in production — Railway/Render terminate SSL; Puma listens directly on `PORT`.
 
 ## Security/HIPAA Notes
 
@@ -166,6 +201,7 @@ RouteCare is designed to support HIPAA-oriented patterns:
 - strict authentication + user scoping in APIs
 - parameter filtering for sensitive fields
 - audit log capture for critical workflow actions
+- signed inbound webhooks (Telnyx Ed25519, Postmark token)
 
 Production hardening still required before live PHI workloads:
 
@@ -176,10 +212,13 @@ Production hardening still required before live PHI workloads:
 
 ## Tests
 
-Run the main verification checks:
-
 ```bash
-bin/rails test
-bundle exec rubocop
-npm run build
+bin/rails test         # Rails unit + system tests
+bundle exec rubocop    # Ruby lint
+npm run test           # Vitest
+npm run e2e            # Playwright (requires bin/dev)
+cd solver_service && pytest   # CP-SAT solver tests
+npm run build          # Frontend build check
 ```
+
+CI runs on GitHub Actions: security scan, lint, unit tests, system tests, and a dedicated solver job running the full pytest suite including slow benchmarks.
