@@ -284,13 +284,23 @@ def solve_envelope(
     cut_store: CutStore,
     time_budget: float,
     warm_start: Envelope | None = None,
+    marginal_costs: dict[tuple[str, int, int], int] | None = None,
 ) -> Envelope:
-    """CP-SAT master solve producing a (clinician, day, window) assignment per instance."""
+    """CP-SAT master solve producing a (clinician, day, window) assignment per instance.
+
+    When `marginal_costs` is provided, per-(instance, clinician, day)
+    detour costs from the previous Benders round replace the home-leg
+    approximation for matching slots.  This is how the envelope's cost
+    estimate converges to reality across rounds: initial round uses
+    approximation, subsequent rounds use actual routed detour.  Marginals
+    missing from the dict fall back to the home-leg proxy.
+    """
 
     legal_slots = _enumerate_slots(input, ctx)
     home_leg = _compute_approx_costs(input, ctx)
     num_clinicians = len(input.clinicians)
     num_days = len(input.working_days)
+    marginals = marginal_costs or {}
 
     model = cp_model.CpModel()
 
@@ -423,10 +433,19 @@ def solve_envelope(
     #   tier3: minimize approximate routing cost + load imbalance
 
     # Compute caps first so visit_value dominates.
+    # Cost for each slot: use the per-(instance, clinician, day)
+    # marginal from the previous Benders round if available; otherwise
+    # fall back to the home-leg + NN-margin approximation.  This closes
+    # the feedback loop — the envelope converges on real routed costs
+    # across rounds instead of being stuck on the initial approximation.
     cost_cap = 0
     cost_terms: list[cp_model.LinearExpr] = []
     for (iid, s), v in slot_var.items():
-        c = home_leg.get((iid, s.clinician_idx), 0)
+        marginal = marginals.get((iid, s.clinician_idx, s.day_idx))
+        if marginal is not None:
+            c = marginal
+        else:
+            c = home_leg.get((iid, s.clinician_idx), 0)
         if c > 0:
             cost_terms.append(v * c)
             cost_cap += c

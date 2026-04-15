@@ -95,26 +95,38 @@ def _build_lunch_placements(
     input: SolverInput,
     timed: dict[int, TimedRoute],
 ) -> dict[str, dict]:
+    """Return per-working-day lunch placement.
+
+    Every working day maps to a dict (never None — the SolverOutput
+    schema requires it).  Dates with visits use the concrete timing
+    pass's chosen lunch.  Dates with no routed visits get the first
+    clinician's default lunch window, or an empty dict if the clinician
+    has no lunch configured.
+    """
     placements: dict[str, dict] = {}
+
+    def _default_lunch(c, date: str) -> dict:
+        if c is None or c.lunch_duration_minutes <= 0:
+            return {}
+        ds, _ = day_bounds(c, date)
+        half_w = c.lunch_window_minutes // 2
+        earliest = max(c.lunch_start_minute - half_w, ds)
+        return {
+            "start_minute": earliest,
+            "end_minute": earliest + c.lunch_duration_minutes,
+        }
+
     for v_idx, tr in timed.items():
         vehicle = ctx.vehicles[v_idx]
         if tr.lunch:
             placements[vehicle.date] = tr.lunch
         elif vehicle.date not in placements:
-            # Default lunch for this vehicle's clinician
-            c = vehicle.clinician
-            if c.lunch_duration_minutes > 0:
-                ds, _ = day_bounds(c, vehicle.date)
-                half_w = c.lunch_window_minutes // 2
-                earliest = max(c.lunch_start_minute - half_w, ds)
-                placements[vehicle.date] = {
-                    "start_minute": earliest,
-                    "end_minute": earliest + c.lunch_duration_minutes,
-                }
-    # Backfill any missing dates
+            placements[vehicle.date] = _default_lunch(vehicle.clinician, vehicle.date)
+
+    default_clinician = input.clinicians[0] if input.clinicians else None
     for date in input.working_days:
         if date not in placements:
-            placements[date] = None
+            placements[date] = _default_lunch(default_clinician, date)
     return placements
 
 
@@ -287,6 +299,11 @@ def solve(
     benders_rounds = 0
     iteration_log: list[dict] = []
     cp_sat_status = "NOT_RUN"
+    # Per-(instance, clinician, day) detour marginals, accumulated from
+    # subproblem routes and fed back to the envelope's cost model on
+    # each subsequent round.  Empty on round 0 (envelope uses the
+    # home-leg approximation); populated whenever a route is produced.
+    marginal_costs: dict[tuple[str, int, int], int] = {}
 
     logger.info(
         "benders.solve start instances=%d clinicians=%d days=%d warm=%s budget=%.1fs",
@@ -304,7 +321,10 @@ def solve(
 
         env_t0 = time.monotonic()
         env = solve_envelope(
-            input, ctx, cut_store, time_budget=env_budget, warm_start=env_warm
+            input, ctx, cut_store,
+            time_budget=env_budget,
+            warm_start=env_warm,
+            marginal_costs=marginal_costs if round_idx > 0 else None,
         )
         env_dt = time.monotonic() - env_t0
         cp_sat_status = env.status
@@ -324,12 +344,24 @@ def solve(
         sub = solve_subproblems(env, input, ctx)
         sub_dt = time.monotonic() - sub_t0
 
+        # Collect per-instance detour marginals from multi-stop routes
+        # only.  Single-stop routes have `detour == full_round_trip`,
+        # which is just 2× the home-leg approximation and adds no
+        # information — feeding that back would destabilize cost
+        # comparisons without improving the envelope's decisions.
+        for (c_idx, d_idx), route in sub.routes.items():
+            if len(route.ordered) < 2:
+                continue
+            for iid, detour in route.marginals.items():
+                marginal_costs[(iid, c_idx, d_idx)] = detour
+
         logger.info(
             "benders.round %d envelope=%s (%.3fs) placed=%d subproblem=(%.3fs) "
-            "conflicts=%d drive=%d cuts_before=%d",
+            "conflicts=%d drive=%d cuts_before=%d marginals=%d",
             round_idx, env.status, env_dt,
             len(env.assignments), sub_dt,
             len(sub.conflicts), sub.total_drive(), len(cut_store),
+            len(marginal_costs),
         )
 
         iteration_log.append(
@@ -344,22 +376,36 @@ def solve(
             }
         )
 
-        # Track best (feasible preferred)
+        # Track best:
+        #   1. feasible beats any infeasible
+        #   2. among feasible, lower drive cost wins
+        #   3. among infeasible, more routed visits wins (tiebreak by drive)
         is_feasible = sub.all_feasible()
-        if is_feasible and (
-            best_envelope is None or not _best_was_feasible(best_subproblem)
-        ):
+        cur_placed = sum(len(r.ordered) for r in sub.routes.values())
+
+        if best_subproblem is None:
             best_envelope = env
             best_subproblem = sub
-        elif is_feasible and sub.total_drive() < (
-            best_subproblem.total_drive() if best_subproblem else 10**9
-        ):
-            best_envelope = env
-            best_subproblem = sub
-        elif best_envelope is None:
-            # Keep infeasible as fallback until we find something feasible
-            best_envelope = env
-            best_subproblem = sub
+        elif is_feasible:
+            if not _best_was_feasible(best_subproblem):
+                best_envelope = env
+                best_subproblem = sub
+            elif sub.total_drive() < best_subproblem.total_drive():
+                best_envelope = env
+                best_subproblem = sub
+        else:
+            # Current round is infeasible — only replace a previous
+            # infeasible best if we've routed more visits.
+            if not _best_was_feasible(best_subproblem):
+                best_placed = sum(
+                    len(r.ordered) for r in best_subproblem.routes.values()
+                )
+                if cur_placed > best_placed or (
+                    cur_placed == best_placed
+                    and sub.total_drive() < best_subproblem.total_drive()
+                ):
+                    best_envelope = env
+                    best_subproblem = sub
 
         if is_feasible:
             break
