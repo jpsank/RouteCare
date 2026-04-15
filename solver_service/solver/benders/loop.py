@@ -479,10 +479,20 @@ def solve(
     )
     if should_polish:
         remaining = deadline - time.monotonic()
-        # Cap LNS budget at 3s — most improvements happen in the first
-        # few iterations and longer budgets waste time on diminishing
-        # returns.  The `LNS_BUDGET_FRAC` env var can override.
-        lns_budget = min(3.0, remaining * LNS_BUDGET_FRAC)
+        # Scale LNS cap by problem size.  Small problems (≤50 placed)
+        # get 3s — enough for ~10-30 iterations, plenty.  Large problems
+        # (>100 placed) get up to 10s because each envelope re-solve
+        # is slower and we need more absolute time to see any iterations
+        # at all.  The `LNS_BUDGET_FRAC` env var still gates the overall
+        # fraction of remaining time.
+        placed = len(best_envelope.assignments)
+        if placed <= 50:
+            cap = 3.0
+        elif placed <= 100:
+            cap = 5.0
+        else:
+            cap = 10.0
+        lns_budget = min(cap, remaining * LNS_BUDGET_FRAC)
         if lns_budget > 0.5:
             from solver.benders.lns import polish as lns_polish  # late import
             lns_result = lns_polish(

@@ -62,6 +62,9 @@ class LnsResult:
 
 
 # ── Destroy operators ───────────────────────────────────────────────
+#
+# Each operator signature: (env, sub, k, rng, ctx) -> list[str]
+# Returns up to k instance IDs to remove from the current incumbent.
 
 
 def _destroy_random(
@@ -69,6 +72,7 @@ def _destroy_random(
     sub: SubproblemResult,
     k: int,
     rng: random.Random,
+    ctx: SolverContext,
 ) -> list[str]:
     """Random removal: sample k placed instances uniformly."""
     placed = list(env.assignments.keys())
@@ -82,6 +86,7 @@ def _destroy_worst_cost(
     sub: SubproblemResult,
     k: int,
     rng: random.Random,
+    ctx: SolverContext,
 ) -> list[str]:
     """Worst-cost removal: pick k instances with highest detour marginal.
 
@@ -96,19 +101,169 @@ def _destroy_worst_cost(
             if iid in env.assignments:
                 costs.append((detour, rng.random(), iid))
     if not costs:
-        # Fall back to random if no marginals available
-        return _destroy_random(env, sub, k, rng)
+        return _destroy_random(env, sub, k, rng, ctx)
     if len(costs) <= k:
         return [iid for _, _, iid in costs]
-    # Descending by detour cost, random tiebreak
     costs.sort(key=lambda p: (-p[0], p[1]))
     return [iid for _, _, iid in costs[:k]]
+
+
+def _destroy_shaw(
+    env: Envelope,
+    sub: SubproblemResult,
+    k: int,
+    rng: random.Random,
+    ctx: SolverContext,
+) -> list[str]:
+    """Shaw / related removal: pick a random seed, remove the k-1
+    spatially closest other placed instances.
+
+    Concentrates the destroy on a spatial cluster so the repair has a
+    real chance of finding a better local packing.  Much more likely
+    to produce improvements than random removal on scenarios with real
+    geographic clustering — which is most real-world scenarios.
+    """
+    placed = list(env.assignments.keys())
+    if len(placed) <= k:
+        return placed
+
+    seed_id = rng.choice(placed)
+    seed_inst = ctx.instances_by_id.get(seed_id)
+    if seed_inst is None:
+        return _destroy_random(env, sub, k, rng, ctx)
+    seed_pid = str(seed_inst.patient_id)
+    travel = ctx.travel
+
+    distances: list[tuple[int, float, str]] = []
+    for iid in placed:
+        if iid == seed_id:
+            continue
+        inst = ctx.instances_by_id.get(iid)
+        if inst is None:
+            continue
+        pid = str(inst.patient_id)
+        if pid == seed_pid:
+            continue
+        d = travel(seed_pid, pid)
+        distances.append((d, rng.random(), iid))
+
+    distances.sort(key=lambda t: (t[0], t[1]))
+    selected = [seed_id] + [iid for _, _, iid in distances[: k - 1]]
+    return selected
+
+
+def _destroy_worst_vehicle(
+    env: Envelope,
+    sub: SubproblemResult,
+    k: int,
+    rng: random.Random,
+    ctx: SolverContext,
+) -> list[str]:
+    """Worst-vehicle removal: identify the vehicle with the highest
+    drive-per-stop ratio and remove all its visits.
+
+    Forces a full re-assignment of a poorly-routed vehicle's stops.
+    Good for scenarios where one vehicle is carrying outlier work
+    that should have been split or clustered differently.  The repair
+    pass can reassign those instances across all eligible vehicles.
+    """
+    candidates: list[tuple[float, float, int, int]] = []
+    for (c_idx, d_idx), route in sub.routes.items():
+        n = len(route.ordered)
+        if n < 2:
+            continue
+        ratio = route.drive_cost / n
+        candidates.append((ratio, rng.random(), c_idx, d_idx))
+
+    if not candidates:
+        return _destroy_random(env, sub, k, rng, ctx)
+
+    # Highest ratio first, random tiebreak
+    candidates.sort(key=lambda t: (-t[0], t[1]))
+
+    removed: list[str] = []
+    for _, _, c_idx, d_idx in candidates:
+        route = sub.routes[(c_idx, d_idx)]
+        removed.extend(route.ordered)
+        if len(removed) >= k:
+            break
+
+    return removed[:max(k, len(removed[:k]))] if removed else []
 
 
 DESTROY_OPERATORS = [
     ("random", _destroy_random),
     ("worst_cost", _destroy_worst_cost),
+    ("shaw", _destroy_shaw),
+    ("worst_vehicle", _destroy_worst_vehicle),
 ]
+
+
+# ── Adaptive operator weighting (ALNS) ─────────────────────────────
+
+
+@dataclass
+class AdaptiveWeights:
+    """Per-operator weights that adapt based on recent performance.
+
+    Classic ALNS: operators that produce improvements get more weight,
+    operators that waste iterations get less.  Starts uniform and
+    learns per-scenario which operators are productive.
+
+    Score update on each iteration:
+      - improvement found  → +SCORE_IMPROVE
+      - no improvement    → +SCORE_NEUTRAL
+    After each `update_interval` iterations, weights are updated:
+      weight_new = (1 - REACTION) * weight_old + REACTION * (score / uses)
+    """
+
+    SCORE_IMPROVE = 10.0
+    SCORE_NEUTRAL = 0.0
+    REACTION = 0.5
+    MIN_WEIGHT = 0.05
+    UPDATE_INTERVAL = 5
+
+    weights: dict[str, float] = field(default_factory=dict)
+    scores: dict[str, float] = field(default_factory=dict)
+    uses: dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self):
+        for name, _ in DESTROY_OPERATORS:
+            self.weights.setdefault(name, 1.0)
+            self.scores.setdefault(name, 0.0)
+            self.uses.setdefault(name, 0)
+
+    def select(self, rng: random.Random) -> tuple[str, callable]:
+        """Weighted random selection over DESTROY_OPERATORS."""
+        names_and_ops = DESTROY_OPERATORS
+        weights = [max(self.MIN_WEIGHT, self.weights[name]) for name, _ in names_and_ops]
+        total = sum(weights)
+        r = rng.random() * total
+        cumulative = 0.0
+        for (name, op), w in zip(names_and_ops, weights):
+            cumulative += w
+            if r <= cumulative:
+                return name, op
+        return names_and_ops[-1]
+
+    def record(self, op_name: str, improved: bool) -> None:
+        self.uses[op_name] += 1
+        self.scores[op_name] += self.SCORE_IMPROVE if improved else self.SCORE_NEUTRAL
+
+    def maybe_update(self, iteration: int) -> None:
+        """Update weights every UPDATE_INTERVAL iterations from accumulated scores."""
+        if iteration == 0 or iteration % self.UPDATE_INTERVAL != 0:
+            return
+        for name, _ in DESTROY_OPERATORS:
+            if self.uses[name] == 0:
+                continue
+            perf = self.scores[name] / self.uses[name]
+            self.weights[name] = (
+                (1 - self.REACTION) * self.weights[name] + self.REACTION * perf
+            )
+            # Reset window counters so weights track recent performance
+            self.scores[name] = 0.0
+            self.uses[name] = 0
 
 
 # ── Repair helpers ──────────────────────────────────────────────────
@@ -187,6 +342,7 @@ def polish(
 
     deadline = time.monotonic() + time_budget
     no_improve_streak = 0
+    weights = AdaptiveWeights()
 
     logger.info(
         "lns.polish start placed=%d initial_cost=%d budget=%.1fs",
@@ -194,6 +350,7 @@ def polish(
     )
 
     for iteration in range(MAX_LNS_ITERATIONS):
+        weights.maybe_update(iteration)
         remaining = deadline - time.monotonic()
         if remaining <= 0.2:
             result.stopped_reason = "budget_exhausted"
@@ -208,10 +365,11 @@ def polish(
         k_max = max(k_min + 1, int(LNS_DESTROY_FRAC_MAX * len(cur_placed)))
         k = rng.randint(k_min, min(k_max, len(cur_placed)))
 
-        op_name, op_fn = rng.choice(DESTROY_OPERATORS)
-        destroyed_list = op_fn(best_env, best_sub, k, rng)
+        op_name, op_fn = weights.select(rng)
+        destroyed_list = op_fn(best_env, best_sub, k, rng, ctx)
         destroyed_ids = set(destroyed_list)
         if not destroyed_ids:
+            weights.record(op_name, improved=False)
             no_improve_streak += 1
             continue
 
@@ -230,6 +388,7 @@ def polish(
         except Exception as e:
             logger.warning("lns.iter %d envelope solve raised %s", iteration, e)
             result.rejected += 1
+            weights.record(op_name, improved=False)
             no_improve_streak += 1
             continue
 
@@ -237,6 +396,7 @@ def polish(
 
         if new_env.status not in ("OPTIMAL", "FEASIBLE"):
             result.rejected += 1
+            weights.record(op_name, improved=False)
             no_improve_streak += 1
             continue
 
@@ -245,11 +405,13 @@ def polish(
         # Feasibility gates for acceptance
         if not new_sub.all_feasible():
             result.rejected += 1
+            weights.record(op_name, improved=False)
             no_improve_streak += 1
             continue
         if len(new_env.assignments) < len(best_env.assignments):
             # Lost placements — reject even if drive went down
             result.rejected += 1
+            weights.record(op_name, improved=False)
             no_improve_streak += 1
             continue
 
@@ -264,9 +426,11 @@ def polish(
             best_sub = new_sub
             best_cost = new_cost
             result.improvements += 1
+            weights.record(op_name, improved=True)
             no_improve_streak = 0
         else:
             result.rejected += 1
+            weights.record(op_name, improved=False)
             no_improve_streak += 1
 
     if not result.stopped_reason:
