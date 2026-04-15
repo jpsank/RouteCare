@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import random
+import statistics
 import sys
 import time
 
@@ -39,6 +40,7 @@ WORKING_DAYS = [
 ]
 
 TIME_BUDGET = 30
+SAMPLES = int(os.environ.get("BENCHMARK_SAMPLES", "5"))
 
 
 # ── Scenarios ────────────────────────────────────────────────────────
@@ -328,31 +330,49 @@ def _compute_drive(out: SolverOutput, inp: SolverInput) -> int:
     return total
 
 
-def _count_soft_overrides(out: SolverOutput) -> int:
-    return sum(1 for v in out.planned_visits if v.soft_constraint_override)
-
-
 def run_one(name: str, inp: SolverInput) -> None:
     print(f"\n── {name} ──")
     print(f"  patients={len(inp.patients)}  instances={len(inp.instances)}"
-          f"  clinicians={len(inp.clinicians)}  days={len(inp.working_days)}")
+          f"  clinicians={len(inp.clinicians)}  days={len(inp.working_days)}"
+          f"  samples={SAMPLES}")
 
-    t0 = time.monotonic()
-    out = benders_solve(inp, time_budget=TIME_BUDGET)
-    dt = time.monotonic() - t0
-    drive = _compute_drive(out, inp)
-    overrides = _count_soft_overrides(out)
-    try:
-        validate_plan(out, inp)
-        valid = "✓"
-    except ValidationError as e:
-        valid = f"✗ {e.rule}"
-    placed = out.metadata.get("placed", len(out.planned_visits))
-    rounds = out.metadata.get("benders_rounds", "?")
-    cuts = out.metadata.get("cuts_generated", "?")
-    tag = f" overrides={overrides}" if overrides else ""
-    print(f"  placed={placed:2d}/{len(inp.instances)}  drive={drive:4d}  "
-          f"time={dt:5.2f}s  validate={valid}  rounds={rounds}  cuts={cuts}{tag}")
+    drives: list[int] = []
+    times: list[float] = []
+    placed_counts: list[int] = []
+    validate_results: list[str] = []
+    rounds_counts: list[int] = []
+
+    for _ in range(SAMPLES):
+        t0 = time.monotonic()
+        out = benders_solve(inp, time_budget=TIME_BUDGET)
+        dt = time.monotonic() - t0
+
+        drives.append(_compute_drive(out, inp))
+        times.append(dt)
+        placed_counts.append(out.metadata.get("placed", len(out.planned_visits)))
+        rounds_counts.append(out.metadata.get("benders_rounds", 0))
+        try:
+            validate_plan(out, inp)
+            validate_results.append("✓")
+        except ValidationError as e:
+            validate_results.append(f"✗{e.rule}")
+
+    valid = "✓" if all(r == "✓" for r in validate_results) else "✗"
+    placed_min = min(placed_counts)
+    placed_max = max(placed_counts)
+    placed_str = f"{placed_min}" if placed_min == placed_max else f"{placed_min}-{placed_max}"
+
+    drive_min = min(drives)
+    drive_med = int(statistics.median(drives))
+    drive_max = max(drives)
+    drive_str = f"{drive_min}" if drive_min == drive_max else f"{drive_min}|{drive_med}|{drive_max}"
+
+    time_med = statistics.median(times)
+    rounds_max = max(rounds_counts)
+
+    print(f"  placed={placed_str}/{len(inp.instances)}  "
+          f"drive(min|med|max)={drive_str}  "
+          f"time_med={time_med:5.3f}s  validate={valid}  rounds_max={rounds_max}")
 
 
 # ── Main ────────────────────────────────────────────────────────────

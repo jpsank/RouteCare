@@ -24,6 +24,7 @@ Soft terms in the objective:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -203,17 +204,68 @@ def _block_kills_window(ws: int, we: int, blocks: list[tuple[int, int]], duratio
 
 # ── Approximate routing cost ─────────────────────────────────────────
 
+# Fraction of the nearest-neighbor edge to add to each instance's base
+# home-leg.  0.0 = pure home-leg, 1.0 = attribute the full NN edge to
+# each endpoint (over-counts).  Biases day assignment toward plans
+# where each instance can cluster with a neighbor.
+#
+# Empirical sweep (5-sample multi-worker runs on the benchmark scenarios):
+# median drive is IDENTICAL between α=0.0 and α=0.1 across all six
+# scenarios.  α=0.1 tightens multi-clinician variance but loosens HEAVY
+# variance.  On synthetic inputs the two are a wash.  Default is 0.0 so
+# production behavior is deterministic-equivalent; the env var is
+# provided for tuning once real-data profiling arrives.
+NN_MARGIN_FRAC = float(os.environ.get("SOLVER_ENVELOPE_NN_MARGIN", "0.0"))
 
-def _home_leg_cost(input: SolverInput, ctx: SolverContext) -> dict[tuple[str, int], int]:
-    """Estimate round-trip cost from clinician home to patient (ignoring other stops)."""
+
+def _compute_approx_costs(
+    input: SolverInput,
+    ctx: SolverContext,
+) -> dict[tuple[str, int], int]:
+    """Per-(instance, clinician) routing cost proxy.
+
+    cost(i, c) = half_round_trip_from_home(c, patient(i))
+               + NN_MARGIN_FRAC × nearest_edge_to_another_patient(i)
+
+    The home-leg term pulls instances toward geographically-close
+    clinicians.  The NN-margin term teaches the envelope that clustering
+    with a nearby other-patient is cheap, which biases day assignment
+    toward plans where each instance lands on a day with a neighbor —
+    without the envelope having to model routing sequence explicitly.
+    """
     costs: dict[tuple[str, int], int] = {}
+
+    # Precompute NN travel per instance: min travel from this patient
+    # to any other instance's patient (different patient id).
+    nn_travel: dict[str, int] = {}
+    instance_pids = {inst.id: str(inst.patient_id) for inst in input.instances}
+    for inst in input.instances:
+        pid_i = instance_pids[inst.id]
+        best: int | None = None
+        for other in input.instances:
+            if other.id == inst.id:
+                continue
+            pid_j = instance_pids[other.id]
+            if pid_i == pid_j:
+                continue
+            t = ctx.travel(pid_i, pid_j)
+            if best is None or t < best:
+                best = t
+        nn_travel[inst.id] = int(best) if best is not None else 0
+
+    # Compose base home-leg + NN margin
     for inst in input.instances:
         pid = str(inst.patient_id)
+        margin = int(NN_MARGIN_FRAC * nn_travel[inst.id])
         for c_idx in range(len(input.clinicians)):
             out = ctx.travel(f"home_{c_idx}", pid)
             back = ctx.travel(pid, f"home_{c_idx}")
-            costs[(inst.id, c_idx)] = (out + back) // 2
+            costs[(inst.id, c_idx)] = (out + back) // 2 + margin
     return costs
+
+
+# Backward-compat alias (used by tests or external callers)
+_home_leg_cost = _compute_approx_costs
 
 
 # ── The envelope solve ──────────────────────────────────────────────
@@ -229,7 +281,7 @@ def solve_envelope(
     """CP-SAT master solve producing a (clinician, day, window) assignment per instance."""
 
     legal_slots = _enumerate_slots(input, ctx)
-    home_leg = _home_leg_cost(input, ctx)
+    home_leg = _compute_approx_costs(input, ctx)
     num_clinicians = len(input.clinicians)
     num_days = len(input.working_days)
 
@@ -445,6 +497,10 @@ def solve_envelope(
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(0.5, time_budget)
     solver.parameters.num_workers = NUM_WORKERS
+    # Deterministic tie-breaking: without a fixed seed, CP-SAT picks
+    # different optima on equivalent-cost solutions across runs, which
+    # makes A/B testing and re-solve stability impossible.
+    solver.parameters.random_seed = 42
 
     status = solver.solve(model)
     status_name = solver.status_name(status)

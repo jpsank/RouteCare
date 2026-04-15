@@ -148,27 +148,28 @@ def validate_plan(output: SolverOutput, input: SolverInput) -> None:
                 "day_bounds",
                 f"visit {v.instance_id} [{start_m},{end_m}) outside clinician day [{ds},{de})",
             )
-        # Availability windows
+        # Availability windows.  The Benders solver never produces visits
+        # outside declared windows — validate_plan treats window fit as a
+        # hard constraint with no escape hatch.  The legacy
+        # soft_constraint_override field is ignored.
         if inst.availability_windows:
             wday = day_wdays[v.date]
             wins = inst.availability_windows.get(wday, [])
             if not wins:
-                if not v.soft_constraint_override:
-                    raise ValidationError(
-                        "availability_missing_weekday",
-                        f"visit {v.instance_id} on {v.date} (wday {wday}) — patient has no window",
-                    )
-            else:
-                fits = any(
-                    start_m >= int(w.get("start_minute", 0))
-                    and end_m <= int(w.get("end_minute", 1440))
-                    for w in wins
+                raise ValidationError(
+                    "availability_missing_weekday",
+                    f"visit {v.instance_id} on {v.date} (wday {wday}) — patient has no window",
                 )
-                if not fits and not v.soft_constraint_override:
-                    raise ValidationError(
-                        "availability_window",
-                        f"visit {v.instance_id} [{start_m},{end_m}) not in windows {wins}",
-                    )
+            fits = any(
+                start_m >= int(w.get("start_minute", 0))
+                and end_m <= int(w.get("end_minute", 1440))
+                for w in wins
+            )
+            if not fits:
+                raise ValidationError(
+                    "availability_window",
+                    f"visit {v.instance_id} [{start_m},{end_m}) not in windows {wins}",
+                )
 
     # ── 8. Calendar blocks ──────────────────────────────────────
     for v in output.planned_visits:

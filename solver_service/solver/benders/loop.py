@@ -74,10 +74,9 @@ def _build_planned_visits(
             # tr.visits entries are already PlannedVisit-shaped (from TimedRoute)
             # but need clinician_idx filled in from the vehicle
             vehicle = ctx.vehicles[v_idx]
-            if hasattr(v, "clinician_idx") and v.clinician_idx == vehicle.clinician_idx:
+            if v.clinician_idx == vehicle.clinician_idx:
                 visits.append(v)
             else:
-                # Build a fresh PlannedVisit carrying the clinician index
                 visits.append(
                     PlannedVisit(
                         instance_id=v.instance_id,
@@ -86,9 +85,6 @@ def _build_planned_visits(
                         date=v.date,
                         starts_at=v.starts_at,
                         ends_at=v.ends_at,
-                        soft_constraint_override=getattr(
-                            v, "soft_constraint_override", False
-                        ),
                     )
                 )
     return visits
@@ -289,32 +285,56 @@ def solve(
     iteration_log: list[dict] = []
     cp_sat_status = "NOT_RUN"
 
+    logger.info(
+        "benders.solve start instances=%d clinicians=%d days=%d warm=%s budget=%.1fs",
+        len(input.instances), len(input.clinicians), len(input.working_days),
+        warm_start_used, time_budget,
+    )
+
     for round_idx in range(MAX_BENDERS_ROUNDS):
         remaining = deadline - time.monotonic()
         if remaining <= 0.5:
             break
 
         env_budget = max(0.5, remaining * ENVELOPE_BUDGET_FRAC)
-        # Warm-start only on the first round; after that, prefer whatever the
-        # previous iteration found (not wired yet — deferred to LNS polish).
         env_warm = warm_start_env if round_idx == 0 else None
+
+        env_t0 = time.monotonic()
         env = solve_envelope(
             input, ctx, cut_store, time_budget=env_budget, warm_start=env_warm
         )
+        env_dt = time.monotonic() - env_t0
         cp_sat_status = env.status
         benders_rounds += 1
 
         if env.status not in ("OPTIMAL", "FEASIBLE"):
+            logger.info(
+                "benders.round %d envelope=%s elapsed=%.3fs cuts=%d — aborting",
+                round_idx, env.status, env_dt, len(cut_store),
+            )
             iteration_log.append(
                 {"round": round_idx, "envelope_status": env.status, "placed": 0}
             )
             break
 
+        sub_t0 = time.monotonic()
         sub = solve_subproblems(env, input, ctx)
+        sub_dt = time.monotonic() - sub_t0
+
+        logger.info(
+            "benders.round %d envelope=%s (%.3fs) placed=%d subproblem=(%.3fs) "
+            "conflicts=%d drive=%d cuts_before=%d",
+            round_idx, env.status, env_dt,
+            len(env.assignments), sub_dt,
+            len(sub.conflicts), sub.total_drive(), len(cut_store),
+        )
+
         iteration_log.append(
             {
                 "round": round_idx,
                 "envelope_status": env.status,
+                "envelope_time": round(env_dt, 3),
+                "subproblem_time": round(sub_dt, 3),
                 "placed": len(env.assignments),
                 "conflicts": len(sub.conflicts),
                 "drive": sub.total_drive(),
@@ -343,11 +363,21 @@ def solve(
 
         new_cuts = generate_cuts(sub, input=input, ctx=ctx)
         added = apply_cuts(cut_store, new_cuts)
+        logger.info(
+            "benders.round %d generated %d cuts (added %d, total %d)",
+            round_idx, len(new_cuts), added, len(cut_store),
+        )
         if added == 0:
-            # Couldn't generate new cuts → we're stuck, bail
+            logger.warning(
+                "benders.round %d no new cuts — stuck, bailing out", round_idx
+            )
             break
 
     if best_envelope is None or best_subproblem is None:
+        logger.warning(
+            "benders.solve INFEASIBLE after %d rounds cp_sat_status=%s",
+            benders_rounds, cp_sat_status,
+        )
         return empty_output(
             input,
             metadata={
@@ -402,10 +432,16 @@ def solve(
         validate_plan(output, input)
         output.metadata["validated"] = True
     except ValidationError as e:
-        logger.error("validate_plan failed: %s", e)
+        logger.error("benders.solve validate_plan FAILED: %s", e)
         output.metadata["validated"] = False
         output.metadata["validation_error"] = str(e)
 
+    logger.info(
+        "benders.solve done status=%s placed=%d/%d drive=%d rounds=%d cuts=%d validated=%s",
+        schedule_status, len(planned_visits), len(input.instances),
+        final_drive, benders_rounds, len(cut_store),
+        output.metadata.get("validated"),
+    )
     return output
 
 
