@@ -1,390 +1,371 @@
-"""Benchmark: CP-SAT decomposed solver (optional comparison with ILS).
+"""Benchmark harness for the Benders solver.
 
-Runs on identical inputs at multiple scales and compares:
-  - Solution quality (total drive time, constraint violations)
-  - Runtime
-  - Feasibility (all visits placed?)
+Runs a fixed set of scenarios through the solver, measuring:
+  - placed count
+  - total drive minutes (reconstructed from the plan + travel matrix)
+  - solve wall time
+  - validation status (does the plan satisfy every hard constraint?)
+  - Benders round count and cut count
 
-Usage:
-  cd solver_service
-  python3 benchmark.py                 # CP-SAT only (default)
-  python3 benchmark.py --with-hgs      # also run PyVRP ILS baseline
-  python3 benchmark.py --re-solve    # CP-SAT cold + warm re-solve timing on each scenario
+Scenarios mirror tests/test_benders.py for reproducibility.  Add new
+scenarios via scenario_*() factories and wire them into main().
 """
 
-import argparse
-import sys
-import os
-import time
-import random
-from collections import defaultdict
-from datetime import datetime
+from __future__ import annotations
 
-sys.path.insert(0, os.path.dirname(__file__))
+import os
+import random
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from models import (
-    SolverInput, SolverOutput, ClinicianData, PatientData,
-    VisitInstanceData, LockedVisitData, CalendarBlockData, Location,
+    CalendarBlockData,
+    ClinicianData,
+    LockedVisitData,
+    PatientData,
+    SolverInput,
+    SolverOutput,
+    VisitInstanceData,
 )
+from solver.benders import solve as benders_solve
+from solver.benders.validate import ValidationError, validate_plan
 
 
-# ── Test Scenarios ──────────────────────────────────────────────────────
+WORKING_DAYS = [
+    "2026-04-20", "2026-04-21", "2026-04-22",
+    "2026-04-23", "2026-04-24",
+]
 
-def make_scenario_small():
-    """3 patients, 5 visits, 5 days. Typical light caseload."""
+TIME_BUDGET = 30
+
+
+# ── Scenarios ────────────────────────────────────────────────────────
+
+
+def scenario_small():
+    """3 patients, 5 instances, 1 clinician."""
     patients = [
-        PatientData(id=1, name="Alice", location=Location(lat=36.09, lng=-94.19),
-                    visit_duration_minutes=60, required_visits_per_week=2,
-                    min_days_between_visits=2, max_days_between_visits=5, priority=0),
-        PatientData(id=2, name="Bob", location=Location(lat=36.32, lng=-94.22),
-                    visit_duration_minutes=45, required_visits_per_week=2,
+        PatientData(id=1, name="Alice", visit_duration_minutes=60, required_visits=2,
+                    min_days_between_visits=2, max_days_between_visits=5),
+        PatientData(id=2, name="Bob", visit_duration_minutes=45, required_visits=2,
                     min_days_between_visits=1, max_days_between_visits=7, priority=5),
-        PatientData(id=3, name="Carol", location=Location(lat=36.18, lng=-94.15),
-                    visit_duration_minutes=30, required_visits_per_week=1,
-                    min_days_between_visits=1, max_days_between_visits=7, priority=0),
+        PatientData(id=3, name="Carol", visit_duration_minutes=30, required_visits=1),
     ]
     instances = [
-        VisitInstanceData(id="patient_1_visit_0", patient_id=1, location=patients[0].location, duration=60),
-        VisitInstanceData(id="patient_1_visit_1", patient_id=1, location=patients[0].location, duration=60),
-        VisitInstanceData(id="patient_2_visit_0", patient_id=2, location=patients[1].location, duration=45),
-        VisitInstanceData(id="patient_2_visit_1", patient_id=2, location=patients[1].location, duration=45),
-        VisitInstanceData(id="patient_3_visit_0", patient_id=3, location=patients[2].location, duration=30),
+        VisitInstanceData(id="p1_v0", patient_id=1, duration=60),
+        VisitInstanceData(id="p1_v1", patient_id=1, duration=60),
+        VisitInstanceData(id="p2_v0", patient_id=2, duration=45),
+        VisitInstanceData(id="p2_v1", patient_id=2, duration=45),
+        VisitInstanceData(id="p3_v0", patient_id=3, duration=30),
     ]
     matrix = {
-        "home": {"1": 18, "2": 41, "3": 24},
-        "1": {"home": 18, "2": 30, "3": 12},
-        "2": {"home": 41, "1": 30, "3": 22},
-        "3": {"home": 24, "1": 12, "2": 22},
+        "home_0": {"1": 18, "2": 41, "3": 24},
+        "1": {"home_0": 18, "2": 30, "3": 12},
+        "2": {"home_0": 41, "1": 30, "3": 22},
+        "3": {"home_0": 24, "1": 12, "2": 22},
     }
     return SolverInput(
-        patients=patients, instances=instances,
-        clinician=ClinicianData(home_location=Location(lat=36.18, lng=-94.13)),
-        travel_matrix=matrix, week_start_on="2026-04-06",
-        working_days=["2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10"],
+        patients=patients, instances=instances, clinicians=[ClinicianData()],
+        travel_matrix=matrix, start_date=WORKING_DAYS[0], working_days=WORKING_DAYS,
     )
 
 
-def make_scenario_medium():
-    """8 patients, 15 visits, 5 days. Typical full caseload."""
+def scenario_medium():
+    """8 patients, ~13 instances, 1 clinician, random geometry."""
     random.seed(42)
-    base_lat, base_lng = 36.15, -94.15
-
     patients = []
     instances = []
     for pid in range(1, 9):
-        lat = base_lat + random.uniform(-0.2, 0.2)
-        lng = base_lng + random.uniform(-0.2, 0.2)
-        visits_per_week = random.choice([1, 2, 2, 3])
-        duration = random.choice([30, 45, 60])
-        min_gap = 2 if visits_per_week >= 3 else 1
-        priority = random.choice([0, 0, 0, 3, 5])
-
-        patients.append(PatientData(
-            id=pid, name=f"Patient_{pid}", location=Location(lat=lat, lng=lng),
-            visit_duration_minutes=duration, required_visits_per_week=visits_per_week,
-            min_days_between_visits=min_gap, max_days_between_visits=7,
-            priority=priority,
-        ))
-        for v in range(visits_per_week):
-            instances.append(VisitInstanceData(
-                id=f"patient_{pid}_visit_{v}", patient_id=pid,
-                location=Location(lat=lat, lng=lng), duration=duration,
-                priority=priority,
-            ))
-
-    # Build travel matrix from coordinates (haversine-ish approximation)
-    matrix = _build_matrix(patients, base_lat, base_lng)
-
+        req = random.choice([1, 2, 2, 2])
+        dur = random.choice([30, 45, 60])
+        patients.append(
+            PatientData(id=pid, name=f"P{pid}",
+                        visit_duration_minutes=dur, required_visits=req,
+                        min_days_between_visits=1, max_days_between_visits=7)
+        )
+        for v in range(req):
+            instances.append(
+                VisitInstanceData(id=f"p{pid}_v{v}", patient_id=pid, duration=dur)
+            )
+    ids = [str(p.id) for p in patients]
+    matrix = {"home_0": {i: 15 for i in ids}}
+    for i in ids:
+        matrix[i] = {j: (0 if i == j else 25) for j in ids}
+        matrix[i]["home_0"] = 15
     return SolverInput(
-        patients=patients, instances=instances,
-        clinician=ClinicianData(
-            home_location=Location(lat=base_lat, lng=base_lng),
-            max_drive_minutes_per_day=180,
-            schedule_density=0.3,
-            charting_buffer_minutes=10,
-            lunch_start_minute=720,
-            lunch_duration_minutes=30,
-            lunch_window_minutes=90,
-            max_continuous_work_minutes=240,
-            required_break_minutes=15,
-        ),
-        travel_matrix=matrix, week_start_on="2026-04-06",
-        working_days=["2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10"],
+        patients=patients, instances=instances, clinicians=[ClinicianData()],
+        travel_matrix=matrix, start_date=WORKING_DAYS[0], working_days=WORKING_DAYS,
     )
 
 
-def make_scenario_heavy():
-    """12 patients, 25 visits, 5 days. Heavy caseload with constraints."""
-    random.seed(99)
-    base_lat, base_lng = 36.15, -94.15
-
+def scenario_heavy():
+    """12 patients, ~24 instances, 1 clinician, varied geography."""
+    random.seed(123)
     patients = []
     instances = []
     for pid in range(1, 13):
-        lat = base_lat + random.uniform(-0.3, 0.3)
-        lng = base_lng + random.uniform(-0.3, 0.3)
-        visits_per_week = random.choice([1, 2, 2, 3, 3])
-        duration = random.choice([30, 45, 60])
-        min_gap = 2 if visits_per_week >= 3 else 1
-        priority = random.choice([0, 0, 3, 5])
+        req = random.choice([1, 2, 2])
+        dur = random.choice([30, 45, 60])
+        patients.append(
+            PatientData(id=pid, name=f"P{pid}",
+                        visit_duration_minutes=dur, required_visits=req,
+                        min_days_between_visits=1, max_days_between_visits=7)
+        )
+        for v in range(req):
+            instances.append(
+                VisitInstanceData(id=f"p{pid}_v{v}", patient_id=pid, duration=dur)
+            )
+    # Random-ish symmetric matrix with home=18, patient-pair=22±
+    ids = [str(p.id) for p in patients]
+    matrix = {"home_0": {i: 18 for i in ids}}
+    rng = random.Random(999)
+    for i in ids:
+        matrix[i] = {}
+        matrix[i]["home_0"] = 18
+        for j in ids:
+            if i == j:
+                matrix[i][j] = 0
+            else:
+                matrix[i][j] = rng.randint(8, 35)
+    # Symmetrize
+    for i in ids:
+        for j in ids:
+            if i < j:
+                matrix[j][i] = matrix[i][j]
+    return SolverInput(
+        patients=patients, instances=instances, clinicians=[ClinicianData()],
+        travel_matrix=matrix, start_date=WORKING_DAYS[0], working_days=WORKING_DAYS,
+    )
 
-        # Some patients have availability windows
-        avail = {}
-        if pid % 3 == 0:  # every 3rd patient has afternoon-only windows
-            for wday in range(7):
-                avail[str(wday)] = [{"start_minute": 780, "end_minute": 1020}]  # 1pm-5pm
 
-        patients.append(PatientData(
-            id=pid, name=f"Patient_{pid}", location=Location(lat=lat, lng=lng),
-            visit_duration_minutes=duration, required_visits_per_week=visits_per_week,
-            min_days_between_visits=min_gap, max_days_between_visits=7,
-            priority=priority, availability_windows=avail,
-        ))
-        for v in range(visits_per_week):
-            instances.append(VisitInstanceData(
-                id=f"patient_{pid}_visit_{v}", patient_id=pid,
-                location=Location(lat=lat, lng=lng), duration=duration,
-                priority=priority, availability_windows=avail,
-            ))
+def scenario_extra_heavy():
+    """20 patients, ~38 instances, 1 clinician, 10-day horizon."""
+    random.seed(777)
+    patients = []
+    instances = []
+    for pid in range(1, 21):
+        req = random.choice([1, 2, 2, 2])
+        dur = random.choice([30, 45, 60])
+        patients.append(
+            PatientData(id=pid, name=f"P{pid}",
+                        visit_duration_minutes=dur, required_visits=req,
+                        min_days_between_visits=1, max_days_between_visits=9)
+        )
+        for v in range(req):
+            instances.append(
+                VisitInstanceData(id=f"p{pid}_v{v}", patient_id=pid, duration=dur)
+            )
+    ids = [str(p.id) for p in patients]
+    matrix = {"home_0": {i: 18 for i in ids}}
+    rng = random.Random(7777)
+    for i in ids:
+        matrix[i] = {}
+        matrix[i]["home_0"] = 18
+        for j in ids:
+            matrix[i][j] = 0 if i == j else rng.randint(8, 40)
+    for i in ids:
+        for j in ids:
+            if i < j:
+                matrix[j][i] = matrix[i][j]
+    # 10-day horizon
+    days = [f"2026-04-{20+d:02d}" for d in range(10)]
+    # Skip the weekend (Apr 25/26)
+    days = [d for d in days if d not in ("2026-04-25", "2026-04-26")]
+    return SolverInput(
+        patients=patients, instances=instances, clinicians=[ClinicianData()],
+        travel_matrix=matrix, start_date=days[0], working_days=days,
+    )
 
-    matrix = _build_matrix(patients, base_lat, base_lng)
 
-    # Add locked visits and calendar blocks
-    locked = [
-        LockedVisitData(
-            patient_id=1, date="2026-04-06",
-            starts_at="2026-04-06T09:00:00", ends_at="2026-04-06T10:00:00",
-            duration_minutes=60,
-        ),
+def scenario_multi_window():
+    """Patients with disjoint availability windows — the new solver's strict
+    feasibility contract matters here.  The old solver treats availability
+    windows as soft penalties, so it may schedule *between* windows with a
+    soft_constraint_override flag.  The new solver refuses."""
+    patients = [
+        PatientData(id=1, name="MorningOrAfternoon",
+                    visit_duration_minutes=45, required_visits=2,
+                    min_days_between_visits=1),
+        PatientData(id=2, name="MorningOnly",
+                    visit_duration_minutes=60, required_visits=2,
+                    min_days_between_visits=1),
+        PatientData(id=3, name="LunchWindow",
+                    visit_duration_minutes=30, required_visits=1),
     ]
-    blocks = [
-        CalendarBlockData(
-            date="2026-04-08",
-            starts_at="2026-04-08T14:00:00", ends_at="2026-04-08T15:30:00",
-        ),
+    # Patient 1: only 9-10:30 or 14-15:30 on weekdays (disjoint windows)
+    p1_windows = {
+        str(wd): [
+            {"start_minute": 540, "end_minute": 630},
+            {"start_minute": 840, "end_minute": 930},
+        ]
+        for wd in range(1, 6)
+    }
+    p2_windows = {
+        str(wd): [{"start_minute": 540, "end_minute": 720}]
+        for wd in range(1, 6)
+    }
+    p3_windows = {
+        str(wd): [{"start_minute": 720, "end_minute": 780}]
+        for wd in range(1, 6)
+    }
+    instances = [
+        VisitInstanceData(id="p1_v0", patient_id=1, duration=45,
+                          availability_windows=p1_windows),
+        VisitInstanceData(id="p1_v1", patient_id=1, duration=45,
+                          availability_windows=p1_windows),
+        VisitInstanceData(id="p2_v0", patient_id=2, duration=60,
+                          availability_windows=p2_windows),
+        VisitInstanceData(id="p2_v1", patient_id=2, duration=60,
+                          availability_windows=p2_windows),
+        VisitInstanceData(id="p3_v0", patient_id=3, duration=30,
+                          availability_windows=p3_windows),
     ]
+    matrix = {
+        "home_0": {"1": 15, "2": 20, "3": 10},
+        "1": {"home_0": 15, "2": 25, "3": 12},
+        "2": {"home_0": 20, "1": 25, "3": 18},
+        "3": {"home_0": 10, "1": 12, "2": 18},
+    }
+    return SolverInput(
+        patients=patients, instances=instances, clinicians=[ClinicianData()],
+        travel_matrix=matrix, start_date=WORKING_DAYS[0], working_days=WORKING_DAYS,
+    )
+
+
+def scenario_multi_clinician():
+    """6 patients, 2 clinicians, eligibility constraints (new solver only)."""
+    patients = [
+        PatientData(id=1, name="OnlyClin0", visit_duration_minutes=60, required_visits=2,
+                    min_days_between_visits=1),
+        PatientData(id=2, name="OnlyClin1", visit_duration_minutes=60, required_visits=2,
+                    min_days_between_visits=1),
+        PatientData(id=3, name="EitherA", visit_duration_minutes=45, required_visits=2,
+                    min_days_between_visits=1),
+        PatientData(id=4, name="EitherB", visit_duration_minutes=45, required_visits=2,
+                    min_days_between_visits=1),
+        PatientData(id=5, name="EitherC", visit_duration_minutes=30, required_visits=1),
+        PatientData(id=6, name="EitherD", visit_duration_minutes=30, required_visits=1),
+    ]
+    instances = []
+    # Clinician 0 only
+    instances.append(VisitInstanceData(id="p1_v0", patient_id=1, duration=60, eligible_clinician_indices=[0]))
+    instances.append(VisitInstanceData(id="p1_v1", patient_id=1, duration=60, eligible_clinician_indices=[0]))
+    # Clinician 1 only
+    instances.append(VisitInstanceData(id="p2_v0", patient_id=2, duration=60, eligible_clinician_indices=[1]))
+    instances.append(VisitInstanceData(id="p2_v1", patient_id=2, duration=60, eligible_clinician_indices=[1]))
+    # Either — solver assigns
+    for pid in [3, 4]:
+        instances.append(VisitInstanceData(id=f"p{pid}_v0", patient_id=pid, duration=45))
+        instances.append(VisitInstanceData(id=f"p{pid}_v1", patient_id=pid, duration=45))
+    for pid in [5, 6]:
+        instances.append(VisitInstanceData(id=f"p{pid}_v0", patient_id=pid, duration=30))
+
+    matrix = {
+        "home_0": {"1": 15, "2": 60, "3": 20, "4": 40, "5": 25, "6": 35},
+        "home_1": {"1": 60, "2": 15, "3": 40, "4": 20, "5": 35, "6": 25},
+    }
+    import itertools
+    pts = ["1", "2", "3", "4", "5", "6"]
+    rng = random.Random(7)
+    for a in pts:
+        if a not in matrix:
+            matrix[a] = {}
+        matrix[a]["home_0"] = matrix["home_0"][a]
+        matrix[a]["home_1"] = matrix["home_1"][a]
+        for b in pts:
+            if a == b:
+                matrix[a][b] = 0
+            elif b in matrix[a]:
+                continue
+            else:
+                matrix[a][b] = rng.randint(15, 45)
+    # symmetrize
+    for a in pts:
+        for b in pts:
+            if a < b and matrix[a].get(b) is not None:
+                matrix[b][a] = matrix[a][b]
 
     return SolverInput(
         patients=patients, instances=instances,
-        clinician=ClinicianData(
-            home_location=Location(lat=base_lat, lng=base_lng),
-            max_drive_minutes_per_day=200,
-            schedule_density=0.3,
-            charting_buffer_minutes=10,
-            lunch_start_minute=720,
-            lunch_duration_minutes=30,
-            lunch_window_minutes=90,
-            max_continuous_work_minutes=240,
-            required_break_minutes=15,
-        ),
-        locked_visits=locked,
-        calendar_blocks=blocks,
-        travel_matrix=matrix, week_start_on="2026-04-06",
-        working_days=["2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10"],
+        clinicians=[ClinicianData(), ClinicianData()],
+        travel_matrix=matrix, start_date=WORKING_DAYS[0], working_days=WORKING_DAYS,
     )
 
 
-def _build_matrix(patients, home_lat, home_lng):
-    """Build travel matrix from lat/lng using simple distance → minutes."""
-    import math
-
-    def travel_min(lat1, lng1, lat2, lng2):
-        # ~1 degree lat ≈ 69 miles, drive at ~30mph → minutes
-        dist = math.sqrt((lat1 - lat2) ** 2 + (lng1 - lng2) ** 2) * 69
-        return max(1, int(dist * 2))  # 2 min per mile
-
-    matrix = {"home": {}}
-    for p in patients:
-        pid = str(p.id)
-        t = travel_min(home_lat, home_lng, p.location.lat, p.location.lng)
-        matrix["home"][pid] = t
-        matrix.setdefault(pid, {})["home"] = t
-
-    for p1 in patients:
-        for p2 in patients:
-            if p1.id == p2.id:
-                continue
-            t = travel_min(p1.location.lat, p1.location.lng, p2.location.lat, p2.location.lng)
-            matrix.setdefault(str(p1.id), {})[str(p2.id)] = t
-
-    return matrix
+# ── Result extraction ───────────────────────────────────────────────
 
 
-# ── Benchmark Runner ────────────────────────────────────────────────────
+def _compute_drive(out: SolverOutput, inp: SolverInput) -> int:
+    """Compute round-trip drive for each (clinician, day) from planned visits.
 
-def evaluate_output(output: SolverOutput, input: SolverInput) -> dict:
-    """Compute quality metrics for a solver output."""
-    patients_by_id = {p.id: p for p in input.patients}
+    Works for both old and new solver output shapes.
+    """
+    total = 0
+    by_vehicle: dict[tuple[int, str], list] = {}
+    for v in out.planned_visits:
+        c_idx = getattr(v, "clinician_idx", 0) or 0
+        by_vehicle.setdefault((c_idx, v.date), []).append(v)
 
-    # Drive cost
-    total_drive = 0
-    routes_by_day: dict[str, list] = defaultdict(list)
-    for v in output.planned_visits:
-        routes_by_day[v.date].append(v)
+    matrix = inp.travel_matrix
 
-    for date, visits in routes_by_day.items():
-        sorted_visits = sorted(visits, key=lambda v: v.starts_at)
-        prev = "home"
-        for v in sorted_visits:
-            total_drive += input.travel_matrix.get(prev, {}).get(str(v.patient_id), 0)
-            prev = str(v.patient_id)
-        total_drive += input.travel_matrix.get(prev, {}).get("home", 0)
+    def travel(a: str, b: str) -> int:
+        return matrix.get(a, {}).get(b, 0) or matrix.get(a, {}).get("home", 0) or 0
 
-    # Spacing violations
-    patient_dates: dict[int, list[str]] = defaultdict(list)
-    for v in output.planned_visits:
-        patient_dates[v.patient_id].append(v.date)
-
-    spacing_violations = 0
-    for pid, dates in patient_dates.items():
-        if len(dates) < 2:
+    for (c_idx, date), visits in by_vehicle.items():
+        visits.sort(key=lambda v: v.starts_at)
+        home_keys = [f"home_{c_idx}", "home"]
+        home = home_keys[0] if home_keys[0] in matrix else home_keys[1]
+        pids = [str(v.patient_id) for v in visits]
+        if not pids:
             continue
-        patient = patients_by_id.get(pid)
-        if not patient:
-            continue
-        sorted_dates = sorted(dates)
-        for i in range(len(sorted_dates) - 1):
-            gap = (datetime.fromisoformat(sorted_dates[i + 1]) -
-                   datetime.fromisoformat(sorted_dates[i])).days
-            if gap < patient.min_days_between_visits:
-                spacing_violations += 1
-            if gap > patient.max_days_between_visits:
-                spacing_violations += 1
-
-    # One-patient-per-day violations
-    one_per_day_violations = 0
-    for date, visits in routes_by_day.items():
-        pids = [v.patient_id for v in visits]
-        one_per_day_violations += len(pids) - len(set(pids))
-
-    # Availability window violations
-    avail_violations = 0
-    for v in output.planned_visits:
-        patient = patients_by_id.get(v.patient_id)
-        if not patient or not patient.availability_windows:
-            continue
-        dt = datetime.fromisoformat(v.starts_at)
-        wday = str((dt.weekday() + 1) % 7)
-        windows = patient.availability_windows.get(wday, [])
-        if not windows:
-            continue
-        start_min = dt.hour * 60 + dt.minute
-        in_any = any(w["start_minute"] <= start_min < w["end_minute"] for w in windows)
-        if not in_any:
-            avail_violations += 1
-
-    # Visits on days with calendar blocks that overlap
-    block_violations = 0
-    for cb in input.calendar_blocks:
-        cb_start = _to_minute(cb.starts_at)
-        cb_end = _to_minute(cb.ends_at)
-        for v in output.planned_visits:
-            if v.date != cb.date:
-                continue
-            v_start = _to_minute(v.starts_at)
-            v_end = _to_minute(v.ends_at)
-            if v_start < cb_end and v_end > cb_start:
-                block_violations += 1
-
-    unscheduled = len(input.instances) - len(output.planned_visits)
-
-    return {
-        "visits_placed": len(output.planned_visits),
-        "unscheduled": unscheduled,
-        "total_drive": total_drive,
-        "spacing_violations": spacing_violations,
-        "one_per_day_violations": one_per_day_violations,
-        "avail_violations": avail_violations,
-        "block_violations": block_violations,
-        "soft_overrides": sum(1 for v in output.planned_visits if v.soft_constraint_override),
-        "fitness": output.fitness,
-    }
+        cost = travel(home, pids[0])
+        for a, b in zip(pids, pids[1:]):
+            cost += travel(a, b)
+        cost += travel(pids[-1], home)
+        total += cost
+    return total
 
 
-def _to_minute(dt_str: str) -> int:
-    dt = datetime.fromisoformat(dt_str)
-    return dt.hour * 60 + dt.minute
+def _count_soft_overrides(out: SolverOutput) -> int:
+    return sum(1 for v in out.planned_visits if v.soft_constraint_override)
 
 
-def run_benchmark(re_solve: bool = False) -> None:
-    scenarios = [
-        ("Small (3 patients, 5 visits)", make_scenario_small()),
-        ("Medium (8 patients, 15 visits)", make_scenario_medium()),
-        ("Heavy (12 patients, 25 visits)", make_scenario_heavy()),
-    ]
+def run_one(name: str, inp: SolverInput) -> None:
+    print(f"\n── {name} ──")
+    print(f"  patients={len(inp.patients)}  instances={len(inp.instances)}"
+          f"  clinicians={len(inp.clinicians)}  days={len(inp.working_days)}")
 
-    backends = []
-
-    # CP-SAT (decomposed)
+    t0 = time.monotonic()
+    out = benders_solve(inp, time_budget=TIME_BUDGET)
+    dt = time.monotonic() - t0
+    drive = _compute_drive(out, inp)
+    overrides = _count_soft_overrides(out)
     try:
-        from solvers.cpsat import solve as cpsat_solve
-        backends.append(("CP-SAT", cpsat_solve, 10))
-    except ImportError as e:
-        print(f"CP-SAT unavailable: {e}", file=sys.stderr)
+        validate_plan(out, inp)
+        valid = "✓"
+    except ValidationError as e:
+        valid = f"✗ {e.rule}"
+    placed = out.metadata.get("placed", len(out.planned_visits))
+    rounds = out.metadata.get("benders_rounds", "?")
+    cuts = out.metadata.get("cuts_generated", "?")
+    tag = f" overrides={overrides}" if overrides else ""
+    print(f"  placed={placed:2d}/{len(inp.instances)}  drive={drive:4d}  "
+          f"time={dt:5.2f}s  validate={valid}  rounds={rounds}  cuts={cuts}{tag}")
 
-    if not backends:
-        print("No solvers available; fix imports and retry.", file=sys.stderr)
-        sys.exit(1)
 
-    print("=" * 90)
-    print("BENCHMARK: CP-SAT Decomposed")
-    print("=" * 90)
+# ── Main ────────────────────────────────────────────────────────────
 
-    for scenario_name, input_data in scenarios:
-        print(f"\n{'─' * 90}")
-        print(f"Scenario: {scenario_name}")
-        print(f"  Instances: {len(input_data.instances)}, Days: {len(input_data.working_days)}, "
-              f"Locked: {len(input_data.locked_visits)}, Blocks: {len(input_data.calendar_blocks)}")
-        print(f"{'─' * 90}")
 
-        print(f"\n  {'Backend':<12} {'Time':>8} {'Placed':>7} {'Unsched':>8} {'Drive':>7} "
-              f"{'SpaceV':>7} {'1/Day':>6} {'AvailV':>7} {'BlockV':>7} {'Fitness':>10}")
-        print(f"  {'─'*12} {'─'*8} {'─'*7} {'─'*8} {'─'*7} {'─'*7} {'─'*6} {'─'*7} {'─'*7} {'─'*10}")
-
-        for name, solver_fn, budget in backends:
-            try:
-                start = time.perf_counter()
-                output = solver_fn(input_data, time_budget=budget)
-                elapsed = time.perf_counter() - start
-
-                metrics = evaluate_output(output, input_data)
-
-                print(f"  {name:<12} {elapsed:>7.2f}s {metrics['visits_placed']:>7} "
-                      f"{metrics['unscheduled']:>8} {metrics['total_drive']:>7} "
-                      f"{metrics['spacing_violations']:>7} {metrics['one_per_day_violations']:>6} "
-                      f"{metrics['avail_violations']:>7} {metrics['block_violations']:>7} "
-                      f"{metrics['fitness']:>10.0f}")
-
-                if re_solve and name == "CP-SAT":
-                    t1 = time.perf_counter()
-                    warm = solver_fn(input_data, time_budget=budget, upper_bound=output)
-                    warm_elapsed = time.perf_counter() - t1
-                    wm = evaluate_output(warm, input_data)
-                    print(f"  {'CP-SAT warm':<12} {warm_elapsed:>7.2f}s {wm['visits_placed']:>7} "
-                          f"{wm['unscheduled']:>8} {wm['total_drive']:>7} "
-                          f"{wm['spacing_violations']:>7} {wm['one_per_day_violations']:>6} "
-                          f"{wm['avail_violations']:>7} {wm['block_violations']:>7} "
-                          f"{wm['fitness']:>10.0f}")
-            except Exception as e:
-                print(f"  {name:<12} {'ERROR':>8} — {e}")
-
-    print(f"\n{'=' * 90}")
-    print("Legend:")
-    print("  Drive    = total travel minutes (home→visits→home, all days)")
-    print("  SpaceV   = spacing violations (min/max gap between same-patient visits)")
-    print("  1/Day    = one-patient-per-day violations")
-    print("  AvailV   = availability window violations")
-    print("  BlockV   = calendar block overlap violations")
-    print("  Fitness  = solver's own objective value")
-    print(f"{'=' * 90}")
+def main():
+    run_one("SMALL", scenario_small())
+    run_one("MEDIUM", scenario_medium())
+    run_one("HEAVY", scenario_heavy())
+    run_one("EXTRA-HEAVY (20 patients, 8 working days)", scenario_extra_heavy())
+    run_one("MULTI-WINDOW (adversarial)", scenario_multi_window())
+    run_one("MULTI-CLINICIAN", scenario_multi_clinician())
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Compare scheduling solver backends.")
-    parser.add_argument(
-        "--re-solve",
-        action="store_true",
-        help="After each CP-SAT run, time a second solve with upper_bound set (warm start).",
-    )
-    args = parser.parse_args()
-    run_benchmark(re_solve=args.re_solve)
+    main()
