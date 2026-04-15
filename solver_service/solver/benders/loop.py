@@ -20,6 +20,7 @@ from datetime import datetime
 from models import SolverInput, SolverOutput, PlannedVisit
 from solver.benders.cuts import apply_cuts, generate_cuts
 from solver.benders.envelope import CutStore, Envelope, Slot, solve_envelope
+from solver.benders.lns import LNS_BUDGET_FRAC
 from solver.benders.subproblem import (
     SubproblemResult,
     VehicleRoute,
@@ -453,6 +454,87 @@ def solve(
             },
         )
 
+    # ── LNS polish (post-convergence, pre-timing) ────────────────
+    # Hill-climbing destroy/repair on the feasible incumbent.  Runs
+    # only when it's likely to help AND when it's compatible with
+    # what the caller asked for:
+    #   - incumbent is feasible
+    #   - budget fraction is positive
+    #   - problem is big enough (placed ≥ MIN_LNS_PLACED)
+    #   - NOT a warm-started re-solve: warm-start implies the caller
+    #     wants continuity with the prior plan.  LNS would undo that
+    #     continuity to chase a few percent of drive savings — the
+    #     wrong tradeoff.  Week-to-week re-solves should preserve
+    #     assignments; LNS re-runs from scratch on new plans only.
+    #
+    # LNS itself has further short-circuits (no multi-stop routes,
+    # too few placements).  Never worsens the incumbent.
+    MIN_LNS_PLACED = 15
+    lns_metadata: dict = {}
+    should_polish = (
+        best_subproblem.all_feasible()
+        and LNS_BUDGET_FRAC > 0
+        and len(best_envelope.assignments) >= MIN_LNS_PLACED
+        and not warm_start_used
+    )
+    if should_polish:
+        remaining = deadline - time.monotonic()
+        # Scale LNS cap by problem size.  Small problems (≤50 placed)
+        # get 3s — enough for ~10-30 iterations, plenty.  Large problems
+        # (>100 placed) get up to 10s because each envelope re-solve
+        # is slower and we need more absolute time to see any iterations
+        # at all.  The `LNS_BUDGET_FRAC` env var still gates the overall
+        # fraction of remaining time.
+        placed = len(best_envelope.assignments)
+        if placed <= 50:
+            cap = 3.0
+        elif placed <= 100:
+            cap = 5.0
+        else:
+            cap = 10.0
+        lns_budget = min(cap, remaining * LNS_BUDGET_FRAC)
+        if lns_budget > 0.5:
+            from solver.benders.lns import polish as lns_polish  # late import
+            lns_result = lns_polish(
+                best_envelope, best_subproblem,
+                input, ctx, cut_store,
+                precomputed_slots=precomputed_slots,
+                precomputed_approx_costs=precomputed_approx_costs,
+                time_budget=lns_budget,
+            )
+
+            if lns_result.final_cost < lns_result.initial_cost:
+                # Verify via concrete timing — the subproblem's forward
+                # pass is lunch-aware but edge-case interactions can
+                # still cause cpsat_timing to drop a visit.  If timing
+                # drops anything, fall back to the pre-LNS incumbent.
+                trial_timed = _run_concrete_timing(
+                    ctx, input, lns_result.subproblem.routes
+                )
+                trial_dropped = sum(
+                    len(getattr(tr, "dropped", []) or [])
+                    for tr in trial_timed.values()
+                )
+                if trial_dropped == 0:
+                    best_envelope = lns_result.envelope
+                    best_subproblem = lns_result.subproblem
+                else:
+                    logger.info(
+                        "lns.polish output dropped %d visits in concrete "
+                        "timing — reverting to pre-LNS incumbent",
+                        trial_dropped,
+                    )
+
+            lns_metadata = {
+                "lns_iterations": lns_result.iterations,
+                "lns_improvements": lns_result.improvements,
+                "lns_rejected": lns_result.rejected,
+                "lns_initial_cost": lns_result.initial_cost,
+                "lns_final_cost": lns_result.final_cost,
+                "lns_delta": lns_result.final_cost - lns_result.initial_cost,
+                "lns_stopped_reason": lns_result.stopped_reason,
+            }
+
     # Concrete timing pass
     timed = _run_concrete_timing(ctx, input, best_subproblem.routes)
     planned_visits = _build_planned_visits(ctx, timed)
@@ -489,6 +571,7 @@ def solve(
             "unschedulable": unschedulable,
             "iteration_log": iteration_log,
             "warm_start_used": warm_start_used,
+            **lns_metadata,
         },
     )
 

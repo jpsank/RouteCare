@@ -146,6 +146,37 @@ def _route_vehicle(
 
     n = len(stops)
 
+    # ── Precompute per-stop metadata and travel slices ──────────
+    # These are invariant across the permutation × lunch-position
+    # enumeration loop, so hoist them out of _evaluate.  The forward
+    # pass then uses integer indices and list lookups instead of
+    # dict lookups via travel() — ~5× faster per inner iteration.
+    stop_ids: list[str] = []
+    stop_pids: list[str] = []
+    stop_durs: list[int] = []
+    stop_w_start: list[int] = []
+    stop_w_end_minus_dur: list[int] = []  # pre-compute window_end − duration
+    for iid, slot in stops:
+        inst = ctx.instances_by_id[iid]
+        dur = inst.duration
+        stop_ids.append(iid)
+        stop_pids.append(str(inst.patient_id))
+        stop_durs.append(dur)
+        stop_w_start.append(slot.window_start)
+        stop_w_end_minus_dur.append(slot.window_end - dur)
+
+    # n+1 × n+1 travel matrix where index n == home.
+    # travel_mat[i][j] = travel from stop i (or home) to stop j (or home).
+    travel_mat: list[list[int]] = [[0] * (n + 1) for _ in range(n + 1)]
+    for i in range(n):
+        travel_mat[n][i] = travel(home_key, stop_pids[i])  # home → i
+        travel_mat[i][n] = travel(stop_pids[i], home_key)  # i → home
+        for j in range(n):
+            if i == j:
+                continue
+            travel_mat[i][j] = travel(stop_pids[i], stop_pids[j])
+    HOME = n  # index sentinel for home
+
     def _evaluate(
         order: list[int], lunch_pos: int
     ) -> tuple[int, dict[str, int], int | None] | None:
@@ -156,73 +187,56 @@ def _route_vehicle(
           k   → lunch between stops k-1 and k
           n   → lunch after the last stop (still before return-home)
 
-        If has_lunch is False, lunch_pos is ignored.
-
-        Returns (drive_cost, stop_start_minutes, lunch_start_minute)
-        or None if infeasible.  lunch_start_minute is None when no
-        lunch was inserted.
+        Uses precomputed integer-indexed metadata (stop_durs,
+        stop_w_start, etc.) and the travel_mat list-of-lists instead
+        of dict lookups.  Hot path — kept tight.
         """
-        ordered_stops = [stops[i] for i in order]
-        pids = [str(ctx.instances_by_id[iid].patient_id) for iid, _ in ordered_stops]
-        durs = [ctx.instances_by_id[iid].duration for iid, _ in ordered_stops]
-
         t = day_start
-        prev_key = home_key
+        prev = HOME
         starts: dict[str, int] = {}
         drive = 0
         lunch_start_out: int | None = None
 
-        def _take_lunch(current_t: int) -> int | None:
-            """Try to take lunch at or after current_t.  Returns new time
-            after lunch, or None if the lunch window is already closed."""
-            nonlocal lunch_start_out
-            ls = max(current_t, lunch_earliest)
-            if ls > lunch_latest:
-                return None
-            lunch_start_out = ls
-            return ls + lunch_dur
-
         for k in range(n):
             # Take lunch at this position if requested
             if has_lunch and lunch_pos == k and lunch_start_out is None:
-                new_t = _take_lunch(t)
-                if new_t is None:
+                ls = t if t > lunch_earliest else lunch_earliest
+                if ls > lunch_latest:
                     return None
-                t = new_t
+                lunch_start_out = ls
+                t = ls + lunch_dur
 
-            pid = pids[k]
-            iid = ordered_stops[k][0]
-            slot = ordered_stops[k][1]
-            dur = durs[k]
-
-            leg = travel(prev_key, pid)
+            cur = order[k]
+            leg = travel_mat[prev][cur]
             drive += leg
             t += leg
 
             # Wait until window opens
-            if t < slot.window_start:
-                t = slot.window_start
+            w_start = stop_w_start[cur]
+            if t < w_start:
+                t = w_start
             # Window end check
-            if t > slot.window_end - dur:
+            if t > stop_w_end_minus_dur[cur]:
                 return None
 
-            starts[iid] = t
-            t += dur
-            prev_key = pid
+            starts[stop_ids[cur]] = t
+            t += stop_durs[cur]
+            prev = cur
 
         # Take lunch after last stop if requested
         if has_lunch and lunch_pos == n and lunch_start_out is None:
-            new_t = _take_lunch(t)
-            if new_t is None:
+            ls = t if t > lunch_earliest else lunch_earliest
+            if ls > lunch_latest:
                 return None
-            t = new_t
+            lunch_start_out = ls
+            t = ls + lunch_dur
 
         # Sanity: if has_lunch, lunch must have been placed by now
         if has_lunch and lunch_start_out is None:
             return None
 
         # Return to home
-        back = travel(prev_key, home_key)
+        back = travel_mat[prev][HOME]
         drive += back
         t += back
 
