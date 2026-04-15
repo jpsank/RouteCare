@@ -93,10 +93,25 @@ def _route_vehicle(
     day_start = vehicle.day_start
     day_end = vehicle.day_end
 
-    # Lunch is currently unmodeled in the subproblem feasibility pass —
-    # the concrete timing pass (cpsat_time_vehicle_route) enforces it later.
-    # For the spike this is acceptable: subproblem proves routing feasibility
-    # on travel+windows, concrete timing handles lunch/blocks/breaks.
+    # Lunch and break reservation.  The concrete timing pass strictly
+    # enforces lunch inside its flex window and breaks after long work
+    # spans; if the subproblem's forward pass ignores them, it will
+    # greenlight envelopes the timing pass can't honor.  Conservative
+    # approximation: reduce the effective day length by the lunch
+    # duration and (when the shift is long enough to trigger mandatory
+    # breaks) the required break duration.  This over-rejects some
+    # feasible routes but never under-rejects.
+    shift_duration = day_end - day_start
+    reserved = 0
+    if clinician.lunch_duration_minutes > 0:
+        reserved += clinician.lunch_duration_minutes
+    if (
+        clinician.max_continuous_work_minutes > 0
+        and shift_duration > clinician.max_continuous_work_minutes
+        and clinician.required_break_minutes > 0
+    ):
+        reserved += clinician.required_break_minutes
+    effective_day_end = day_end - reserved
 
     n = len(stops)
 
@@ -136,11 +151,12 @@ def _route_vehicle(
             starts[iid] = t
             t += dur
 
-        # Return to home
+        # Return to home.  Budget against effective_day_end so lunch/break
+        # time is reserved for the concrete timing pass.
         back = travel(pids[-1], home_key)
         drive += back
         t += back
-        if t > day_end:
+        if t > effective_day_end:
             return None
         # Drive limit check
         if drive > vehicle.max_drive:
