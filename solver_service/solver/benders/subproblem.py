@@ -41,6 +41,15 @@ class VehicleRoute:
     drive_cost: int
     # Absolute start minute per stop (within the day, minute-of-day)
     starts: dict[str, int] = field(default_factory=dict)
+    # Per-instance detour cost: travel(prev, i) + travel(i, next) -
+    # travel(prev, next).  Fed back to the envelope as the cost
+    # marginal for (instance, clinician_idx, day_idx) on the next
+    # Benders round.  Empty for vehicles with no stops.
+    marginals: dict[str, int] = field(default_factory=dict)
+    # Planned lunch start minute if lunch was inserted into the route,
+    # else None.  Included so the concrete timing pass can honor the
+    # subproblem's lunch choice directly.
+    lunch_start: int | None = None
 
 
 @dataclass
@@ -74,9 +83,15 @@ def _route_vehicle(
 ) -> VehicleRoute | Conflict:
     """Find best ordering for one vehicle's stops, or report the infeasible subset.
 
-    Forward-pass feasibility against each stop's envelope window and the
-    vehicle shift.  Locked visits are NOT modeled here — the concrete timing
-    pass handles them at the end.
+    Forward pass with explicit lunch insertion: enumerates both the stop
+    permutation AND the lunch position (before stop k, for k in 0..n) so
+    the subproblem matches the concrete timing pass's lunch behavior.
+    Required breaks (max_continuous_work overflow) remain capacity-
+    reserved — they're rarer than lunch and the conservative approx is
+    sound for them.
+
+    Locked visits are NOT modeled here — the concrete timing pass handles
+    them at the end.
     """
     if not stops:
         return VehicleRoute(
@@ -93,92 +108,150 @@ def _route_vehicle(
     day_start = vehicle.day_start
     day_end = vehicle.day_end
 
-    # Lunch and break reservation.  The concrete timing pass strictly
-    # enforces lunch inside its flex window and breaks after long work
-    # spans; if the subproblem's forward pass ignores them, it will
-    # greenlight envelopes the timing pass can't honor.  Conservative
-    # approximation: reduce the effective day length by the lunch
-    # duration and (when the shift is long enough to trigger mandatory
-    # breaks) the required break duration.  This over-rejects some
-    # feasible routes but never under-rejects.
+    # Lunch flex window [earliest, latest] — lunch can start anywhere in
+    # this range.  If lunch_duration_minutes == 0 the whole lunch phase
+    # is skipped.
+    lunch_dur = clinician.lunch_duration_minutes
+    has_lunch = lunch_dur > 0
+    half_w = clinician.lunch_window_minutes // 2
+    lunch_earliest = max(clinician.lunch_start_minute - half_w, day_start)
+    lunch_latest = min(
+        clinician.lunch_start_minute + half_w,
+        day_end - lunch_dur,
+    )
+    if has_lunch and lunch_latest < lunch_earliest:
+        # Degenerate config: lunch window starts after it can end.
+        # Fall back to a conservative reservation.
+        lunch_latest = lunch_earliest
+
+    # Mandatory break reservation (long-shift rule) — still approximated
+    # as capacity subtraction.  Break insertion happens in the concrete
+    # timing pass via CP-SAT.
     shift_duration = day_end - day_start
-    reserved = 0
-    if clinician.lunch_duration_minutes > 0:
-        reserved += clinician.lunch_duration_minutes
+    break_reserved = 0
     if (
         clinician.max_continuous_work_minutes > 0
         and shift_duration > clinician.max_continuous_work_minutes
         and clinician.required_break_minutes > 0
     ):
-        reserved += clinician.required_break_minutes
-    effective_day_end = day_end - reserved
+        break_reserved = clinician.required_break_minutes
+    effective_day_end = day_end - break_reserved
 
     n = len(stops)
 
-    # If n is small, try every permutation.  For n > MAX_EXHAUSTIVE_STOPS,
-    # fall back to nearest-neighbor (quality degrades but remains feasible).
-    use_exhaustive = n <= MAX_EXHAUSTIVE_STOPS
+    def _evaluate(
+        order: list[int], lunch_pos: int
+    ) -> tuple[int, dict[str, int], int | None] | None:
+        """Forward pass for a (permutation, lunch_position) pair.
 
-    def _evaluate(order: list[int]) -> tuple[int, dict[str, int]] | None:
-        """Forward pass.  Returns (drive_cost, stop_starts) or None if infeasible."""
+        lunch_pos in [0, n]:
+          0   → lunch before the first stop
+          k   → lunch between stops k-1 and k
+          n   → lunch after the last stop (still before return-home)
+
+        If has_lunch is False, lunch_pos is ignored.
+
+        Returns (drive_cost, stop_start_minutes, lunch_start_minute)
+        or None if infeasible.  lunch_start_minute is None when no
+        lunch was inserted.
+        """
         ordered_stops = [stops[i] for i in order]
         pids = [str(ctx.instances_by_id[iid].patient_id) for iid, _ in ordered_stops]
-        # Start time: leave home at day_start
-        t = day_start + travel(home_key, pids[0])
-        # But can't arrive before the first stop's window opens
-        first_slot = ordered_stops[0][1]
-        if t < first_slot.window_start:
-            t = first_slot.window_start
-        if t > first_slot.window_end - ctx.instances_by_id[ordered_stops[0][0]].duration:
-            return None
-        starts: dict[str, int] = {ordered_stops[0][0]: t}
-        t += ctx.instances_by_id[ordered_stops[0][0]].duration
+        durs = [ctx.instances_by_id[iid].duration for iid, _ in ordered_stops]
 
-        drive = travel(home_key, pids[0])
-        for k in range(1, n):
-            prev_pid = pids[k - 1]
-            cur_pid = pids[k]
+        t = day_start
+        prev_key = home_key
+        starts: dict[str, int] = {}
+        drive = 0
+        lunch_start_out: int | None = None
+
+        def _take_lunch(current_t: int) -> int | None:
+            """Try to take lunch at or after current_t.  Returns new time
+            after lunch, or None if the lunch window is already closed."""
+            nonlocal lunch_start_out
+            ls = max(current_t, lunch_earliest)
+            if ls > lunch_latest:
+                return None
+            lunch_start_out = ls
+            return ls + lunch_dur
+
+        for k in range(n):
+            # Take lunch at this position if requested
+            if has_lunch and lunch_pos == k and lunch_start_out is None:
+                new_t = _take_lunch(t)
+                if new_t is None:
+                    return None
+                t = new_t
+
+            pid = pids[k]
             iid = ordered_stops[k][0]
             slot = ordered_stops[k][1]
-            dur = ctx.instances_by_id[iid].duration
-            leg = travel(prev_pid, cur_pid)
+            dur = durs[k]
+
+            leg = travel(prev_key, pid)
             drive += leg
             t += leg
+
+            # Wait until window opens
             if t < slot.window_start:
                 t = slot.window_start
+            # Window end check
             if t > slot.window_end - dur:
                 return None
+
             starts[iid] = t
             t += dur
+            prev_key = pid
 
-        # Return to home.  Budget against effective_day_end so lunch/break
-        # time is reserved for the concrete timing pass.
-        back = travel(pids[-1], home_key)
+        # Take lunch after last stop if requested
+        if has_lunch and lunch_pos == n and lunch_start_out is None:
+            new_t = _take_lunch(t)
+            if new_t is None:
+                return None
+            t = new_t
+
+        # Sanity: if has_lunch, lunch must have been placed by now
+        if has_lunch and lunch_start_out is None:
+            return None
+
+        # Return to home
+        back = travel(prev_key, home_key)
         drive += back
         t += back
+
         if t > effective_day_end:
             return None
-        # Drive limit check
         if drive > vehicle.max_drive:
             return None
-        return drive, starts
+        return drive, starts, lunch_start_out
 
-    best: tuple[int, dict[str, int], list[int]] | None = None
+    # Enumerate (permutation, lunch_position).
+    # For n ≤ MAX_EXHAUSTIVE_STOPS: all permutations × (n+1) lunch positions.
+    # For n > MAX_EXHAUSTIVE_STOPS: nearest-neighbor order × all lunch positions.
+    use_exhaustive = n <= MAX_EXHAUSTIVE_STOPS
+    lunch_positions = range(n + 1) if has_lunch else [0]  # 0 is a no-op sentinel when no lunch
+
+    best: tuple[int, dict[str, int], list[int], int | None] | None = None
 
     if use_exhaustive:
         for perm in itertools.permutations(range(n)):
-            result = _evaluate(list(perm))
+            perm_list = list(perm)
+            for lp in lunch_positions:
+                result = _evaluate(perm_list, lp)
+                if result is None:
+                    continue
+                drive, starts, lunch_s = result
+                if best is None or drive < best[0]:
+                    best = (drive, starts, perm_list, lunch_s)
+    else:
+        order = _nearest_neighbor(stops, ctx, home_key)
+        for lp in lunch_positions:
+            result = _evaluate(order, lp)
             if result is None:
                 continue
-            drive, starts = result
+            drive, starts, lunch_s = result
             if best is None or drive < best[0]:
-                best = (drive, starts, list(perm))
-    else:
-        # Nearest-neighbor fallback (not used for MAX_VISITS_PER_DAY=5)
-        order = _nearest_neighbor(stops, ctx, home_key)
-        result = _evaluate(order)
-        if result is not None:
-            best = (result[0], result[1], order)
+                best = (drive, starts, order, lunch_s)
 
     if best is None:
         return Conflict(
@@ -188,15 +261,52 @@ def _route_vehicle(
             reason="no_feasible_ordering",
         )
 
-    drive_cost, starts, order = best
+    drive_cost, starts, order, lunch_s = best
     ordered_ids = [stops[i][0] for i in order]
+    marginals = _compute_marginals(order, stops, ctx, home_key)
     return VehicleRoute(
         clinician_idx=c_idx,
         day_idx=vehicle.day_index,
         ordered=ordered_ids,
         drive_cost=drive_cost,
         starts=starts,
+        marginals=marginals,
+        lunch_start=lunch_s,
     )
+
+
+def _compute_marginals(
+    order: list[int],
+    stops: list[tuple[str, Slot]],
+    ctx: SolverContext,
+    home_key: str,
+) -> dict[str, int]:
+    """Per-instance detour cost on the chosen route.
+
+    detour(i) = travel(prev, i) + travel(i, next) - travel(prev, next)
+
+    where prev/next are the actual neighbors of instance i in the ordered
+    route, with home_key standing in for the virtual depot at both ends.
+    This is what the envelope should use as the cost of placing instance
+    i on this (clinician, day) on the NEXT Benders round — it replaces
+    the home-leg approximation with an actual routing-based marginal.
+    """
+    travel = ctx.travel
+    n = len(order)
+    if n == 0:
+        return {}
+
+    ordered_stops = [stops[i] for i in order]
+    pids = [str(ctx.instances_by_id[iid].patient_id) for iid, _ in ordered_stops]
+
+    marginals: dict[str, int] = {}
+    for k in range(n):
+        prev_key = home_key if k == 0 else pids[k - 1]
+        next_key = home_key if k == n - 1 else pids[k + 1]
+        with_i = travel(prev_key, pids[k]) + travel(pids[k], next_key)
+        without_i = travel(prev_key, next_key)
+        marginals[ordered_stops[k][0]] = max(0, with_i - without_i)
+    return marginals
 
 
 def _nearest_neighbor(
