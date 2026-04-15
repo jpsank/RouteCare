@@ -857,6 +857,38 @@ def realism_scenarios() -> list[Scenario]:
 # ────────────────────────────────────────────────────────────────────
 
 
+def _build_adv_high_density() -> SolverInput:
+    """Single clinician with max_visits_per_day=12, 24 patients × 1 visit.
+    Forces at least one vehicle-day to exceed the exhaustive-permutation
+    cap (n > 7), exercising the NN + 2-opt fallback.
+
+    Short durations (25 min each) ensure 12 visits actually fit in the
+    clinician's day with lunch.  Budget: 8h workday - 30min lunch = 7.5h,
+    12 visits × 25min service = 5h + travel.
+    """
+    random.seed(1234)
+    patients = []
+    instances = []
+    for pid in range(1, 25):
+        patients.append(PatientData(
+            id=pid, name=f"P{pid}", visit_duration_minutes=25,
+            required_visits=1, min_days_between_visits=1,
+        ))
+        instances.append(VisitInstanceData(
+            id=f"p{pid}_v0", patient_id=pid, duration=25,
+        ))
+    pids = [str(p.id) for p in patients]
+    matrix = _random_matrix(
+        pids, 1, seed=12345,
+        inter_min=4, inter_max=12, home_min=5, home_max=10,
+    )
+    clinician = ClinicianData(max_visits_per_day=12)
+    return SolverInput(
+        patients=patients, instances=instances, clinicians=[clinician],
+        travel_matrix=matrix, start_date=WEEK[0], working_days=WEEK,
+    )
+
+
 def _build_adv_tight_windows() -> SolverInput:
     """6 patients with only a 9-11 window on every day — force the envelope
     to spread them across days. Each visit is 60 min so max ~1 per day."""
@@ -956,6 +988,11 @@ def adversarial_scenarios() -> list[Scenario]:
             _build_adv_skewed_eligibility,
             extra_check=_check_adv_skewed_load,
         ),
+        # Exercises the NN + 2-opt fallback path: max_visits_per_day=12
+        # forces at least one vehicle-day to exceed the exhaustive cap
+        # (n ≤ 7).  Without 2-opt, pure NN often over-rejects or produces
+        # clearly suboptimal orderings on dense days.
+        Scenario("adv_high_density", "adversarial", _build_adv_high_density),
     ]
 
 

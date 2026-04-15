@@ -29,8 +29,15 @@ from solver.context import SolverContext, VehicleDef
 logger = logging.getLogger(__name__)
 
 
-# Cap on exhaustive enumeration; beyond this we'd need a metaheuristic.
+# Cap on exhaustive enumeration; beyond this we fall back to NN + 2-opt
+# local search.  n ≤ 7 is 7! × 8 = 40k evaluations (~30ms).  At n = 8 it
+# becomes 362k (~250ms), too slow per vehicle.
 MAX_EXHAUSTIVE_STOPS = 7
+
+# Upper bound on 2-opt sweeps for the NN-fallback path.  Each sweep is
+# O(n² × (n+1)) evaluations.  In practice 2-opt converges in 3-5 sweeps;
+# the cap prevents pathological oscillation or slow convergence.
+MAX_TWO_OPT_ITERATIONS = 50
 
 
 @dataclass
@@ -244,14 +251,16 @@ def _route_vehicle(
                 if best is None or drive < best[0]:
                     best = (drive, starts, perm_list, lunch_s)
     else:
-        order = _nearest_neighbor(stops, ctx, home_key)
-        for lp in lunch_positions:
-            result = _evaluate(order, lp)
-            if result is None:
-                continue
-            drive, starts, lunch_s = result
-            if best is None or drive < best[0]:
-                best = (drive, starts, order, lunch_s)
+        # NN + 2-opt local search.  NN gives a fast initial ordering;
+        # 2-opt iteratively reverses sub-sequences that reduce total
+        # drive while keeping all window constraints satisfied.
+        # First-improvement strategy: accept the first improving swap
+        # each sweep and restart.  Terminates when a full sweep finds
+        # no improvement, or after MAX_TWO_OPT_ITERATIONS bumps.
+        initial_order = _nearest_neighbor(stops, ctx, home_key)
+        best = _best_over_lunch_positions(initial_order, lunch_positions, _evaluate)
+        if best is not None:
+            best = _two_opt_improve(best, lunch_positions, _evaluate, n)
 
     if best is None:
         return Conflict(
@@ -273,6 +282,71 @@ def _route_vehicle(
         marginals=marginals,
         lunch_start=lunch_s,
     )
+
+
+def _best_over_lunch_positions(
+    order: list[int],
+    lunch_positions,
+    evaluate_fn,
+) -> tuple[int, dict[str, int], list[int], int | None] | None:
+    """Run `evaluate_fn(order, lp)` over every lunch position, pick the
+    cheapest feasible result.  Returns the `best` tuple shape used in
+    `_route_vehicle` or None if no lunch position produces a feasible
+    plan."""
+    best: tuple[int, dict[str, int], list[int], int | None] | None = None
+    for lp in lunch_positions:
+        result = evaluate_fn(order, lp)
+        if result is None:
+            continue
+        drive, starts, lunch_s = result
+        if best is None or drive < best[0]:
+            best = (drive, starts, list(order), lunch_s)
+    return best
+
+
+def _two_opt_improve(
+    current: tuple[int, dict[str, int], list[int], int | None],
+    lunch_positions,
+    evaluate_fn,
+    n: int,
+) -> tuple[int, dict[str, int], list[int], int | None]:
+    """Iteratively apply 2-opt swaps to improve a feasible ordering.
+
+    For each pair (i, j) with 0 ≤ i < j < n, try reversing
+    `order[i:j+1]`.  If the new ordering is still feasible under some
+    lunch position AND has lower total drive, accept it and restart
+    the sweep.  Terminates when a full sweep finds no improvement or
+    after MAX_TWO_OPT_ITERATIONS iterations.
+    """
+    best_drive, best_starts, best_order, best_lunch = current
+
+    for _ in range(MAX_TWO_OPT_ITERATIONS):
+        improved = False
+        for i in range(n - 1):
+            for j in range(i + 1, n):
+                # Reverse order[i..j] (inclusive).  i=0, j=n-1 is
+                # equivalent to reversing the whole route — valid but
+                # usually not improving unless the NN start was wrong.
+                new_order = (
+                    best_order[:i]
+                    + list(reversed(best_order[i:j + 1]))
+                    + best_order[j + 1:]
+                )
+                trial = _best_over_lunch_positions(
+                    new_order, lunch_positions, evaluate_fn
+                )
+                if trial is None:
+                    continue
+                if trial[0] < best_drive:
+                    best_drive, best_starts, best_order, best_lunch = trial
+                    improved = True
+                    break
+            if improved:
+                break
+        if not improved:
+            break
+
+    return (best_drive, best_starts, best_order, best_lunch)
 
 
 def _compute_marginals(
