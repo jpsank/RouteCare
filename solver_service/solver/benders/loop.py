@@ -125,9 +125,10 @@ def _envelope_from_upper_bound(
 ) -> Envelope | None:
     """Build a warm-start Envelope from a prior SolverOutput.
 
-    Returns None if the prior plan doesn't match the current input (instances
-    renamed, clinicians changed, etc.) or if any prior visit lands on a slot
-    that no longer exists under the current constraints.
+    Instances in the prior plan that no longer exist in the current input
+    (e.g. cancelled patients) are silently skipped — the warm-start covers
+    whatever overlap exists.  Returns None only if the prior plan is
+    structurally unusable (bad clinician indices, missing dates).
     """
     if upper_bound is None or not upper_bound.planned_visits:
         return None
@@ -138,19 +139,16 @@ def _envelope_from_upper_bound(
     for v in upper_bound.planned_visits:
         inst = instances_by_id.get(v.instance_id)
         if inst is None:
-            return None
+            continue  # instance removed from current input — skip
         if v.clinician_idx < 0 or v.clinician_idx >= len(input.clinicians):
-            return None
+            continue  # clinician no longer exists — skip
         d_idx = ctx.date_to_idx.get(v.date)
         if d_idx is None:
-            return None
-        # Respect eligibility
+            continue  # date out of current horizon — skip
         if inst.eligible_clinician_indices and v.clinician_idx not in inst.eligible_clinician_indices:
-            return None
+            continue  # eligibility changed — skip
         clinician = input.clinicians[v.clinician_idx]
         ds, de = day_bounds(clinician, v.date)
-        # Use the full day window as the hint — the envelope model will pick
-        # an exact window_idx within its legal set.  The hint is best-effort.
         env.assignments[v.instance_id] = Slot(
             clinician_idx=v.clinician_idx,
             day_idx=d_idx,
@@ -158,6 +156,11 @@ def _envelope_from_upper_bound(
             window_start=ds,
             window_end=de,
         )
+
+    # If literally nothing from the prior plan maps to the current input,
+    # there's no warm start to provide.
+    if not env.assignments:
+        return None
     return env
 
 

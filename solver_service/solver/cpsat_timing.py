@@ -18,7 +18,6 @@ from ortools.sat.python import cp_model
 
 from models import SolverInput, PlannedVisit, VisitInstanceData
 from solver.context import (
-    PENALTY_SOFT_OVERRIDE,
     SLOT_STEP,
     TRANSIT_BUFFER,
     VehicleDef,
@@ -380,16 +379,19 @@ def cpsat_time_vehicle_route(
                 if break_vars_in_range:
                     model.add(sum(break_vars_in_range) >= 1).only_enforce_if(need_break)
 
-    # ── Availability window constraints ──────────────────────────────
+    # ── Availability window constraints (HARD) ───────────────────────
+    # Under Benders, availability windows are hard: the timing pass either
+    # honors them or drops the visit (which feeds back as a conflict to
+    # the outer loop).  No soft override — that was the legacy escape
+    # hatch the Benders architecture was built to eliminate.
 
-    soft_override_vars = []
     for i in range(n):
         windows = inst_windows[i]
         if not windows:
-            soft_override_vars.append(None)
             continue
 
-        # At least one window must contain the visit start
+        # Commit to at least one window when the visit is present; the
+        # chosen window's bounds hard-constrain the visit start.
         window_bools = []
         for w_idx, w in enumerate(windows):
             w_start = w.get("start_minute", 0)
@@ -400,11 +402,10 @@ def cpsat_time_vehicle_route(
             model.add(visit_start_vars[i] + visit_dur <= w_end).only_enforce_if(wb)
             window_bools.append(wb)
 
-        # Soft override: if no window satisfied, allow but penalize
-        override = model.new_bool_var(f"so_{i}")
-        # At least one window OR override must be true (when present)
-        model.add(sum(window_bools) + override >= 1).only_enforce_if(visit_present[i])
-        soft_override_vars.append(override)
+        # Require some window to be satisfied when the visit is present.
+        # If infeasible, CP-SAT will set visit_present[i] = 0 (drop the
+        # visit) rather than violate the window.
+        model.add(sum(window_bools) >= 1).only_enforce_if(visit_present[i])
 
     # ── No-overlap ───────────────────────────────────────────────────
 
@@ -420,10 +421,7 @@ def cpsat_time_vehicle_route(
     if need_lunch:
         penalty_terms.append(lunch_drift)
 
-    # Soft override penalties
-    for i, so_var in enumerate(soft_override_vars):
-        if so_var is not None:
-            penalty_terms.append(so_var * PENALTY_SOFT_OVERRIDE)
+    # (No soft override penalties — windows are hard in Benders mode.)
 
     total_penalty = model.new_int_var(0, 10_000_000, "tp")
     if penalty_terms:
@@ -468,11 +466,6 @@ def cpsat_time_vehicle_route(
             visit_dur = max(0, inst.duration - charting)
             starts_at = minutes_to_datetime(date, start_min)
             ends_at = minutes_to_datetime(date, start_min + visit_dur)
-
-            soft_override = False
-            if soft_override_vars[i] is not None:
-                soft_override = bool(solver.value(soft_override_vars[i]))
-
             visits.append(
                 PlannedVisit(
                     instance_id=inst.id,
@@ -481,7 +474,6 @@ def cpsat_time_vehicle_route(
                     date=date,
                     starts_at=starts_at,
                     ends_at=ends_at,
-                    soft_constraint_override=soft_override,
                 )
             )
         else:

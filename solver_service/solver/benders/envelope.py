@@ -217,6 +217,13 @@ def _block_kills_window(ws: int, we: int, blocks: list[tuple[int, int]], duratio
 # provided for tuning once real-data profiling arrives.
 NN_MARGIN_FRAC = float(os.environ.get("SOLVER_ENVELOPE_NN_MARGIN", "0.0"))
 
+# Per-instance penalty for deviating from a warm-start assignment.
+# Makes continuity a cost term instead of just a hint — the solver will
+# only move an instance off its prior slot when the travel saving
+# exceeds this weight.  Roughly calibrated so a 50-min travel improvement
+# is needed to justify moving an assignment.
+CONTINUITY_WEIGHT = int(os.environ.get("SOLVER_ENVELOPE_CONTINUITY_WEIGHT", "50"))
+
 
 def _compute_approx_costs(
     input: SolverInput,
@@ -459,8 +466,25 @@ def solve_envelope(
         imbalance_term = spread * PENALTY_LOAD_IMBALANCE
         imbalance_cap = len(input.instances) * PENALTY_LOAD_IMBALANCE
 
-    # Placement value must strictly exceed cost + priority + imbalance + spacing
-    visit_value = cost_cap + priority_cap + imbalance_cap + spacing_penalty_cap + 1
+    # Continuity penalty — when warm-starting, discourage moving instances
+    # off their prior (clinician, day) unless there's a meaningful saving.
+    continuity_penalty_terms: list[cp_model.LinearExpr] = []
+    continuity_penalty_cap = 0
+    if warm_start is not None and CONTINUITY_WEIGHT > 0:
+        for iid, prior_slot in warm_start.assignments.items():
+            prior_c, prior_d = prior_slot.clinician_idx, prior_slot.day_idx
+            for (iid2, s), v in slot_var.items():
+                if iid2 != iid:
+                    continue
+                if (s.clinician_idx, s.day_idx) != (prior_c, prior_d):
+                    continuity_penalty_terms.append(v * CONTINUITY_WEIGHT)
+                    continuity_penalty_cap += CONTINUITY_WEIGHT
+
+    # Placement value must strictly exceed all additive cost terms
+    visit_value = (
+        cost_cap + priority_cap + imbalance_cap
+        + spacing_penalty_cap + continuity_penalty_cap + 1
+    )
 
     objective_terms: list[cp_model.LinearExpr] = []
     for t in cost_terms:
@@ -468,6 +492,8 @@ def solve_envelope(
     for t in priority_terms:
         objective_terms.append(t)
     for t in spacing_penalty_terms:
+        objective_terms.append(t)
+    for t in continuity_penalty_terms:
         objective_terms.append(t)
     if imbalance_cap > 0:
         objective_terms.append(imbalance_term)
