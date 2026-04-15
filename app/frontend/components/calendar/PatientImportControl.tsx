@@ -14,16 +14,20 @@ type Props = {
   disabled?: boolean;
 };
 
-const MAX_BYTES = 1_000_000;
+const MAX_BYTES = 2_000_000;
+const ALLOWED_EXTS = [".csv", ".xlsx", ".xls"] as const;
 
 const schema = z.object({
   file: z
     .instanceof(FileList)
-    .refine((list) => list.length === 1, "Choose a CSV file")
-    .refine((list) => list[0]?.size <= MAX_BYTES, "File must be under 1 MB")
+    .refine((list) => list.length === 1, "Choose a CSV or Excel file")
+    .refine((list) => list[0]?.size <= MAX_BYTES, "File must be under 2 MB")
     .refine(
-      (list) => list[0]?.name.toLowerCase().endsWith(".csv"),
-      "File must be a .csv",
+      (list) => {
+        const name = list[0]?.name.toLowerCase() ?? "";
+        return ALLOWED_EXTS.some((ext) => name.endsWith(ext));
+      },
+      "File must be .csv, .xlsx, or .xls",
     ),
 });
 type FormData = z.infer<typeof schema>;
@@ -51,7 +55,7 @@ export function PatientImportControl({ onImport, disabled }: Props) {
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="cursor-pointer text-[11px] file:mr-2 file:cursor-pointer file:rounded file:border-0 file:bg-indigo-50 file:px-2 file:py-1 file:text-[11px] file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
           {...register("file")}
           disabled={disabled || isSubmitting}
@@ -61,7 +65,7 @@ export function PatientImportControl({ onImport, disabled }: Props) {
           className="btn-ghost btn-sm"
           disabled={disabled || isSubmitting}
         >
-          {isSubmitting ? "Importing..." : "Import CSV"}
+          {isSubmitting ? "Importing..." : "Import"}
         </button>
       </div>
       {errors.file?.message && (

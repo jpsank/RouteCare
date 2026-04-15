@@ -1,4 +1,6 @@
 require "csv"
+require "roo"
+require "tempfile"
 
 class PatientCsvImporter
   MAX_ROWS = 500
@@ -41,20 +43,21 @@ class PatientCsvImporter
 
   Result = Struct.new(:imported, :errors, :patients, :header_map, keyword_init: true)
 
-  def self.call(profile:, content:)
-    new(profile: profile, content: content).call
+  def self.call(profile:, content:, filename: nil)
+    new(profile: profile, content: content, filename: filename).call
   end
 
-  def initialize(profile:, content:)
+  def initialize(profile:, content:, filename: nil)
     @profile = profile
     @content = content.to_s
+    @filename = filename.to_s
   end
 
   def call
-    raise ArgumentError, "Empty file" if @content.strip.empty?
+    raise ArgumentError, "Empty file" if @content.bytesize.zero?
 
-    table = parse_csv
-    raise ArgumentError, "CSV is empty" if table.headers.blank?
+    table = excel? ? parse_excel : parse_csv
+    raise ArgumentError, "File is empty" if table.headers.blank?
     raise ArgumentError, "Too many rows (max #{MAX_ROWS})" if table.size > MAX_ROWS
 
     header_map = build_header_map(table.headers)
@@ -78,6 +81,38 @@ class PatientCsvImporter
     CSV.parse(@content, headers: true)
   rescue CSV::MalformedCSVError => e
     raise ArgumentError, "Invalid CSV: #{e.message}"
+  end
+
+  def excel?
+    @filename.downcase.end_with?(".xlsx", ".xls")
+  end
+
+  def parse_excel
+    ext = File.extname(@filename).downcase.delete(".").to_sym
+    Tempfile.create([ "patient_import", ".#{ext}" ]) do |tmp|
+      tmp.binmode
+      tmp.write(@content)
+      tmp.flush
+      book = Roo::Spreadsheet.open(tmp.path, extension: ext)
+      sheet = book.sheet(0)
+      csv_string = (1..sheet.last_row.to_i).map do |r|
+        CSV.generate_line((1..sheet.last_column.to_i).map { |c| stringify_cell(sheet.cell(r, c)) })
+      end.join
+      CSV.parse(csv_string, headers: true)
+    end
+  rescue ArgumentError
+    raise
+  rescue StandardError => e
+    raise ArgumentError, "Invalid spreadsheet: #{e.message}"
+  end
+
+  def stringify_cell(value)
+    case value
+    when nil then ""
+    when Float then value == value.to_i ? value.to_i.to_s : value.to_s
+    when Date, DateTime, Time then value.to_s
+    else value.to_s
+    end
   end
 
   # Returns { original_header => canonical_field }. Only headers that map to a

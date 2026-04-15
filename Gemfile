@@ -17,6 +17,7 @@ gem "geocoder"
 gem "httparty"
 gem "postmark-rails"
 gem "ed25519"
+gem "roo", "~> 2.10"
 
 # Error tracking
 gem "sentry-ruby"

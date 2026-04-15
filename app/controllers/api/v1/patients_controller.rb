@@ -50,7 +50,11 @@ class Api::V1::PatientsController < Api::V1::BaseController
         return render_error("Could not read upload: #{e.message}")
       end
 
-    result = PatientCsvImporter.call(profile: current_clinician_profile, content: content)
+    result = PatientCsvImporter.call(
+      profile: current_clinician_profile,
+      content: content,
+      filename: file.try(:original_filename)
+    )
 
     render json: {
       imported: result.imported,

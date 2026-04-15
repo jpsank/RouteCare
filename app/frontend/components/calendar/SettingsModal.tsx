@@ -588,7 +588,7 @@ export function SettingsModal({
               <section className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-3 py-2 space-y-2">
                 <div>
                   <span className="text-[12px] font-medium text-gray-500">Bulk import</span>
-                  <p className="text-[11px] text-gray-400">Upload a CSV of patients.</p>
+                  <p className="text-[11px] text-gray-400">Upload a CSV or Excel file of patients.</p>
                 </div>
                 <PatientImportControl onImport={onImportPatients} disabled={loading} />
               </section>
