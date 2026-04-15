@@ -857,6 +857,107 @@ def realism_scenarios() -> list[Scenario]:
 # ────────────────────────────────────────────────────────────────────
 
 
+def _build_adv_multi_round_clustered() -> SolverInput:
+    """Designed to exercise marginal-cost feedback across multiple Benders
+    rounds.  The initial envelope's home-leg approximation misjudges the
+    cost of packing a cluster onto one clinician — the subproblem catches
+    it with drive-limit conflicts, emits cuts, and the envelope re-solves
+    with actual routing marginals for the routed instances.
+
+    Structure: 12 patients in two clusters, 2 clinicians.  Cluster A is
+    near clinician 0's home (home-leg 8).  Cluster B is far from both
+    clinicians but closer to clinician 1.  Clinician 0 has a tight
+    max_drive_minutes_per_day that prevents handling cluster B — but
+    the envelope's home-leg proxy doesn't know that inter-cluster travel
+    is expensive, so round 1 typically over-assigns to clinician 0.
+    """
+    random.seed(2024)
+    patients = []
+    instances = []
+    # 8 patients in cluster A (near clinician 0)
+    for pid in range(1, 9):
+        patients.append(PatientData(
+            id=pid, name=f"A{pid}", visit_duration_minutes=30,
+            required_visits=1, min_days_between_visits=1,
+        ))
+        instances.append(VisitInstanceData(
+            id=f"p{pid}_v0", patient_id=pid, duration=30,
+        ))
+    # 4 patients in cluster B (near clinician 1)
+    for pid in range(9, 13):
+        patients.append(PatientData(
+            id=pid, name=f"B{pid}", visit_duration_minutes=30,
+            required_visits=1, min_days_between_visits=1,
+        ))
+        instances.append(VisitInstanceData(
+            id=f"p{pid}_v0", patient_id=pid, duration=30,
+        ))
+
+    # Construct the matrix by cluster.  Patients within a cluster are
+    # close (6 min).  Cross-cluster travel is expensive (45 min).  Each
+    # clinician's home is near its own cluster (8 min) and far from the
+    # other (40 min).
+    matrix: dict[str, dict[str, int]] = {}
+    cluster_a = [str(i) for i in range(1, 9)]
+    cluster_b = [str(i) for i in range(9, 13)]
+    all_pids = cluster_a + cluster_b
+
+    matrix["home_0"] = {}
+    matrix["home_1"] = {}
+    for p in cluster_a:
+        matrix["home_0"][p] = 8
+        matrix["home_1"][p] = 40
+    for p in cluster_b:
+        matrix["home_0"][p] = 40
+        matrix["home_1"][p] = 8
+
+    for p in all_pids:
+        matrix[p] = {}
+        matrix[p]["home_0"] = matrix["home_0"][p]
+        matrix[p]["home_1"] = matrix["home_1"][p]
+        for q in all_pids:
+            if p == q:
+                matrix[p][q] = 0
+            elif (p in cluster_a) == (q in cluster_a):
+                matrix[p][q] = 6
+            else:
+                matrix[p][q] = 45
+
+    # Tight drive limits — cross-cluster routes aren't feasible per-day
+    clinician_0 = ClinicianData(max_drive_minutes_per_day=150)
+    clinician_1 = ClinicianData(max_drive_minutes_per_day=150)
+
+    return SolverInput(
+        patients=patients, instances=instances,
+        clinicians=[clinician_0, clinician_1],
+        travel_matrix=matrix, start_date=WEEK[0], working_days=WEEK,
+    )
+
+
+def _check_marginal_feedback_convergence(
+    out: SolverOutput, inp: SolverInput
+) -> tuple[bool, str]:
+    """Extra check: the multi-round scenario should actually exercise
+    marginal feedback.  Require at least one routed vehicle with ≥2
+    stops (so marginals were collected) AND the envelope solved in
+    more than 1 round OR produced a plan where both clinicians are
+    used (suggesting cross-cluster reassignment worked)."""
+    per_clin: dict[int, int] = {}
+    vehicle_sizes: dict[tuple[int, str], int] = {}
+    for v in out.planned_visits:
+        per_clin[v.clinician_idx] = per_clin.get(v.clinician_idx, 0) + 1
+        vehicle_sizes[(v.clinician_idx, v.date)] = (
+            vehicle_sizes.get((v.clinician_idx, v.date), 0) + 1
+        )
+    if len(per_clin) < 2:
+        return False, (
+            f"expected both clinicians used, got distribution {per_clin}"
+        )
+    if max(vehicle_sizes.values()) < 2:
+        return False, "expected at least one multi-stop route to feed marginals back"
+    return True, ""
+
+
 def _build_adv_high_density() -> SolverInput:
     """Single clinician with max_visits_per_day=12, 24 patients × 1 visit.
     Forces at least one vehicle-day to exceed the exhaustive-permutation
@@ -993,6 +1094,15 @@ def adversarial_scenarios() -> list[Scenario]:
         # (n ≤ 7).  Without 2-opt, pure NN often over-rejects or produces
         # clearly suboptimal orderings on dense days.
         Scenario("adv_high_density", "adversarial", _build_adv_high_density),
+        # Exercises marginal-cost feedback: two clusters of patients
+        # with tight drive limits force cross-cluster reassignment.
+        # The envelope's initial home-leg proxy misjudges cross-cluster
+        # cost — only actual routing marginals reveal it.
+        Scenario(
+            "adv_multi_round_clustered", "adversarial",
+            _build_adv_multi_round_clustered,
+            extra_check=_check_marginal_feedback_convergence,
+        ),
     ]
 
 

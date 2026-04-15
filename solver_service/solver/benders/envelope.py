@@ -285,6 +285,8 @@ def solve_envelope(
     time_budget: float,
     warm_start: Envelope | None = None,
     marginal_costs: dict[tuple[str, int, int], int] | None = None,
+    precomputed_slots: dict[str, list[Slot]] | None = None,
+    precomputed_approx_costs: dict[tuple[str, int], int] | None = None,
 ) -> Envelope:
     """CP-SAT master solve producing a (clinician, day, window) assignment per instance.
 
@@ -294,10 +296,16 @@ def solve_envelope(
     estimate converges to reality across rounds: initial round uses
     approximation, subsequent rounds use actual routed detour.  Marginals
     missing from the dict fall back to the home-leg proxy.
+
+    `precomputed_slots` and `precomputed_approx_costs` let the Benders
+    outer loop compute slot enumeration and approximate costs once and
+    pass them in across multiple rounds — these depend only on
+    (input, ctx) and don't change between rounds.  Both are optional;
+    if omitted they're computed per call (for single-shot use).
     """
 
-    legal_slots = _enumerate_slots(input, ctx)
-    home_leg = _compute_approx_costs(input, ctx)
+    legal_slots = precomputed_slots if precomputed_slots is not None else _enumerate_slots(input, ctx)
+    home_leg = precomputed_approx_costs if precomputed_approx_costs is not None else _compute_approx_costs(input, ctx)
     num_clinicians = len(input.clinicians)
     num_days = len(input.working_days)
     marginals = marginal_costs or {}

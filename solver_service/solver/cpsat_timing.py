@@ -2,16 +2,14 @@
 
 Given a fixed ordered list of visits for one clinician-day, finds optimal
 start times using OR-Tools CP-SAT with interval variables and no-overlap
-constraints.  This replaces the greedy forward-pass timing in timing.py
-with a declarative constraint model that handles complex interactions between
-visits, lunch, breaks, calendar blocks, and locked visits.
-
-The function signature matches time_vehicle_route() so callers are unaffected.
+constraints.  Handles lunch, mandatory breaks, calendar blocks, and
+locked visits in a single declarative model.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from ortools.sat.python import cp_model
@@ -26,9 +24,31 @@ from solver.context import (
     minutes_to_datetime,
     round_up,
 )
-from solver.timing import DayViolations, TimedRoute
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DayViolations:
+    """Tier 2 violation metrics from daily scheduling (continuous measures)."""
+
+    transit_excess_minutes: int = 0
+    overtime_minutes: int = 0
+    break_violations: int = 0
+    lunch_window_violation: int = 0
+
+
+@dataclass
+class TimedRoute:
+    """Result of concrete timing for one vehicle (clinician-day)."""
+
+    vehicle_idx: int
+    visits: list[PlannedVisit] = field(default_factory=list)
+    lunch: dict | None = None
+    drive_cost: int = 0
+    dropped: list[dict] = field(default_factory=list)
+    total_cost: int = 0
+    violations: DayViolations = field(default_factory=DayViolations)
 
 # Max solve time per vehicle (seconds).  With ~5 visits the model is tiny.
 CPSAT_TIMING_BUDGET = 0.5

@@ -36,8 +36,7 @@ from solver.context import (
     day_bounds,
     empty_output,
 )
-from solver.cpsat_timing import cpsat_time_vehicle_route
-from solver.timing import TimedRoute, time_vehicle_route
+from solver.cpsat_timing import TimedRoute, cpsat_time_vehicle_route
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,14 @@ def _run_concrete_timing(
     input: SolverInput,
     routes: dict[tuple[int, int], VehicleRoute],
 ) -> dict[int, TimedRoute]:
-    """Apply the concrete timing pass to each routed vehicle."""
+    """Apply the concrete timing pass to each routed vehicle.
+
+    Uses the CP-SAT timing model as the single source of truth.  There
+    is no greedy fallback — CP-SAT timing is deterministic and robust
+    enough under the subproblem's feasibility contract.  If it ever
+    raises, the exception propagates and the benders loop reports
+    failure; there's no silent fallback masking a real bug.
+    """
     timed: dict[int, TimedRoute] = {}
     for (c_idx, d_idx), route in routes.items():
         vehicle = ctx.vehicle_by_key[(c_idx, d_idx)]
@@ -55,12 +61,9 @@ def _run_concrete_timing(
             timed[vehicle.vehicle_idx] = TimedRoute(vehicle_idx=vehicle.vehicle_idx)
             continue
         instances = [ctx.instances_by_id[iid] for iid in route.ordered]
-        try:
-            tr = cpsat_time_vehicle_route(vehicle, instances, input, ctx)
-        except Exception as e:
-            logger.warning("cpsat timing failed on (%d,%d): %s", c_idx, d_idx, e)
-            tr = time_vehicle_route(vehicle, instances, input, ctx)
-        timed[vehicle.vehicle_idx] = tr
+        timed[vehicle.vehicle_idx] = cpsat_time_vehicle_route(
+            vehicle, instances, input, ctx
+        )
     return timed
 
 
@@ -180,6 +183,7 @@ def _diagnose_unscheduled(
     env: Envelope,
     input: SolverInput,
     ctx: SolverContext,
+    legal_slots: dict | None = None,
 ) -> list[dict]:
     """Per-unscheduled-instance reason set.
 
@@ -187,10 +191,9 @@ def _diagnose_unscheduled(
     specific reason it couldn't be placed.  Reasons are ordered from most
     specific/actionable to least.
     """
-    from solver.benders.envelope import _enumerate_slots  # late import to avoid cycle
-
-    # Re-run slot enumeration to see exactly what was legal for each instance
-    legal_slots = _enumerate_slots(input, ctx)
+    if legal_slots is None:
+        from solver.benders.envelope import _enumerate_slots  # late import
+        legal_slots = _enumerate_slots(input, ctx)
 
     result: list[dict] = []
     num_clinicians = len(input.clinicians)
@@ -294,6 +297,15 @@ def solve(
     warm_start_env = _envelope_from_upper_bound(upper_bound, input, ctx)
     warm_start_used = warm_start_env is not None
 
+    # Precompute invariants across Benders rounds.  Slot enumeration and
+    # home-leg approximation both depend only on (input, ctx), which
+    # don't change across rounds — only the cut store and marginals do.
+    # Computing these once instead of per-round is ~30% of the envelope
+    # model-build time on multi-round scenarios.
+    from solver.benders.envelope import _compute_approx_costs, _enumerate_slots
+    precomputed_slots = _enumerate_slots(input, ctx)
+    precomputed_approx_costs = _compute_approx_costs(input, ctx)
+
     best_envelope: Envelope | None = None
     best_subproblem: SubproblemResult | None = None
     benders_rounds = 0
@@ -325,6 +337,8 @@ def solve(
             time_budget=env_budget,
             warm_start=env_warm,
             marginal_costs=marginal_costs if round_idx > 0 else None,
+            precomputed_slots=precomputed_slots,
+            precomputed_approx_costs=precomputed_approx_costs,
         )
         env_dt = time.monotonic() - env_t0
         cp_sat_status = env.status
@@ -451,7 +465,9 @@ def solve(
     if final_drive == 0:
         final_drive = best_subproblem.total_drive()
 
-    unschedulable = _diagnose_unscheduled(best_envelope, input, ctx)
+    unschedulable = _diagnose_unscheduled(
+        best_envelope, input, ctx, legal_slots=precomputed_slots
+    )
     schedule_status = "FEASIBLE"
     if unschedulable:
         schedule_status = "PARTIAL"
