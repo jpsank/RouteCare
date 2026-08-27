@@ -142,7 +142,9 @@ module Scheduling
       # Travel matrix (includes home node in a single batch API call)
       all_patients_for_matrix = (active_patients + locked_ar.map(&:patient)).uniq
       home_point = home_location ? { lat: home_location.lat, lng: home_location.lng } : nil
-      travel_matrix = TravelTimeMatrixBuilder.new(patients: all_patients_for_matrix, home: home_point).call
+      travel_matrix = TravelTimeMatrixBuilder.new(
+        patients: all_patients_for_matrix, home: home_point, week_start_on: week_start
+      ).call
 
       # Visit instances — always generate instances for all required visits
       # so the optimizer can re-route even when all visits are already placed.

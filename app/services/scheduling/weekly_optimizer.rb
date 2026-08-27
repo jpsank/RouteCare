@@ -156,7 +156,8 @@ module Scheduling
       @travel_matrix = Scheduling::TravelTimeMatrixBuilder.new(
         patients: unique_patients,
         home: start_point_for_day,
-        routing_client: routing_client
+        routing_client: routing_client,
+        week_start_on: week_start_on
       ).call
     end
 
