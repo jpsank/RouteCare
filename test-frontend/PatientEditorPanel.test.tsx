@@ -7,6 +7,8 @@ import type { PatientSavePayload } from "../app/frontend/components/calendar/uti
 function buildPatient(overrides: Partial<Patient> = {}): Patient {
   return {
     id: 1,
+    first_name: "Jane",
+    last_name: "Doe",
     full_name: "Jane Doe",
     phone: "555-0100",
     email: "",
