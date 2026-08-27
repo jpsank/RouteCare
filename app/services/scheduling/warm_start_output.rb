@@ -6,11 +6,23 @@ module Scheduling
   # Prefer matching by persisted +Visit#instance_id+ when every floating visit has one and IDs align
   # with +input.instances+. Otherwise falls back to ordering +patient_{id}_visit_{i}+ by +starts_at+
   # per patient (legacy).
+  #
+  # Matching the *set* of instance ids is necessary but not sufficient: two weeks can have the exact
+  # same instance ids (same patients, same required_visits_per_week) while describing a materially
+  # different routing problem — a patient moved, a clinician's working hours changed, a calendar
+  # block was added. When the prior schedule carries a +solver_input_fingerprint+ (see
+  # SolverInputFingerprint), we also require that to match before treating the plan as reusable.
   class WarmStartOutput
-    # Returns nil if the schedule cannot be aligned to +input.instances+ (missing visits, etc.).
+    # Returns nil if the schedule cannot be aligned to +input.instances+ (missing visits, instance
+    # identity mismatch, or the underlying routing problem has materially changed).
     def self.from_schedule(user:, week_start_on:, input:)
       schedule = user.weekly_schedules.find_by(week_start_on: week_start_on)
       return nil unless schedule
+
+      stored_fingerprint = schedule.optimization_summary&.dig("solver_input_fingerprint")
+      if stored_fingerprint.present?
+        return nil unless stored_fingerprint == SolverInputFingerprint.compute(input)
+      end
 
       locked = schedule.visits.where(status: %w[confirmed completed])
       floating = schedule.visits.where.not(id: locked.select(:id))
@@ -19,7 +31,13 @@ module Scheduling
       planned ||= match_by_visit_index(floating, input)
 
       return nil unless planned
-      return nil unless planned.size == input.instances.size
+
+      # Defense in depth: match_by_instance_id/match_by_visit_index only ever append a
+      # PlannedVisit for an id that exists in input.instances, so this checks the actual
+      # SET of instance ids lines up (not merely the count) — a prior version of this
+      # method compared sizes only, which can't detect a same-count patient swap (one
+      # patient deactivated, a different one added, net instance count unchanged).
+      return nil unless planned.map(&:instance_id).sort == input.instances.map(&:id).sort
 
       build_output(schedule, planned)
     end

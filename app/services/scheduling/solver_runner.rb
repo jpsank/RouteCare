@@ -67,11 +67,13 @@ module Scheduling
         }
       end
 
+      metadata = output.metadata.merge(solver_input_fingerprint: SolverInputFingerprint.compute(input))
+
       persister.persist(
         day_routes: day_routes,
         lunch_placements: output.lunch_placements,
         locked_visits: locked_visits,
-        metadata: output.metadata,
+        metadata: metadata,
         travel_matrix: input.travel_matrix
       )
     end
