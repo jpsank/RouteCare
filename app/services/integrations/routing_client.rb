@@ -2,46 +2,44 @@ module Integrations
   class RoutingClient < BaseClient
     MAPBOX_MATRIX_URL = "https://api.mapbox.com/directions-matrix/v1/mapbox/driving".freeze
     MAPBOX_MATRIX_MAX = 25 # Max sources/destinations per request
-    FALLBACK_TOKEN = "pk.eyJ1IjoicHVmZnlib2EiLCJhIjoiY2sxbXNqbng1MDQ1cDNocWQ1bGVucGwxYyJ9.BsdxpULi2RpbCiaEyW3rgA".freeze
     GOOGLE_ROUTES_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix".freeze
+    OSRM_TABLE_URL = "https://router.project-osrm.org/table/v1/driving".freeze
+    # Kept short because up to 3 of these can stack sequentially in the cascade
+    # before falling back to haversine — a synchronous web request (patient
+    # save, visit resequencing) shouldn't block for 30s+ waiting on a provider
+    # that's down. A working provider responds in well under this regardless.
+    PROVIDER_TIMEOUT = 5
 
-    def initialize(access_token: ENV.fetch("MAPBOX_ACCESS_TOKEN", FALLBACK_TOKEN))
+    def initialize(mapbox_token: ENV["MAPBOX_ACCESS_TOKEN"], google_api_key: ENV["GOOGLE_MAPS_API_KEY"])
       super()
-      @access_token = access_token
-      @google_api_key = ENV["GOOGLE_MAPS_API_KEY"]
+      @mapbox_token = mapbox_token
+      @google_api_key = google_api_key
     end
 
     # Single pair travel time (minutes). Used for home→patient lookups.
-    # When Google Maps API key is set, uses time-of-day aware routing.
+    # Cascades Mapbox -> Google (time-of-day aware) -> OSRM (free, keyless) -> haversine.
     def travel_minutes(origin:, destination:, departure_time: nil)
       return 0 if origin.blank? || destination.blank?
       return 0 if origin[:lat].blank? || origin[:lng].blank? || destination[:lat].blank? || destination[:lng].blank?
 
-      if @google_api_key.present? && departure_time
-        google_travel_minutes(origin, destination, departure_time)
-      elsif @access_token.present?
-        mapbox_single_pair(origin, destination)
-      else
-        haversine_estimate(origin, destination)
-      end
+      cascade([
+        [ @mapbox_token.present?, "Mapbox", -> { mapbox_single_pair(origin, destination) } ],
+        [ @google_api_key.present?, "Google", -> { google_travel_minutes(origin, destination, departure_time || Time.current) } ],
+        [ true, "OSM", -> { osrm_single_pair(origin, destination) } ]
+      ]) || haversine_estimate(origin, destination)
     end
 
     # Batch matrix: given an array of points [{lat:, lng:, id:}],
     # returns a nested hash { id_a => { id_b => minutes } }.
-    # Uses Google Routes API (with traffic) > Mapbox Matrix > haversine.
+    # Cascades Mapbox Matrix -> Google Routes Matrix -> OSRM (free, keyless) -> haversine.
     def travel_matrix(points, departure_time: nil)
       return haversine_matrix(points) if points.size < 2
 
-      if @google_api_key.present?
-        return google_matrix(points, departure_time: departure_time)
-      end
-
-      return haversine_matrix(points) if @access_token.blank?
-
-      mapbox_matrix(points)
-    rescue StandardError => e
-      Rails.logger.warn("[RoutingClient] Matrix API failed (#{e.class}), using haversine: #{e.message}")
-      haversine_matrix(points)
+      cascade([
+        [ @mapbox_token.present?, "Mapbox", -> { mapbox_matrix(points) } ],
+        [ @google_api_key.present?, "Google", -> { google_matrix(points, departure_time: departure_time) } ],
+        [ true, "OSM", -> { osrm_matrix(points) } ]
+      ]) || haversine_matrix(points)
     end
 
     private
@@ -54,9 +52,7 @@ module Integrations
         { id: "d", lat: destination[:lat], lng: destination[:lng] }
       ]
       result = mapbox_matrix_chunk(points)
-      result.dig("o", "d") || haversine_estimate(origin, destination)
-    rescue StandardError
-      haversine_estimate(origin, destination)
+      result.dig("o", "d") or raise "Mapbox matrix returned no duration"
     end
 
     # ── Mapbox Matrix API ────────────────────────────────────────────────
@@ -98,20 +94,27 @@ module Integrations
       url = "#{MAPBOX_MATRIX_URL}/#{coords}"
 
       response = HTTParty.get(url, query: {
-        access_token: @access_token,
+        access_token: @mapbox_token,
         annotations: "duration"
-      }, timeout: 10)
+      }, timeout: PROVIDER_TIMEOUT)
 
       unless response.success?
         raise "Mapbox Matrix API returned #{response.code}"
       end
 
+      parse_duration_matrix(points, response, provider: "Mapbox Matrix API")
+    end
+
+    # Shared by mapbox_matrix_chunk and osrm_matrix: both APIs return
+    # { "durations": [[seconds, ...], ...] } in the same request-coordinate
+    # order, with per-pair haversine fallback when a cell comes back null.
+    def parse_duration_matrix(points, response, provider:)
       body = response.parsed_response
       body = JSON.parse(body) if body.is_a?(String)
       durations = body["durations"]
 
       unless durations&.size == points.size
-        raise "Mapbox Matrix API returned unexpected format"
+        raise "#{provider} returned unexpected format"
       end
 
       result = {}
@@ -121,7 +124,6 @@ module Integrations
           if i == j
             result[from[:id]][to[:id]] = 0
           else
-            # Mapbox returns seconds, convert to minutes (rounded)
             seconds = durations[i][j]
             result[from[:id]][to[:id]] = seconds ? (seconds / 60.0).round : haversine_estimate(from, to)
           end
@@ -148,20 +150,17 @@ module Integrations
           routingPreference: "TRAFFIC_AWARE",
           departureTime: departure_time.iso8601
         }.to_json,
-        timeout: 10
+        timeout: PROVIDER_TIMEOUT
       )
 
-      return haversine_estimate(origin, destination) unless response.success?
+      raise "Google Routes API returned #{response.code}" unless response.success?
 
       body = response.parsed_response
       duration_str = body.dig("routes", 0, "duration") # e.g. "1234s"
-      return haversine_estimate(origin, destination) unless duration_str
+      raise "Google Routes API did not return a duration" unless duration_str
 
       seconds = duration_str.delete_suffix("s").to_i
       (seconds / 60.0).round
-    rescue StandardError => e
-      Rails.logger.warn("[RoutingClient] Google Routes API failed: #{e.message}")
-      haversine_estimate(origin, destination)
     end
 
     def google_matrix(points, departure_time: nil)
@@ -187,7 +186,7 @@ module Integrations
           "Content-Type" => "application/json"
         },
         body: body.to_json,
-        timeout: 30
+        timeout: PROVIDER_TIMEOUT
       )
 
       unless response.success?
@@ -220,6 +219,28 @@ module Integrations
       result
     end
 
+    # ── OSRM (free, keyless public demo server) ────────────────────────────
+
+    def osrm_single_pair(origin, destination)
+      points = [
+        { id: "o", lat: origin[:lat], lng: origin[:lng] },
+        { id: "d", lat: destination[:lat], lng: destination[:lng] }
+      ]
+      result = osrm_matrix(points)
+      result.dig("o", "d") or raise "OSRM table returned no duration"
+    end
+
+    def osrm_matrix(points)
+      coords = points.map { |p| "#{p[:lng]},#{p[:lat]}" }.join(";")
+      response = HTTParty.get("#{OSRM_TABLE_URL}/#{coords}", query: { annotations: "duration" }, timeout: PROVIDER_TIMEOUT)
+
+      unless response.success?
+        raise "OSRM table API returned #{response.code}"
+      end
+
+      parse_duration_matrix(points, response, provider: "OSRM table API")
+    end
+
     # ── Haversine Fallback ───────────────────────────────────────────────
 
     def haversine_matrix(points)
@@ -239,19 +260,6 @@ module Integrations
         destination[:lat].to_f, destination[:lng].to_f
       )
       ((distance_km / 38.0) * 60.0 + 4).round
-    end
-
-    def haversine_km(lat1, lng1, lat2, lng2)
-      radius_km = 6_371.0
-      d_lat = to_rad(lat2 - lat1)
-      d_lng = to_rad(lng2 - lng1)
-      a = Math.sin(d_lat / 2)**2 +
-          Math.cos(to_rad(lat1)) * Math.cos(to_rad(lat2)) * Math.sin(d_lng / 2)**2
-      radius_km * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    end
-
-    def to_rad(value)
-      value * Math::PI / 180.0
     end
   end
 end

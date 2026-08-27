@@ -10,7 +10,7 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "google.maps"]
   },
   "include": ["app/frontend/**/*.ts", "app/frontend/**/*.tsx", "vite.config.ts"]
 }
