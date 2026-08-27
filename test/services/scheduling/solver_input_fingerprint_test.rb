@@ -70,6 +70,20 @@ class Scheduling::SolverInputFingerprintTest < ActiveSupport::TestCase
     end
   end
 
+  test "changes when a patient's unavailability (blackout) window changes" do
+    Time.use_zone("America/New_York") do
+      week_start = Date.new(2026, 4, 6)
+      before = Scheduling::SolverInputFingerprint.compute(build_input(week_start))
+
+      @patient.patient_availability_windows.create!(
+        day_of_week: 1, start_minute: 600, end_minute: 720, available: false
+      )
+      after = Scheduling::SolverInputFingerprint.compute(build_input(week_start))
+
+      assert_not_equal before, after
+    end
+  end
+
   test "is unaffected by patient enumeration order" do
     Time.use_zone("America/New_York") do
       week_start = Date.new(2026, 4, 6)

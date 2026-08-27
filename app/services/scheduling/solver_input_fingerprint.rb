@@ -5,7 +5,7 @@ require "digest"
 module Scheduling
   # Stable digest over the solver-relevant inputs that instance-id matching alone
   # can't see: clinician working hours/breaks, calendar blocks, and per-patient
-  # location/priority/availability/spacing. Two SolverInputData built from the
+  # location/priority/availability/unavailability/spacing. Two SolverInputData built from the
   # same instance-id set can still describe a materially different routing
   # problem (patient moved, working hours changed, a calendar block was added) —
   # this fingerprint lets WarmStartOutput tell the two apart so a warm-started
@@ -18,7 +18,7 @@ module Scheduling
         [
           p.id, p.location, p.visit_duration_minutes, p.required_visits_per_week,
           p.min_days_between_visits, p.max_days_between_visits, p.priority,
-          p.availability_windows
+          p.availability_windows, p.unavailability_windows
         ]
       end
 
