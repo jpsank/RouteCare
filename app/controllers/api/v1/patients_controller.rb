@@ -12,9 +12,9 @@ class Api::V1::PatientsController < Api::V1::BaseController
 
   def create
     patient = current_clinician_profile.patients.new(patient_params)
-    replace_availability_windows(patient)
+    saved = save_with_availability_windows(patient)
 
-    if patient.save
+    if saved
       render json: { patient: PatientSerializer.as_json(patient.reload) }, status: :created
     else
       render_unprocessable(patient.errors.full_messages)
@@ -24,9 +24,9 @@ class Api::V1::PatientsController < Api::V1::BaseController
   def update
     patient = current_clinician_profile.patients.find(params[:id])
     patient.assign_attributes(patient_params)
-    replace_availability_windows(patient)
+    saved = save_with_availability_windows(patient)
 
-    if patient.save
+    if saved
       render json: { patient: PatientSerializer.as_json(patient.reload) }
     else
       render_unprocessable(patient.errors.full_messages)
@@ -98,7 +98,18 @@ class Api::V1::PatientsController < Api::V1::BaseController
 
   def availability_windows_params
     params.fetch(:availability_windows, []).map do |window|
-      ActionController::Parameters.new(window).permit(:day_of_week, :start_minute, :end_minute, :available)
+      window.permit(:day_of_week, :start_minute, :end_minute, :available)
+    end
+  end
+
+  # Wraps the destroy-and-rebuild of availability windows together with the
+  # patient save in one transaction — otherwise a validation failure on save
+  # (which doesn't raise) would leave the windows already deleted from the
+  # earlier destroy_all, permanently losing them despite the 422 response.
+  def save_with_availability_windows(patient)
+    ActiveRecord::Base.transaction do
+      replace_availability_windows(patient)
+      patient.save || raise(ActiveRecord::Rollback)
     end
   end
 
