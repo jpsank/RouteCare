@@ -17,27 +17,29 @@ module Integrations
     end
 
     # Single pair travel time (minutes). Used for home→patient lookups.
-    # Cascades Mapbox -> Google (time-of-day aware) -> OSRM (free, keyless) -> haversine.
+    # Cascades Google (time-of-day aware) -> Mapbox -> OSRM (free, keyless) -> haversine.
+    # Google goes first because it's the only provider that actually accounts
+    # for traffic; Mapbox/OSRM give static estimates regardless of order.
     def travel_minutes(origin:, destination:, departure_time: nil)
       return 0 if origin.blank? || destination.blank?
       return 0 if origin[:lat].blank? || origin[:lng].blank? || destination[:lat].blank? || destination[:lng].blank?
 
       cascade([
-        [ @mapbox_token.present?, "Mapbox", -> { mapbox_single_pair(origin, destination) } ],
         [ @google_api_key.present?, "Google", -> { google_travel_minutes(origin, destination, departure_time || Time.current) } ],
+        [ @mapbox_token.present?, "Mapbox", -> { mapbox_single_pair(origin, destination) } ],
         [ true, "OSM", -> { osrm_single_pair(origin, destination) } ]
       ]) || haversine_estimate(origin, destination)
     end
 
     # Batch matrix: given an array of points [{lat:, lng:, id:}],
     # returns a nested hash { id_a => { id_b => minutes } }.
-    # Cascades Mapbox Matrix -> Google Routes Matrix -> OSRM (free, keyless) -> haversine.
+    # Cascades Google Routes Matrix -> Mapbox Matrix -> OSRM (free, keyless) -> haversine.
     def travel_matrix(points, departure_time: nil)
       return haversine_matrix(points) if points.size < 2
 
       cascade([
+        [ @google_api_key.present?, "Google", -> { google_matrix(points, departure_time: departure_time || Time.current) } ],
         [ @mapbox_token.present?, "Mapbox", -> { mapbox_matrix(points) } ],
-        [ @google_api_key.present?, "Google", -> { google_matrix(points, departure_time: departure_time) } ],
         [ true, "OSM", -> { osrm_matrix(points) } ]
       ]) || haversine_matrix(points)
     end
