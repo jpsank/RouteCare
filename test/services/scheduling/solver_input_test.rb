@@ -29,12 +29,15 @@ class Scheduling::SolverInputTest < ActiveSupport::TestCase
         with_google_routing_configured do
           week_start = Date.new(2026, 4, 6) # the Monday being scheduled
 
-          Scheduling::SolverInput.build(user: @user, week_start_on: week_start)
+          input = Scheduling::SolverInput.build(user: @user, week_start_on: week_start)
 
-          assert_requested :post, "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix" do |req|
+          assert_instance_of Scheduling::BucketedTravelMatrix, input.travel_matrix
+
+          # One batch call per traffic bucket, all anchored to the Monday
+          # being scheduled (not the frozen Sunday-midnight "now").
+          assert_requested :post, "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix", times: 4 do |req|
             departure = Time.iso8601(JSON.parse(req.body)["departureTime"])
-            departure.to_date == week_start &&
-              departure.hour == Scheduling::TravelTimeMatrixBuilder::REPRESENTATIVE_HOUR
+            departure.to_date == week_start
           end
         end
       end

@@ -236,6 +236,26 @@ NN_MARGIN_FRAC = float(os.environ.get("SOLVER_ENVELOPE_NN_MARGIN", "0.0"))
 CONTINUITY_WEIGHT = int(os.environ.get("SOLVER_ENVELOPE_CONTINUITY_WEIGHT", "50"))
 
 
+def _representative_minute(inst) -> int | None:
+    """Best rough estimate of an instance's time-of-day, before any slot has
+    been assigned: the start of its earliest availability window (whichever
+    weekday happens to be listed first), or None (→ off-peak bucket) if the
+    instance has no availability constraints at all.
+
+    This is deliberately approximate — the envelope hasn't picked a
+    (day, window) yet, so there's no exact time to work with. It's still
+    strictly better than always assuming off-peak: a patient who's only
+    available 7-9am will bias this instance's cost toward the morning-rush
+    bucket, which is what will actually happen once scheduled.
+    """
+    if not inst.availability_windows:
+        return None
+    for wins in inst.availability_windows.values():
+        if wins:
+            return int(wins[0].get("start_minute", 0))
+    return None
+
+
 def _compute_approx_costs(
     input: SolverInput,
     ctx: SolverContext,
@@ -252,6 +272,7 @@ def _compute_approx_costs(
     without the envelope having to model routing sequence explicitly.
     """
     costs: dict[tuple[str, int], int] = {}
+    minutes = {inst.id: _representative_minute(inst) for inst in input.instances}
 
     # Precompute NN travel per instance: min travel from this patient
     # to any other instance's patient (different patient id).
@@ -266,7 +287,7 @@ def _compute_approx_costs(
             pid_j = instance_pids[other.id]
             if pid_i == pid_j:
                 continue
-            t = ctx.travel(pid_i, pid_j)
+            t = ctx.travel(pid_i, pid_j, minutes[inst.id])
             if best is None or t < best:
                 best = t
         nn_travel[inst.id] = int(best) if best is not None else 0
@@ -274,10 +295,11 @@ def _compute_approx_costs(
     # Compose base home-leg + NN margin
     for inst in input.instances:
         pid = str(inst.patient_id)
+        minute = minutes[inst.id]
         margin = int(NN_MARGIN_FRAC * nn_travel[inst.id])
         for c_idx in range(len(input.clinicians)):
-            out = ctx.travel(f"home_{c_idx}", pid)
-            back = ctx.travel(pid, f"home_{c_idx}")
+            out = ctx.travel(f"home_{c_idx}", pid, minute)
+            back = ctx.travel(pid, f"home_{c_idx}", minute)
             costs[(inst.id, c_idx)] = (out + back) // 2 + margin
     return costs
 

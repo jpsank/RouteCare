@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Callable
 
 from models import ClinicianData, SolverInput, SolverOutput, VisitInstanceData
+from solver.traffic_buckets import ALL_BUCKETS, OFF_PEAK, bucket_for_minute
 
 # ── Constants ────────────────────────────────────────────────────────
 
@@ -53,6 +54,22 @@ def minutes_to_datetime(date_str: str, minutes: int) -> str:
 def datetime_to_minute(dt_str: str) -> int:
     dt = datetime.fromisoformat(dt_str)
     return dt.hour * 60 + dt.minute
+
+
+def _is_bucketed(matrix: dict) -> bool:
+    """True if `matrix` looks like { bucket: { from: { to: minutes } } }
+    rather than a flat { from: { to: minutes } }. Detected by checking
+    whether any top-level key matches a known bucket name, or (fallback,
+    for forward-compat with bucket names we don't know about) whether the
+    values are themselves dicts-of-dicts rather than dicts-of-ints."""
+    if any(key in ALL_BUCKETS for key in matrix.keys()):
+        return True
+    for value in matrix.values():
+        if not isinstance(value, dict) or not value:
+            continue
+        inner = next(iter(value.values()))
+        return isinstance(inner, dict)
+    return False
 
 
 def round_up(minute: int, step: int) -> int:
@@ -132,7 +149,10 @@ class SolverContext:
     patients_by_id: dict[int, object] = field(default_factory=dict)
     instances_by_patient: dict[int, list] = field(default_factory=dict)
     instances_by_id: dict[str, VisitInstanceData] = field(default_factory=dict)
-    travel: Callable[[str, str], int] = field(default=lambda a, b: 0)
+    # travel(from_key, to_key, minute_of_day=None) -> minutes. minute_of_day
+    # is an optional estimate/actual clock time (0-1439) used to pick a
+    # traffic bucket; omitted or None falls back to the off-peak bucket.
+    travel: Callable[..., int] = field(default=lambda a, b, minute_of_day=None: 0)
     calendar_blocks_by_date: dict[str, list] = field(default_factory=dict)
     calendar_blocks_by_vehicle: dict[tuple[int, int], list] = field(default_factory=dict)
     locked_visits_by_date: dict[str, list] = field(default_factory=dict)
@@ -212,19 +232,33 @@ def build_context(input: SolverInput) -> SolverContext:
         instances_by_patient[inst.patient_id].append(inst)
         instances_by_id[inst.id] = inst
 
-    # Travel function — supports "home_0", "home_1", etc. with backward
-    # compat: if matrix has "home" but not "home_0", map "home_0" → "home".
-    has_legacy_home = "home" in matrix and "home_0" not in matrix
+    # travel_matrix is normally bucketed: { bucket_name: { from: { to: min } } }.
+    # A flat (non-bucketed) matrix — from hand-built test fixtures, older
+    # warm-start payloads, etc. — is also accepted: treat it as a single
+    # off-peak bucket so callers don't need to know about bucketing at all.
+    if matrix and not _is_bucketed(matrix):
+        matrix = {OFF_PEAK: matrix}
 
-    def travel_fn(from_key: str, to_key: str) -> int:
+    # Travel function — supports "home_0", "home_1", etc. with backward
+    # compat: if a bucket has "home" but not "home_0", map "home_0" → "home".
+    # Precomputed per bucket since it's a one-time O(buckets) cost, not
+    # per-call.
+    legacy_home_by_bucket = {
+        bucket: ("home" in bmatrix and "home_0" not in bmatrix)
+        for bucket, bmatrix in matrix.items()
+    }
+
+    def travel_fn(from_key: str, to_key: str, minute_of_day: int | None = None) -> int:
+        bucket = bucket_for_minute(minute_of_day)
+        bmatrix = matrix.get(bucket) or matrix.get(OFF_PEAK) or {}
         fk = from_key
         tk = to_key
-        if has_legacy_home:
+        if legacy_home_by_bucket.get(bucket, legacy_home_by_bucket.get(OFF_PEAK)):
             if fk.startswith("home_"):
                 fk = "home"
             if tk.startswith("home_"):
                 tk = "home"
-        return matrix.get(fk, {}).get(tk, 0)
+        return bmatrix.get(fk, {}).get(tk, 0)
 
     patients_by_id = {p.id: p for p in input.patients}
 

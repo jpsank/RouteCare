@@ -127,8 +127,12 @@ module Scheduling
         { date: b.date.to_s, starts_at: b.starts_at.iso8601, ends_at: b.ends_at.iso8601 }
       end
 
+      # matrix is a Scheduling::BucketedTravelMatrix: { bucket => { id => { id => minutes } } }
       def serialize_matrix(matrix)
-        matrix.transform_keys(&:to_s).transform_values { |v| v.transform_keys(&:to_s) }
+        buckets = matrix.respond_to?(:to_h) ? matrix.to_h : matrix
+        buckets.transform_keys(&:to_s).transform_values do |flat|
+          flat.transform_keys(&:to_s).transform_values { |dests| dests.transform_keys(&:to_s) }
+        end
       end
 
       def serialize_upper_bound(out)

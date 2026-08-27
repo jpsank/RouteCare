@@ -163,7 +163,10 @@ module Scheduling
 
     def compute_global_avg_travel
       all_times = []
-      @travel_matrix.each do |from_id, destinations|
+      # This feeds a rough geographic-clustering heuristic, not a real cost —
+      # the off-peak matrix is a fine representative baseline for it.
+      matrix = @travel_matrix.is_a?(Scheduling::BucketedTravelMatrix) ? @travel_matrix.off_peak : @travel_matrix
+      matrix.each do |from_id, destinations|
         next if from_id == HOME_NODE_ID
         destinations.each do |to_id, time|
           next if to_id == HOME_NODE_ID || from_id == to_id

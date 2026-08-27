@@ -114,10 +114,12 @@ def cpsat_time_vehicle_route(
     if not instances:
         drive_cost = 0
         prev = home_key
+        prev_minute: int | None = None
         for ls in locked_stops:
-            drive_cost += travel(prev, str(ls["patient_id"]))
+            drive_cost += travel(prev, str(ls["patient_id"]), prev_minute)
             prev = str(ls["patient_id"])
-        drive_cost += travel(prev, home_key)
+            prev_minute = ls["start_min"]
+        drive_cost += travel(prev, home_key, prev_minute)
         lunch_start = round_up(lunch_earliest, SLOT_STEP)
         lunch = (
             {"start_minute": lunch_start, "end_minute": lunch_start + lunch_dur}
@@ -140,6 +142,25 @@ def cpsat_time_vehicle_route(
     # interleaving, so we merge by earliest feasible position: locked stops
     # are fixed in time, visits are in the given order starting after day_start.
     pids = [str(inst.patient_id) for inst in instances]
+
+    # Rough per-instance time-of-day estimate for traffic-bucket selection —
+    # the exact time isn't known until after CP-SAT solves, so this uses the
+    # instance's own availability window on this weekday (if any) as a
+    # stand-in, same approach as the envelope/subproblem stages upstream.
+    dt_date = datetime.fromisoformat(date)
+    wday_str = str((dt_date.weekday() + 1) % 7)
+
+    def _repr_minute(inst) -> int | None:
+        if inst.availability_windows:
+            wins = inst.availability_windows.get(wday_str, [])
+            if wins:
+                return int(wins[0].get("start_minute", day_start))
+        return None
+
+    inst_minutes = [_repr_minute(inst) for inst in instances]
+    minute_by_pid: dict[str, int | None] = {str(ls["patient_id"]): ls["start_min"] for ls in locked_stops}
+    for pid, minute in zip(pids, inst_minutes):
+        minute_by_pid.setdefault(pid, minute)
 
     all_stops: list[str] = []  # patient-id keys in route order
     li = 0  # cursor into locked_stops
@@ -168,10 +189,12 @@ def cpsat_time_vehicle_route(
 
     drive_cost = 0
     prev = home_key
+    prev_minute: int | None = None
     for stop_pid in all_stops:
-        drive_cost += travel(prev, stop_pid)
+        drive_cost += travel(prev, stop_pid, minute_by_pid.get(stop_pid))
         prev = stop_pid
-    drive_cost += travel(prev, home_key)
+        prev_minute = minute_by_pid.get(stop_pid)
+    drive_cost += travel(prev, home_key, prev_minute)
 
     # Drive limit hard check
     if drive_cost > max_drive:
@@ -187,9 +210,7 @@ def cpsat_time_vehicle_route(
         return TimedRoute(vehicle_idx=vehicle.vehicle_idx, lunch=lunch, dropped=dropped)
 
     # ── Availability windows ─────────────────────────────────────────
-
-    dt_date = datetime.fromisoformat(date)
-    wday_str = str((dt_date.weekday() + 1) % 7)
+    # (dt_date / wday_str computed earlier, above, for the drive-cost estimate)
 
     inst_windows: list[list[dict]] = []
     inst_unavail_windows: list[list[dict]] = []
@@ -238,14 +259,14 @@ def cpsat_time_vehicle_route(
 
     # First visit: must start after home transit
     if n > 0:
-        home_transit = travel(home_key, pids[0])
+        home_transit = travel(home_key, pids[0], inst_minutes[0])
         model.add(visit_start_vars[0] >= day_start + home_transit).only_enforce_if(
             visit_present[0]
         )
 
     # Consecutive visits: transit + buffer between them
     for i in range(n - 1):
-        transit_time = travel(pids[i], pids[i + 1]) + TRANSIT_BUFFER
+        transit_time = travel(pids[i], pids[i + 1], inst_minutes[i + 1]) + TRANSIT_BUFFER
         # If both present, enforce ordering with transit
         both = model.new_bool_var(f"both_{i}_{i + 1}")
         model.add_min_equality(both, [visit_present[i], visit_present[i + 1]])
@@ -301,7 +322,7 @@ def cpsat_time_vehicle_route(
             # When follows and present, enforce transit from locked patient
             both_follows = model.new_bool_var(f"bf_locked_{l_idx}_{i}")
             model.add_min_equality(both_follows, [follows, visit_present[i]])
-            transit_from_locked = travel(ls_pid, pids[i]) + TRANSIT_BUFFER
+            transit_from_locked = travel(ls_pid, pids[i], inst_minutes[i]) + TRANSIT_BUFFER
             model.add(
                 visit_start_vars[i] >= ls_end + transit_from_locked
             ).only_enforce_if(both_follows)
@@ -374,7 +395,7 @@ def cpsat_time_vehicle_route(
                 # Quick static check: minimum possible span (back-to-back).
                 min_span = sum(instances[k].duration for k in range(i, j + 1))
                 for k in range(i, j):
-                    min_span += travel(pids[k], pids[k + 1]) + TRANSIT_BUFFER
+                    min_span += travel(pids[k], pids[k + 1], inst_minutes[k + 1]) + TRANSIT_BUFFER
                 if min_span <= max_cont:
                     continue  # can't violate even back-to-back — skip
 
@@ -539,10 +560,12 @@ def cpsat_time_vehicle_route(
         placed_stops.sort()
         drive_cost = 0
         prev = home_key
-        for _, pid_str in placed_stops:
-            drive_cost += travel(prev, pid_str)
+        prev_minute: int | None = None
+        for minute, pid_str in placed_stops:
+            drive_cost += travel(prev, pid_str, prev_minute)
             prev = pid_str
-        drive_cost += travel(prev, home_key)
+            prev_minute = minute
+        drive_cost += travel(prev, home_key, prev_minute)
 
     # ── Compute violation metrics ────────────────────────────────────
 
@@ -564,7 +587,7 @@ def cpsat_time_vehicle_route(
     overtime = 0
     if visits:
         last_end = _minute_from_iso(visits[-1].ends_at) + charting
-        return_home_time = travel(str(visits[-1].patient_id), home_key)
+        return_home_time = travel(str(visits[-1].patient_id), home_key, _minute_from_iso(visits[-1].ends_at))
         effective_end = last_end + return_home_time
         if effective_end > day_end:
             overtime = effective_end - day_end
@@ -575,7 +598,7 @@ def cpsat_time_vehicle_route(
         v_end = _minute_from_iso(visits[i].ends_at) + charting
         v_next_start = _minute_from_iso(visits[i + 1].starts_at)
         needed = (
-            travel(str(visits[i].patient_id), str(visits[i + 1].patient_id))
+            travel(str(visits[i].patient_id), str(visits[i + 1].patient_id), v_end)
             + TRANSIT_BUFFER
         )
         gap = v_next_start - v_end
@@ -594,7 +617,7 @@ def cpsat_time_vehicle_route(
                 prev_end = _minute_from_iso(visits[i - 1].ends_at) + charting
                 cur_start = _minute_from_iso(v.starts_at)
                 gap = cur_start - prev_end
-                transit_t = travel(str(visits[i - 1].patient_id), str(v.patient_id))
+                transit_t = travel(str(visits[i - 1].patient_id), str(v.patient_id), prev_end)
                 # If gap is large enough to be a break, reset accumulator
                 if gap >= break_dur + transit_t:
                     acc_work = 0

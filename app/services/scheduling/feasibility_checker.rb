@@ -91,7 +91,11 @@ module Scheduling
         sorted = slots.sort_by { |s| s[:starts_at] }
         sorted.each_cons(2) do |prev_slot, next_slot|
           gap_minutes = (next_slot[:starts_at] - prev_slot[:ends_at]) / 60.0
-          travel_time = @travel_matrix.dig(prev_slot[:patient].id, next_slot[:patient].id) || 0
+          # The leg departs when the previous visit ends — this is the final,
+          # already-timed plan, so we know that exactly (unlike the earlier
+          # solver stages, which only have an estimated time-of-day).
+          departure_minute = minute_of_day(prev_slot[:ends_at])
+          travel_time = dig_travel(prev_slot[:patient].id, next_slot[:patient].id, departure_minute)
 
           if gap_minutes < travel_time
             node_id = next_slot[:instance_id] || "visit_#{next_slot[:patient].id}"
@@ -227,6 +231,15 @@ module Scheduling
 
     def minute_of_day(time)
       time.hour * 60 + time.min
+    end
+
+    # @travel_matrix is normally a Scheduling::BucketedTravelMatrix, but a
+    # plain flat Hash (id => {id => minutes}) is also accepted — used by
+    # tests and any legacy caller that doesn't have bucketed data.
+    def dig_travel(from_id, to_id, minute)
+      matrix = @travel_matrix
+      value = matrix.is_a?(Scheduling::BucketedTravelMatrix) ? matrix.dig(from_id, to_id, minute: minute) : matrix.dig(from_id, to_id)
+      value || 0
     end
   end
 end
