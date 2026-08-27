@@ -3,6 +3,8 @@ class PatientSerializer
     def as_json(patient)
       {
         id: patient.id,
+        first_name: patient.first_name,
+        last_name: patient.last_name,
         full_name: patient.full_name,
         phone: patient.phone,
         email: patient.email,

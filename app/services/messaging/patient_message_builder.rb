@@ -25,7 +25,7 @@ module Messaging
     attr_reader :visit, :channel, :kind, :proposed_starts_at
 
     def confirmation_text
-      patient_first_name = visit.patient.full_name.split.first
+      patient_first_name = visit.patient.first_name
       clinician_name = clinician_name_for_intro
       friendly_start = visit.starts_at.strftime("%A %b %-d at %-I:%M %p")
 
@@ -35,7 +35,7 @@ module Messaging
     end
 
     def reminder_text
-      patient_first_name = visit.patient.full_name.split.first
+      patient_first_name = visit.patient.first_name
       friendly_start = visit.starts_at.strftime("%A at %-I:%M %p")
 
       "Reminder: your RouteCare visit is scheduled for #{friendly_start}, #{patient_first_name}. "\
@@ -43,14 +43,14 @@ module Messaging
     end
 
     def reschedule_follow_up_text
-      patient_first_name = visit.patient.full_name.split.first
+      patient_first_name = visit.patient.first_name
 
       "Thanks #{patient_first_name}. We can help find a better time for your visit. "\
         "Reply with a few windows that work for you this week, and we'll follow up with updated options."
     end
 
     def reschedule_proposal_text
-      patient_first_name = visit.patient.full_name.split.first
+      patient_first_name = visit.patient.first_name
       friendly_start = proposed_starts_at.strftime("%A %b %-d at %-I:%M %p")
 
       "Thanks #{patient_first_name}. We can offer #{friendly_start} for your visit. "\
@@ -62,7 +62,7 @@ module Messaging
         context: {
           kind: kind,
           channel: channel,
-          patient_first_name: visit.patient.full_name.split.first,
+          patient_first_name: visit.patient.first_name,
           clinician_display_name: visit.weekly_schedule.user.clinician_profile&.display_name,
           clinician_discipline: visit.weekly_schedule.user.clinician_profile&.discipline,
           scheduled_starts_at: visit.starts_at&.iso8601,

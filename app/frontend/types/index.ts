@@ -6,7 +6,8 @@ export type AvailabilityWindow = {
 };
 
 export type CreatePatientPayload = {
-  full_name: string;
+  first_name: string;
+  last_name: string;
   phone: string;
   email?: string;
   address_line1: string;
@@ -20,6 +21,8 @@ export type CreatePatientPayload = {
 
 export type Patient = {
   id: number;
+  first_name: string;
+  last_name: string;
   full_name: string;
   phone: string;
   email?: string | null;

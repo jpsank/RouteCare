@@ -14,7 +14,8 @@ type Props = {
 
 const patientSchema = z
   .object({
-    full_name: z.string().trim().min(2, "Name must be at least 2 characters"),
+    first_name: z.string().trim().min(1, "First name is required"),
+    last_name: z.string().trim().min(1, "Last name is required"),
     phone: z
       .string()
       .trim()
@@ -58,7 +59,8 @@ type PatientFormData = z.infer<typeof patientSchema>;
 
 function patientDefaults(patient: Patient): PatientFormData {
   return {
-    full_name: patient.full_name || "",
+    first_name: patient.first_name || "",
+    last_name: patient.last_name || "",
     phone: patient.phone || "",
     email: patient.email || "",
     address_line1: patient.address_line1 || "",
@@ -77,7 +79,8 @@ function patientDefaults(patient: Patient): PatientFormData {
 
 function toPayload(data: PatientFormData, patient: Patient): PatientSavePayload {
   return {
-    full_name: data.full_name.trim(),
+    first_name: data.first_name.trim(),
+    last_name: data.last_name.trim(),
     phone: data.phone.trim(),
     email: data.email.trim() || undefined,
     address_line1: data.address_line1.trim(),
@@ -161,9 +164,14 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
 
         <div className="rc-form-grid">
           <div className="rc-field">
-            <span className="rc-label">Full Name</span>
-            <input {...register("full_name")} aria-invalid={errors.full_name ? "true" : "false"} />
-            {errorText(errors.full_name?.message)}
+            <span className="rc-label">First Name</span>
+            <input {...register("first_name")} aria-invalid={errors.first_name ? "true" : "false"} />
+            {errorText(errors.first_name?.message)}
+          </div>
+          <div className="rc-field">
+            <span className="rc-label">Last Name</span>
+            <input {...register("last_name")} aria-invalid={errors.last_name ? "true" : "false"} />
+            {errorText(errors.last_name?.message)}
           </div>
           <div className="rc-field">
             <span className="rc-label">Phone</span>

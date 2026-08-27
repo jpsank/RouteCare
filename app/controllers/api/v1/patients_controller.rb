@@ -90,7 +90,7 @@ class Api::V1::PatientsController < Api::V1::BaseController
 
   def patient_params
     params.require(:patient).permit(
-      :full_name, :phone, :email, :address_line1, :address_line2, :city, :state, :postal_code,
+      :first_name, :last_name, :full_name, :phone, :email, :address_line1, :address_line2, :city, :state, :postal_code,
       :required_visits_per_week, :visit_duration_minutes, :notes, :latitude, :longitude,
       :min_days_between_visits, :max_days_between_visits, :priority
     )
@@ -114,7 +114,8 @@ class Api::V1::PatientsController < Api::V1::BaseController
   def sample_patients
     [
       {
-        full_name: "Maria Thompson",
+        first_name: "Maria",
+        last_name: "Thompson",
         phone: "555-302-1944",
         email: "maria.thompson@example.com",
         address_line1: "2515 W Mount Comfort Rd",
@@ -128,7 +129,8 @@ class Api::V1::PatientsController < Api::V1::BaseController
         longitude: -94.194121
       },
       {
-        full_name: "James O'Neil",
+        first_name: "James",
+        last_name: "O'Neil",
         phone: "555-111-7820",
         email: "j.oneil@example.com",
         address_line1: "4207 SW I St",
@@ -142,7 +144,8 @@ class Api::V1::PatientsController < Api::V1::BaseController
         longitude: -94.219807
       },
       {
-        full_name: "Linda Nguyen",
+        first_name: "Linda",
+        last_name: "Nguyen",
         phone: "555-974-3321",
         email: "linda.nguyen@example.com",
         address_line1: "2710 W Olive St",
@@ -156,7 +159,8 @@ class Api::V1::PatientsController < Api::V1::BaseController
         longitude: -94.158984
       },
       {
-        full_name: "Robert Ellis",
+        first_name: "Robert",
+        last_name: "Ellis",
         phone: "555-606-9101",
         email: "rellis@example.com",
         address_line1: "1700 W Emma Ave",
@@ -170,7 +174,8 @@ class Api::V1::PatientsController < Api::V1::BaseController
         longitude: -94.148858
       },
       {
-        full_name: "Patricia Gomez",
+        first_name: "Patricia",
+        last_name: "Gomez",
         phone: "555-288-4456",
         email: "patricia.gomez@example.com",
         address_line1: "1107 S Bloomington St",

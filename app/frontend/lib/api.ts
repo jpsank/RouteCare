@@ -71,7 +71,8 @@ function scheduleQuery(weekStartOn?: string): string {
 }
 
 type CreatePatientPayload = {
-  full_name: string;
+  first_name: string;
+  last_name: string;
   phone: string;
   email?: string;
   address_line1: string;

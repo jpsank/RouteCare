@@ -4,7 +4,7 @@ class Patient < ApplicationRecord
   has_many :visits, dependent: :restrict_with_error
   has_many :patient_messages, dependent: :nullify
 
-  validates :full_name, :phone, :address_line1, :city, :state, :postal_code, presence: true
+  validates :first_name, :last_name, :phone, :address_line1, :city, :state, :postal_code, presence: true
   validates :required_visits_per_week, numericality: { greater_than: 0, less_than_or_equal_to: 7 }
   validates :visit_duration_minutes, numericality: { greater_than_or_equal_to: 15, less_than_or_equal_to: 240 }
   validates :min_days_between_visits, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 6 }
@@ -22,6 +22,29 @@ class Patient < ApplicationRecord
 
   def address
     [ address_line1, address_line2, city, state, postal_code ].compact_blank.join(", ")
+  end
+
+  # Kept for backward compatibility with older callers (message templates,
+  # PDF export, CSV import of a single combined "Name" column, etc.) that
+  # only need a display string. The stored, queryable/sortable data lives in
+  # first_name/last_name.
+  def full_name
+    [ first_name, last_name ].compact_blank.join(" ")
+  end
+
+  # Splits a combined name on assignment so anything still constructing a
+  # Patient with `full_name:` (tests, the CSV importer, older API callers)
+  # keeps working. Uses the same last-whitespace-token heuristic as the
+  # first_name/last_name backfill migration.
+  def full_name=(value)
+    parts = value.to_s.strip.split(/\s+/)
+    if parts.length > 1
+      self.first_name = parts[0..-2].join(" ")
+      self.last_name = parts[-1]
+    else
+      self.first_name = ""
+      self.last_name = parts.first.to_s
+    end
   end
 
   def preferred_message_channel
