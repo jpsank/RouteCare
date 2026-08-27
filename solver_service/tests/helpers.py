@@ -74,6 +74,7 @@ def mk_instance(
     dur: int = 60,
     eligible: list[int] | None = None,
     windows: dict | None = None,
+    unavailable: dict | None = None,
 ) -> VisitInstanceData:
     return VisitInstanceData(
         id=iid,
@@ -81,6 +82,7 @@ def mk_instance(
         duration=dur,
         eligible_clinician_indices=eligible or [],
         availability_windows=windows or {},
+        unavailability_windows=unavailable or {},
     )
 
 

@@ -19,7 +19,8 @@ module Scheduling
 
         duration = patient.visit_duration_minutes + @charting_buffer_minutes
         location = patient.latitude && patient.longitude ? { lat: patient.latitude, lng: patient.longitude } : nil
-        windows = patient.patient_availability_windows.group_by(&:day_of_week)
+        windows = patient.patient_availability_windows.select(&:available).group_by(&:day_of_week)
+        unavailable_windows = patient.patient_availability_windows.reject(&:available).group_by(&:day_of_week)
 
         remaining.times do |index|
           instances << VisitInstance.new(
@@ -29,7 +30,8 @@ module Scheduling
             location: location,
             duration: duration,
             priority: patient.priority,
-            availability_windows: windows
+            availability_windows: windows,
+            unavailability_windows: unavailable_windows
           )
         end
       end

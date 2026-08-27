@@ -1,5 +1,6 @@
 import type {
   Alert,
+  AvailabilityWindow,
   CalendarBlock,
   CalendarConnection,
   CalendarOption,
@@ -85,6 +86,12 @@ type CreatePatientPayload = {
   notes?: string;
   latitude?: number;
   longitude?: number;
+  min_days_between_visits?: number;
+  max_days_between_visits?: number;
+  priority?: number;
+  // Omitted entirely => leave existing windows untouched server-side.
+  // Present (including []) => replace the patient's windows with this set.
+  availability_windows?: AvailabilityWindow[];
 };
 
 export const api = {
@@ -114,16 +121,26 @@ export const api = {
       body: JSON.stringify({ week_start_on: weekStartOn, client_timezone: browserTimeZone() }),
     }),
   listPatients: () => request<{ patients: Patient[] }>("/api/v1/patients"),
-  createPatient: (patient: Partial<CreatePatientPayload>) =>
-    request<{ patient: Patient }>("/api/v1/patients", {
+  createPatient: (patient: Partial<CreatePatientPayload>) => {
+    const { availability_windows, ...rest } = patient;
+    return request<{ patient: Patient }>("/api/v1/patients", {
       method: "POST",
-      body: JSON.stringify({ patient }),
-    }),
-  updatePatient: (id: number, patient: Partial<CreatePatientPayload>) =>
-    request<{ patient: Patient }>(`/api/v1/patients/${id}`, {
+      body: JSON.stringify({
+        patient: rest,
+        ...(availability_windows !== undefined ? { availability_windows } : {}),
+      }),
+    });
+  },
+  updatePatient: (id: number, patient: Partial<CreatePatientPayload>) => {
+    const { availability_windows, ...rest } = patient;
+    return request<{ patient: Patient }>(`/api/v1/patients/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ patient }),
-    }),
+      body: JSON.stringify({
+        patient: rest,
+        ...(availability_windows !== undefined ? { availability_windows } : {}),
+      }),
+    });
+  },
   seedDemoPatients: () =>
     request<{ patients: Patient[] }>("/api/v1/patients/seed_demo", {
       method: "POST",

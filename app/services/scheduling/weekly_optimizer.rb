@@ -342,6 +342,7 @@ module Scheduling
     def find_start_on_day(patient:, date:, current_plan:, slot_footprint:)
       patient_windows = preferred_windows_for(patient, date)
       window_set = patient_windows.presence || fallback_windows_for(date)
+      window_set = subtract_unavailable_windows(window_set, patient, date)
 
       window_set.each do |window|
         start_minute = find_first_available_start(
@@ -382,12 +383,14 @@ module Scheduling
         next if day_visit_count(current_plan, date) >= MAX_VISITS_PER_DAY
 
         ds, de = day_bounds_for(date)
+        unavailable = patient.unavailable_windows_for_wday(date.wday)
         start_minute = ds
         while start_minute + slot_footprint <= de
           starts_at = Time.zone.parse("#{date} #{minute_to_hhmm(start_minute)}")
           footprint_end = starts_at + slot_footprint.minutes
           ends_at = starts_at + patient.visit_duration_minutes.minutes
-          unless overlaps_blocked?(starts_at, footprint_end, @blocked_ranges[date]) || overlaps_plan_temporal?(starts_at, footprint_end, current_plan)
+          overlaps_unavailable = unavailable.any? { |w| start_minute < w[:end_minute] && start_minute + slot_footprint > w[:start_minute] }
+          unless overlaps_unavailable || overlaps_blocked?(starts_at, footprint_end, @blocked_ranges[date]) || overlaps_plan_temporal?(starts_at, footprint_end, current_plan)
             return { patient: patient, date: date, starts_at: starts_at, ends_at: ends_at, soft_constraint_override: true }
           end
           start_minute += SLOT_STEP_MINUTES
@@ -682,6 +685,7 @@ module Scheduling
 
         patient_windows = preferred_windows_for(patient, date)
         window_set = patient_windows.presence || fallback_windows_for(date)
+        window_set = subtract_unavailable_windows(window_set, patient, date)
 
         slot = nil
         window_set.each do |window|
@@ -852,13 +856,22 @@ module Scheduling
 
     def preferred_windows_for(patient, date)
       patient.patient_availability_windows
-             .select { |window| window.day_of_week == date.wday }
+             .select { |window| window.day_of_week == date.wday && window.available }
              .map { |window| Scheduling::TimeWindow.new(window.start_minute, window.end_minute) }
     end
 
     def fallback_windows_for(date)
       ds, de = day_bounds_for(date)
       [ Scheduling::TimeWindow.new(ds, de) ]
+    end
+
+    # Hard constraint: a visit must never overlap an unavailable (blackout) window,
+    # regardless of whether it came from a preferred window or the fallback full-day window.
+    def subtract_unavailable_windows(window_set, patient, date)
+      unavailable = patient.unavailable_windows_for_wday(date.wday)
+      return window_set if unavailable.blank?
+
+      Scheduling::TimeWindow.subtract(window_set, unavailable)
     end
 
     def day_start_minute

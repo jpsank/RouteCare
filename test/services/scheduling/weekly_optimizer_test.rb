@@ -84,4 +84,29 @@ class Scheduling::WeeklyOptimizerTest < ActiveSupport::TestCase
       assert_not_nil hp_slot
     end
   end
+
+  test "never schedules a visit inside a patient's unavailable window" do
+    Time.use_zone("America/New_York") do
+      week_start = Date.new(2026, 4, 6) # Monday
+      solo_patient = @profile.patients.create!(
+        full_name: "Solo Patient", phone: "5550003", address_line1: "300 Elm St",
+        city: "Boston", state: "MA", postal_code: "02110",
+        latitude: 42.36, longitude: -71.06,
+        required_visits_per_week: 1, visit_duration_minutes: 30
+      )
+      # Block Monday entirely (clinician workday defaults to 8am-6pm)
+      solo_patient.patient_availability_windows.create!(
+        day_of_week: week_start.wday, start_minute: 0, end_minute: 1440, available: false
+      )
+      # Also delete the default @patient so it doesn't compete for slots
+      @patient.destroy
+
+      optimizer = Scheduling::WeeklyOptimizer.new(user: @user, week_start_on: week_start)
+      solution = optimizer.generate_solution
+
+      placed_date = solution[:day_routes].find { |_date, slots| slots.any? { |s| s[:patient].id == solo_patient.id } }&.first
+      assert_not_nil placed_date, "Expected the visit to still be placed on a different day"
+      refute_equal week_start.wday, placed_date.wday
+    end
+  end
 end

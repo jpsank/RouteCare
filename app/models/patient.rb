@@ -51,6 +51,12 @@ class Patient < ApplicationRecord
     phone.present? ? :sms : :email
   end
 
+  # Blackout windows for a given day-of-week (0=Sunday..6=Saturday) — visits
+  # must never be scheduled to overlap these, regardless of available windows.
+  def unavailable_windows_for_wday(wday)
+    patient_availability_windows.reject(&:available).select { |w| w.day_of_week == wday }.map(&:to_h)
+  end
+
   private
 
   def should_geocode?

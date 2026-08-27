@@ -418,6 +418,108 @@ def test_calendar_block_respected():
     assert out.planned_visits[0].date != "2026-04-20"
 
 
+# ── Unavailability (blackout) windows ───────────────────────────────
+
+
+def test_unavailability_window_avoided_with_no_availability_windows():
+    """Patient has no availability windows (always available) but has an
+    unavailable window covering most of the day; the solver must dodge it."""
+    patients = [_mk_pat(1, "P", dur=60, req=1)]
+    instances = [
+        _mk_inst(
+            "p1_v0", 1, 60,
+            unavailable={
+                str(wd): [{"start_minute": 480, "end_minute": 1020}]
+                for wd in range(7)
+            },
+        )
+    ]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=5)
+    assert out.metadata["placed"] == 1
+    _assert_valid(out, inp)
+
+    v = out.planned_visits[0]
+    start_m = int(v.starts_at[-8:-6]) * 60 + int(v.starts_at[-5:-3])
+    end_m = int(v.ends_at[-8:-6]) * 60 + int(v.ends_at[-5:-3])
+    assert end_m <= 480 or start_m >= 1020
+
+
+def test_unavailability_window_carves_out_of_availability_window():
+    """Patient available 8AM-6PM on Monday, but unavailable 9AM-5PM — leaves
+    only two thin slivers at the start and end of the day."""
+    patients = [_mk_pat(1, "P", dur=30, req=1)]
+    instances = [
+        _mk_inst(
+            "p1_v0", 1, 30,
+            windows={"1": [{"start_minute": 480, "end_minute": 1080}]},
+            unavailable={"1": [{"start_minute": 540, "end_minute": 1020}]},
+        )
+    ]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=5)
+    assert out.metadata["placed"] == 1
+    _assert_valid(out, inp)
+
+    v = out.planned_visits[0]
+    assert v.date == "2026-04-20"
+    start_m = int(v.starts_at[-8:-6]) * 60 + int(v.starts_at[-5:-3])
+    end_m = int(v.ends_at[-8:-6]) * 60 + int(v.ends_at[-5:-3])
+    assert end_m <= 540 or start_m >= 1020
+
+
+def test_diagnosis_fully_blacked_out():
+    """Availability window is entirely swallowed by an unavailable window."""
+    patients = [_mk_pat(1, "P", dur=60, req=1)]
+    instances = [
+        _mk_inst(
+            "p1_v0", 1, 60,
+            windows={str(wd): [{"start_minute": 540, "end_minute": 600}]
+                     for wd in range(7)},
+            unavailable={str(wd): [{"start_minute": 480, "end_minute": 1020}]
+                         for wd in range(7)},
+        )
+    ]
+    inp = _make_input(patients, instances)
+    out = solve(inp, time_budget=5)
+    assert out.metadata["placed"] == 0
+    assert len(out.metadata["unschedulable"]) == 1
+    reasons = set(out.metadata["unschedulable"][0]["reasons"])
+    assert "fully_blacked_out" in reasons or "no_legal_slot" in reasons
+
+
+def test_validate_plan_rejects_unavailability_overlap():
+    """validate_plan must catch a visit that overlaps a blackout window,
+    even though it otherwise fits the availability window and day bounds."""
+    patients = [_mk_pat(1, "P", dur=60, req=1)]
+    instances = [
+        _mk_inst(
+            "p1_v0", 1, 60,
+            unavailable={"1": [{"start_minute": 540, "end_minute": 660}]},
+        )
+    ]
+    inp = _make_input(patients, instances)
+
+    from models import PlannedVisit, SolverOutput
+
+    bad_output = SolverOutput(
+        planned_visits=[
+            PlannedVisit(
+                instance_id="p1_v0",
+                patient_id=1,
+                clinician_idx=0,
+                date="2026-04-20",
+                starts_at="2026-04-20T09:30:00",
+                ends_at="2026-04-20T10:30:00",
+            )
+        ],
+        lunch_placements={},
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_plan(bad_output, inp)
+    assert exc_info.value.rule == "unavailability_window"
+
+
 # ── Convergence benchmark ──────────────────────────────────────────
 
 

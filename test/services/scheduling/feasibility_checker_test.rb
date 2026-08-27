@@ -74,14 +74,36 @@ class Scheduling::FeasibilityCheckerTest < ActiveSupport::TestCase
     end
   end
 
+  test "detects visit overlapping an unavailable window" do
+    Time.use_zone("America/New_York") do
+      instances = [
+        Scheduling::VisitInstance.new(
+          id: "patient_#{@patient_a.id}_visit_0",
+          patient_id: @patient_a.id, patient: @patient_a,
+          location: { lat: @patient_a.latitude, lng: @patient_a.longitude },
+          duration: 45, priority: 0, availability_windows: {},
+          unavailability_windows: { @date.wday => [ { start_minute: 540, end_minute: 600 } ] }
+        )
+      ]
+      starts_at = Time.zone.parse("#{@date} 09:00")
+      day_routes = {
+        @date => [ { patient: @patient_a, starts_at: starts_at, ends_at: starts_at + 45.minutes, instance_id: instances[0].id, drive_from_previous_minutes: 0 } ]
+      }
+      lunch = { @date => { start_minute: 720, end_minute: 750 } }
+
+      result = build_checker(instances: instances).check(day_routes: day_routes, lunch_placements: lunch)
+      assert result.violations.any? { |v| v.constraint == :unavailability_window }
+    end
+  end
+
   private
 
-  def build_checker
+  def build_checker(instances: @instances)
     Scheduling::FeasibilityChecker.new(
       travel_matrix: @travel_matrix,
       clinician_profile: @profile,
       fixed_nodes: [],
-      instances: @instances
+      instances: instances
     )
   end
 end

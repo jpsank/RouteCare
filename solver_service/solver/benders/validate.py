@@ -171,6 +171,21 @@ def validate_plan(output: SolverOutput, input: SolverInput) -> None:
                     f"visit {v.instance_id} [{start_m},{end_m}) not in windows {wins}",
                 )
 
+        # Unavailability (blackout) windows — hard, regardless of whether
+        # availability windows are defined for this patient at all.
+        if inst.unavailability_windows:
+            wday = day_wdays[v.date]
+            unavail = inst.unavailability_windows.get(wday, [])
+            for w in unavail:
+                w_start = int(w.get("start_minute", 0))
+                w_end = int(w.get("end_minute", 1440))
+                if start_m < w_end and end_m > w_start:
+                    raise ValidationError(
+                        "unavailability_window",
+                        f"visit {v.instance_id} [{start_m},{end_m}) overlaps "
+                        f"unavailable window [{w_start},{w_end})",
+                    )
+
     # ── 8. Calendar blocks ──────────────────────────────────────
     for v in output.planned_visits:
         clinician = clinicians[v.clinician_idx]

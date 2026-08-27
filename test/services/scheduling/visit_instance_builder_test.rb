@@ -47,6 +47,20 @@ class Scheduling::VisitInstanceBuilderTest < ActiveSupport::TestCase
     assert_equal 5, instances[0].priority
   end
 
+  test "splits available and unavailable windows into separate buckets" do
+    @patient.patient_availability_windows.create!(day_of_week: 1, start_minute: 480, end_minute: 720, available: true)
+    @patient.patient_availability_windows.create!(day_of_week: 1, start_minute: 600, end_minute: 660, available: false)
+    instances = build(patients: [ @patient.reload ])
+
+    available = instances[0].availability_windows[1]
+    unavailable = instances[0].unavailability_windows[1]
+
+    assert_equal 1, available.size
+    assert_equal [ 480, 720 ], [ available.first.start_minute, available.first.end_minute ]
+    assert_equal 1, unavailable.size
+    assert_equal [ 600, 660 ], [ unavailable.first.start_minute, unavailable.first.end_minute ]
+  end
+
   private
 
   def build(patients:, locked_visits: [], charting_buffer_minutes: 0)

@@ -25,6 +25,7 @@ module Scheduling
       violations.concat(check_workday_bounds(day_routes))
       violations.concat(check_transit_feasibility(day_routes))
       violations.concat(check_no_overlap_with_fixed(day_routes))
+      violations.concat(check_unavailability_windows(day_routes))
       violations.concat(check_max_drive_per_day(day_routes))
       violations.concat(check_mandatory_breaks(day_routes))
       violations.concat(check_lunch_exists(day_routes, lunch_placements))
@@ -116,6 +117,40 @@ module Scheduling
               node_id = slot[:instance_id] || "visit_#{slot[:patient].id}_#{date}"
               violations << Violation.new(constraint: :no_overlap_fixed, node_id: node_id, message: "Overlaps with fixed node #{fixed[:id]}")
             end
+          end
+        end
+      end
+      violations
+    end
+
+    # Constraint: visits must never overlap a patient's unavailable (blackout) window
+    def check_unavailability_windows(day_routes)
+      instances_by_id = @instances.index_by(&:id)
+      violations = []
+
+      day_routes.each do |date, slots|
+        slots.each do |slot|
+          instance = instances_by_id[slot[:instance_id]]
+          next unless instance
+          next unless instance.respond_to?(:unavailability_windows)
+
+          windows = instance.unavailability_windows[date.wday]
+          next if windows.blank?
+
+          start_min = minute_of_day(slot[:starts_at])
+          end_min = minute_of_day(slot[:ends_at])
+
+          windows.each do |w|
+            w_start = w[:start_minute] || w["start_minute"]
+            w_end = w[:end_minute] || w["end_minute"]
+            next unless start_min < w_end && end_min > w_start
+
+            node_id = slot[:instance_id] || "visit_#{slot[:patient].id}_#{date}"
+            violations << Violation.new(
+              constraint: :unavailability_window,
+              node_id: node_id,
+              message: "Visit [#{start_min},#{end_min}) overlaps unavailable window [#{w_start},#{w_end}) on #{date}"
+            )
           end
         end
       end

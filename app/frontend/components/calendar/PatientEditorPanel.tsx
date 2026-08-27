@@ -1,10 +1,40 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import type { Patient } from "../../types";
+import type { AvailabilityWindow, Patient } from "../../types";
 import { useSwipeDown } from "./hooks/useSwipeDown";
 import type { PatientSavePayload } from "./utils";
+
+const DAY_OPTIONS: Array<[number, string]> = [
+  [1, "Monday"],
+  [2, "Tuesday"],
+  [3, "Wednesday"],
+  [4, "Thursday"],
+  [5, "Friday"],
+  [6, "Saturday"],
+  [0, "Sunday"],
+];
+
+function minutesToTimeInput(minute: number): string {
+  const h = Math.floor(minute / 60).toString().padStart(2, "0");
+  const m = (minute % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function timeInputToMinutes(value: string): number {
+  const [h, m] = value.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+// Local editing row: keeps a stable client-side key independent of server id
+// so newly-added (unsaved) windows can be reordered/removed reliably.
+type WindowRow = AvailabilityWindow & { _key: string };
+
+let nextRowKey = 0;
+function toRow(window: AvailabilityWindow): WindowRow {
+  return { ...window, _key: `w${nextRowKey++}` };
+}
 
 type Props = {
   patient: Patient | null;
@@ -77,7 +107,11 @@ function patientDefaults(patient: Patient): PatientFormData {
   };
 }
 
-function toPayload(data: PatientFormData, patient: Patient): PatientSavePayload {
+function toPayload(
+  data: PatientFormData,
+  patient: Patient,
+  availabilityWindows: AvailabilityWindow[],
+): PatientSavePayload {
   return {
     first_name: data.first_name.trim(),
     last_name: data.last_name.trim(),
@@ -96,6 +130,7 @@ function toPayload(data: PatientFormData, patient: Patient): PatientSavePayload 
     min_days_between_visits: data.min_days_between_visits,
     max_days_between_visits: data.max_days_between_visits,
     priority: data.priority,
+    availability_windows: availabilityWindows,
   };
 }
 
@@ -114,8 +149,13 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
     mode: "onBlur",
   });
 
+  const [windowRows, setWindowRows] = useState<WindowRow[]>([]);
+
   useEffect(() => {
-    if (patient) reset(patientDefaults(patient));
+    if (patient) {
+      reset(patientDefaults(patient));
+      setWindowRows((patient.availability_windows ?? []).map(toRow));
+    }
   }, [patient, reset]);
 
   useEffect(() => {
@@ -129,8 +169,30 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
 
   if (!patient) return null;
 
+  const windowErrors = windowRows.map((row) =>
+    row.end_minute <= row.start_minute ? "End time must be after start time" : null,
+  );
+  const hasWindowErrors = windowErrors.some(Boolean);
+
+  const addWindow = () => {
+    setWindowRows((rows) => [
+      ...rows,
+      toRow({ day_of_week: 1, start_minute: 9 * 60, end_minute: 17 * 60, available: true }),
+    ]);
+  };
+
+  const updateWindow = (key: string, patch: Partial<AvailabilityWindow>) => {
+    setWindowRows((rows) => rows.map((row) => (row._key === key ? { ...row, ...patch } : row)));
+  };
+
+  const removeWindow = (key: string) => {
+    setWindowRows((rows) => rows.filter((row) => row._key !== key));
+  };
+
   const onSubmit = handleSubmit(async (data) => {
-    const ok = await onSave(patient.id, toPayload(data, patient));
+    if (hasWindowErrors) return;
+    const windows = windowRows.map(({ _key, ...window }) => window);
+    const ok = await onSave(patient.id, toPayload(data, patient, windows));
     if (ok) onClose();
   });
 
@@ -240,6 +302,69 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
             {errorText(errors.max_days_between_visits?.message)}
           </div>
 
+          <div className="sm:col-span-2 border-t border-gray-100 pt-2 mt-1 flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Availability Windows</span>
+            <button type="button" className="btn-ghost btn-sm" onClick={addWindow}>
+              + Add window
+            </button>
+          </div>
+          <div className="sm:col-span-2 flex flex-col gap-2">
+            {windowRows.length === 0 && (
+              <p className="text-[12px] text-gray-400">
+                No windows set — patient is available any time during working hours.
+              </p>
+            )}
+            {windowRows.map((row, idx) => (
+              <div key={row._key} className="flex flex-wrap items-center gap-2 rounded-md border border-gray-200 p-2">
+                <select
+                  className="text-sm"
+                  value={row.day_of_week}
+                  onChange={(e) => updateWindow(row._key, { day_of_week: Number(e.target.value) })}
+                >
+                  {DAY_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                <input
+                  type="time"
+                  className="text-sm"
+                  value={minutesToTimeInput(row.start_minute)}
+                  onChange={(e) => updateWindow(row._key, { start_minute: timeInputToMinutes(e.target.value) })}
+                />
+                <span className="text-xs text-gray-400">to</span>
+                <input
+                  type="time"
+                  className="text-sm"
+                  value={minutesToTimeInput(row.end_minute)}
+                  onChange={(e) => updateWindow(row._key, { end_minute: timeInputToMinutes(e.target.value) })}
+                />
+                <button
+                  type="button"
+                  className={`rc-badge ${row.available ? "rc-badge-success" : "rc-badge-danger"} shadow-none border-0 cursor-pointer`}
+                  title="Toggle between available and unavailable (blackout)"
+                  onClick={() => updateWindow(row._key, { available: !row.available })}
+                >
+                  {row.available ? "Available" : "Unavailable"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm ml-auto text-red-600"
+                  onClick={() => removeWindow(row._key)}
+                  aria-label="Remove window"
+                >
+                  Remove
+                </button>
+                {windowErrors[idx] && (
+                  <p className="w-full text-[11px] text-red-600">{windowErrors[idx]}</p>
+                )}
+              </div>
+            ))}
+            <p className="text-[11px] text-gray-400">
+              Available windows restrict visits to those times. Unavailable (blackout) windows are always
+              excluded, even without an available window defined.
+            </p>
+          </div>
+
           <div className="sm:col-span-2 border-t border-gray-100 pt-2 mt-1">
             <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Notes</span>
           </div>
@@ -253,7 +378,7 @@ export function PatientEditorPanel({ patient, onSave, onClose }: Props) {
           </div>
         </div>
 
-        <button type="submit" className="btn-primary mt-3 w-full" disabled={isSubmitting}>
+        <button type="submit" className="btn-primary mt-3 w-full" disabled={isSubmitting || hasWindowErrors}>
           {isSubmitting ? "Saving..." : "Save Patient"}
         </button>
       </form>

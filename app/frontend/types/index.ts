@@ -3,6 +3,11 @@ export type AvailabilityWindow = {
   day_of_week: number;
   start_minute: number;
   end_minute: number;
+  // true (default) = an "available" window — a visit must fall within one of
+  // these when any are defined for the patient. false = an "unavailable" /
+  // blackout window — a visit must never overlap this range, regardless of
+  // available windows.
+  available: boolean;
 };
 
 export type CreatePatientPayload = {
