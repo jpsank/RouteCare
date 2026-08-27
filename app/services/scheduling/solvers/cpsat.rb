@@ -128,8 +128,19 @@ module Scheduling
       end
 
       # matrix is a Scheduling::BucketedTravelMatrix: { bucket => { id => { id => minutes } } }
+      # Accepts either a Scheduling::BucketedTravelMatrix (the normal case) or
+      # a legacy flat { from => { to => minutes } } matrix (e.g. a caller
+      # constructing SolverInputData directly, bypassing TravelTimeMatrixBuilder)
+      # — the latter is wrapped as a single off-peak bucket so it serializes
+      # to the same 3-level shape the Python side expects either way.
       def serialize_matrix(matrix)
-        buckets = matrix.respond_to?(:to_h) ? matrix.to_h : matrix
+        buckets =
+          if matrix.is_a?(Scheduling::BucketedTravelMatrix)
+            matrix.to_h
+          else
+            { Scheduling::TrafficBuckets::OFF_PEAK[:name] => matrix }
+          end
+
         buckets.transform_keys(&:to_s).transform_values do |flat|
           flat.transform_keys(&:to_s).transform_values { |dests| dests.transform_keys(&:to_s) }
         end

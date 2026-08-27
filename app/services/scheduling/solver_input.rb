@@ -55,7 +55,7 @@ module Scheduling
     :instances,         # [VisitInstanceData] — visits to schedule
     :locked_visits,     # [LockedVisitData] — fixed, immovable
     :calendar_blocks,   # [CalendarBlockData] — blocked time ranges
-    :travel_matrix,     # { id => { id => minutes } } — includes :home node
+    :travel_matrix,     # Scheduling::BucketedTravelMatrix (or a legacy flat { id => { id => minutes } }) — includes :home node
     :week_start_on,     # Date
     :working_days       # [Date] — actual dates for this week
   )

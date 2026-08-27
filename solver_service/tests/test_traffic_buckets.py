@@ -6,6 +6,7 @@ into a single off-peak bucket)."""
 from __future__ import annotations
 
 from solver.context import build_context
+from solver.cpsat_timing import cpsat_time_vehicle_route
 from solver.traffic_buckets import (
     AFTER_WORK_RUSH,
     ALL_BUCKETS,
@@ -14,7 +15,7 @@ from solver.traffic_buckets import (
     OFF_PEAK,
     bucket_for_minute,
 )
-from tests.helpers import make_input, mk_instance, mk_patient
+from tests.helpers import WORKING_DAYS_WEEK, make_input, mk_instance, mk_patient
 
 
 def test_bucket_for_minute_boundaries():
@@ -115,3 +116,62 @@ def test_all_buckets_present_in_helper_matrix():
     # pipeline produces, so the picks-the-right-bucket test above is
     # exercising all of them.
     assert set(_bucketed_matrix().keys()) == set(ALL_BUCKETS)
+
+
+def test_locked_only_route_prices_the_next_leg_from_departure_not_arrival():
+    # Regression test: cpsat_time_vehicle_route's "no free instances, only
+    # locked stops" branch must price each leg's travel using the PREVIOUS
+    # stop's departure minute (start + duration + charting), not its
+    # arrival minute — otherwise a visit that starts in one traffic bucket
+    # but ends in another gets the wrong bucket applied to the next leg.
+    date = WORKING_DAYS_WEEK[0]
+    p = [mk_patient(1), mk_patient(2)]
+    i: list = []  # no free instances — only the locked_visits branch runs
+
+    # Patient 1's locked visit starts at 9:00 (540, morning rush [420,570))
+    # and runs 45 minutes, so it actually ends at 9:45 (585) — off-peak.
+    # The home->1 and 1->2 legs use morning-rush pricing; the correct
+    # 1->2 travel call should use the OFF-PEAK price (585), not the
+    # (buggy) morning-rush price for the arrival minute (540).
+    matrix = {
+        MORNING_RUSH: {
+            "home_0": {"1": 999, "2": 999},
+            "1": {"home_0": 999, "2": 5},  # wrong bucket if arrival-minute bug present
+            "2": {"home_0": 999, "1": 5},
+        },
+        OFF_PEAK: {
+            "home_0": {"1": 10, "2": 999},
+            "1": {"home_0": 999, "2": 30},  # correct bucket (departs at 9:45)
+            "2": {"home_0": 10, "1": 30},
+        },
+    }
+    from models import LockedVisitData
+
+    locked_visits = [
+        LockedVisitData(
+            patient_id=1,
+            clinician_idx=0,
+            date=date,
+            starts_at=f"{date}T09:00:00",
+            ends_at=f"{date}T09:45:00",
+            duration_minutes=45,
+        ),
+        LockedVisitData(
+            patient_id=2,
+            clinician_idx=0,
+            date=date,
+            starts_at=f"{date}T10:30:00",
+            ends_at=f"{date}T11:00:00",
+            duration_minutes=30,
+        ),
+    ]
+    inp = make_input(p, i, matrix=matrix, working_days=[date], locked_visits=locked_visits)
+    ctx = build_context(inp)
+    vehicle = next(v for v in ctx.vehicles if v.date == date and v.clinician_idx == 0)
+
+    route = cpsat_time_vehicle_route(vehicle, [], inp, ctx)
+
+    # home->1 (999 either bucket... use a distinguishing value instead):
+    # the assertion that actually matters is on the 1->2 leg's bucket.
+    # 10 (home->1, off-peak) + 30 (1->2, off-peak, correct) + 10 (2->home, off-peak)
+    assert route.drive_cost == 10 + 30 + 10

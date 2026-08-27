@@ -118,7 +118,7 @@ def cpsat_time_vehicle_route(
         for ls in locked_stops:
             drive_cost += travel(prev, str(ls["patient_id"]), prev_minute)
             prev = str(ls["patient_id"])
-            prev_minute = ls["start_min"]
+            prev_minute = ls["start_min"] + ls["duration"] + ls["charting"]
         drive_cost += travel(prev, home_key, prev_minute)
         lunch_start = round_up(lunch_earliest, SLOT_STEP)
         lunch = (
@@ -552,19 +552,25 @@ def cpsat_time_vehicle_route(
     # The pre-solve estimate used approximate interleaving; now we know
     # exactly which visits were placed and their times.
     if visits:
-        placed_stops: list[tuple[int, str]] = []  # (start_minute, patient_id_str)
+        # (start_minute, departure_minute, patient_id_str) — sort/sequence by
+        # arrival, but use each stop's departure (end of visit, not arrival)
+        # as the minute passed to the NEXT leg's travel() call.
+        placed_stops: list[tuple[int, int, str]] = []
         for v in visits:
-            placed_stops.append((_minute_from_iso(v.starts_at), str(v.patient_id)))
+            placed_stops.append((
+                _minute_from_iso(v.starts_at), _minute_from_iso(v.ends_at), str(v.patient_id)
+            ))
         for ls_stop in locked_stops:
-            placed_stops.append((ls_stop["start_min"], str(ls_stop["patient_id"])))
-        placed_stops.sort()
+            departure = ls_stop["start_min"] + ls_stop["duration"] + ls_stop["charting"]
+            placed_stops.append((ls_stop["start_min"], departure, str(ls_stop["patient_id"])))
+        placed_stops.sort(key=lambda stop: stop[0])
         drive_cost = 0
         prev = home_key
         prev_minute: int | None = None
-        for minute, pid_str in placed_stops:
+        for _start_minute, departure_minute, pid_str in placed_stops:
             drive_cost += travel(prev, pid_str, prev_minute)
             prev = pid_str
-            prev_minute = minute
+            prev_minute = departure_minute
         drive_cost += travel(prev, home_key, prev_minute)
 
     # ── Compute violation metrics ────────────────────────────────────
