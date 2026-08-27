@@ -32,11 +32,14 @@ type RouteStop = Point & {
 // Tries Mapbox first, then Google Maps if Mapbox is unconfigured or fails to load
 // (e.g. a suspended/invalid token), then falls back to the free/keyless OSM
 // renderer, which has no configuration prerequisite and is the guaranteed floor.
-async function initRenderer(container: HTMLDivElement): Promise<RouteRenderer | null> {
+// `signal` lets the caller abort an in-flight Mapbox load (the only tier with
+// a multi-second network-dependent load window) if the component unmounts
+// before it resolves, instead of leaving a live map instance running unseen.
+async function initRenderer(container: HTMLDivElement, signal: AbortSignal): Promise<RouteRenderer | null> {
   const mapbox = mapboxToken();
   if (mapbox) {
     try {
-      return await initMapboxRenderer(container, mapbox);
+      return await initMapboxRenderer(container, mapbox, signal);
     } catch (error) {
       console.warn("Mapbox map failed to load, falling back to Google Maps:", error);
     }
@@ -70,13 +73,16 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const markerDefsRef = useRef<MapMarker[]>([]);
   const requestIdRef = useRef(0);
-  // Guards against React StrictMode's dev-only double-invoke of effects: since
-  // initRenderer can't be cancelled mid-flight, rendererInitStartedRef stops a
-  // second concurrent call, and rendererActiveRef (re-armed by the second
-  // effect run) decides whether the eventual result should be kept or
-  // destroyed — correctly distinguishing "StrictMode replayed this effect"
-  // from "the component actually unmounted before init finished."
+  // Guards against React StrictMode's dev-only double-invoke of effects:
+  // rendererInitStartedRef stops a second concurrent initRenderer call,
+  // rendererActiveRef (re-armed by the second effect run) decides whether the
+  // eventual result should be kept or destroyed — correctly distinguishing
+  // "StrictMode replayed this effect" from "the component actually unmounted
+  // before init finished" — and rendererAbortControllerRef lets a genuine
+  // unmount cancel an in-flight Mapbox load instead of leaving it running
+  // unseen until it times out.
   const rendererInitStartedRef = useRef(false);
+  const rendererAbortControllerRef = useRef<AbortController | null>(null);
   const rendererActiveRef = useRef(false);
 
   const routableStops = useMemo(
@@ -148,7 +154,9 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
 
     if (!rendererInitStartedRef.current) {
       rendererInitStartedRef.current = true;
-      void initRenderer(container).then((renderer) => {
+      const controller = new AbortController();
+      rendererAbortControllerRef.current = controller;
+      void initRenderer(container, controller.signal).then((renderer) => {
         rendererInitStartedRef.current = false;
         if (!rendererActiveRef.current) {
           renderer?.destroy();
@@ -166,6 +174,14 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
       rendererActiveRef.current = false;
       rendererRef.current?.destroy();
       rendererRef.current = null;
+      // Deferred a tick so React StrictMode's synchronous cleanup+re-effect
+      // replay (which re-arms rendererActiveRef before this runs) doesn't
+      // get its in-flight Mapbox load cancelled out from under it — only a
+      // genuine unmount (nothing re-arms it) still sees `false` here and
+      // actually aborts the load.
+      queueMicrotask(() => {
+        if (!rendererActiveRef.current) rendererAbortControllerRef.current?.abort();
+      });
     };
   }, []);
 

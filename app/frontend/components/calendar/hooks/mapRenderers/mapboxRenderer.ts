@@ -63,11 +63,19 @@ function isAuthError(error: unknown): boolean {
 
 /**
  * Resolves once Mapbox's initial style finishes loading; rejects on an auth
- * error (bad/suspended token) or if loading doesn't complete within a
- * timeout, so the caller can fall back to another provider.
+ * error (bad/suspended token), a timeout, or the given signal aborting (e.g.
+ * the component unmounted mid-load) — the latter matters because otherwise
+ * an in-flight Mapbox instance keeps loading tiles into a detached container
+ * for up to the full timeout after nothing is listening for the result.
  */
-export async function initMapboxRenderer(container: HTMLDivElement, token: string): Promise<RouteRenderer> {
+export async function initMapboxRenderer(
+  container: HTMLDivElement,
+  token: string,
+  signal?: AbortSignal,
+): Promise<RouteRenderer> {
   const mapbox = (await import("mapbox-gl")).default;
+
+  if (signal?.aborted) throw new Error("Mapbox init aborted");
 
   return new Promise((resolve, reject) => {
     const map = new mapbox.Map({
@@ -84,9 +92,13 @@ export async function initMapboxRenderer(container: HTMLDivElement, token: strin
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
       map.remove();
       reject(error instanceof Error ? error : new Error("Mapbox failed to load"));
     };
+
+    const onAbort = () => fail(new Error("Mapbox init aborted"));
+    signal?.addEventListener("abort", onAbort);
 
     const timeoutId = setTimeout(() => fail(new Error("Mapbox timed out loading")), LOAD_TIMEOUT_MS);
 
@@ -100,6 +112,7 @@ export async function initMapboxRenderer(container: HTMLDivElement, token: strin
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
       map.addControl(new mapbox.NavigationControl({ showCompass: false }), "top-right");
       resolve(buildRenderer(map, mapbox));
     });

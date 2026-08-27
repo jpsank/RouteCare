@@ -76,7 +76,6 @@ module Integrations
       end
 
       # Fill in cross-chunk pairs with haversine (Mapbox chunks only cover within-chunk)
-      points_by_id = points.index_by { |p| p[:id] }
       points.each do |from|
         points.each do |to|
           next if from[:id] == to[:id]
@@ -125,7 +124,11 @@ module Integrations
             result[from[:id]][to[:id]] = 0
           else
             seconds = durations[i][j]
-            result[from[:id]][to[:id]] = seconds ? (seconds / 60.0).round : haversine_estimate(from, to)
+            # A distinct pair should never legitimately come back at exactly
+            # zero (or negative) seconds — treat that as a bad cell rather
+            # than a real duration, same as geocoding's null-island guard.
+            valid = seconds.is_a?(Numeric) && seconds.positive?
+            result[from[:id]][to[:id]] = valid ? (seconds / 60.0).round : haversine_estimate(from, to)
           end
         end
       end
@@ -160,6 +163,8 @@ module Integrations
       raise "Google Routes API did not return a duration" unless duration_str
 
       seconds = duration_str.delete_suffix("s").to_i
+      raise "Google Routes API returned a non-positive duration" unless seconds.positive?
+
       (seconds / 60.0).round
     end
 
@@ -208,12 +213,10 @@ module Integrations
         next if oi.nil? || di.nil? || oi == di
 
         duration_str = entry["duration"] # e.g. "1234s"
-        if duration_str
-          seconds = duration_str.delete_suffix("s").to_i
-          result[points[oi][:id]][points[di][:id]] = (seconds / 60.0).round
-        else
-          result[points[oi][:id]][points[di][:id]] = haversine_estimate(points[oi], points[di])
-        end
+        seconds = duration_str&.delete_suffix("s")&.to_i
+        valid = seconds.is_a?(Numeric) && seconds.positive?
+        result[points[oi][:id]][points[di][:id]] =
+          valid ? (seconds / 60.0).round : haversine_estimate(points[oi], points[di])
       end
 
       result
