@@ -9,7 +9,11 @@ module Scheduling
       ALNS_DESTROY_FRACTION_MAX = 0.4
 
       # Adapter so PatientData structs respond to methods the Retimer expects
-      PatientAdapter = Struct.new(:id, :latitude, :longitude, :visit_duration_minutes, :min_days_between_visits, :max_days_between_visits, :priority, :name, :required_visits_per_week, :availability_windows, keyword_init: true)
+      PatientAdapter = Struct.new(:id, :latitude, :longitude, :visit_duration_minutes, :min_days_between_visits, :max_days_between_visits, :priority, :name, :required_visits_per_week, :availability_windows, :unavailability_windows, keyword_init: true) do
+        def unavailable_windows_for_wday(wday)
+          unavailability_windows&.[](wday) || []
+        end
+      end
 
       def self.adapt_patient(patient_data)
         loc = patient_data.location
@@ -21,7 +25,8 @@ module Scheduling
           min_days_between_visits: patient_data.min_days_between_visits,
           max_days_between_visits: patient_data.max_days_between_visits,
           priority: patient_data.priority,
-          availability_windows: patient_data.availability_windows
+          availability_windows: patient_data.availability_windows,
+          unavailability_windows: patient_data.unavailability_windows || {}
         )
       end
 
@@ -338,6 +343,9 @@ module Scheduling
           day_start, day_end = day_bounds(date)
           [ Scheduling::TimeWindow.new(day_start, day_end) ]
         end
+
+        unavailable = patient.unavailable_windows_for_wday(date.wday)
+        window_set = Scheduling::TimeWindow.subtract(window_set, unavailable) if unavailable.present?
 
         window_set.each do |window|
           minute = window.start_minute

@@ -192,6 +192,7 @@ def cpsat_time_vehicle_route(
     wday_str = str((dt_date.weekday() + 1) % 7)
 
     inst_windows: list[list[dict]] = []
+    inst_unavail_windows: list[list[dict]] = []
     for inst in instances:
         if inst.availability_windows:
             ws = inst.availability_windows.get(wday_str, [])
@@ -200,6 +201,8 @@ def cpsat_time_vehicle_route(
             )
         else:
             inst_windows.append([])
+
+        inst_unavail_windows.append(inst.unavailability_windows.get(wday_str, []))
 
     # ── Build CP-SAT model ───────────────────────────────────────────
 
@@ -426,6 +429,25 @@ def cpsat_time_vehicle_route(
         # If infeasible, CP-SAT will set visit_present[i] = 0 (drop the
         # visit) rather than violate the window.
         model.add(sum(window_bools) >= 1).only_enforce_if(visit_present[i])
+
+    # ── Unavailability window constraints (HARD, no override) ────────
+    # Unlike availability windows, these are blackout ranges: a visit must
+    # never overlap one, regardless of whether availability windows are
+    # defined at all. Modeled as "entirely before" OR "entirely after".
+
+    for i in range(n):
+        unavail = inst_unavail_windows[i]
+        if not unavail:
+            continue
+
+        for w_idx, w in enumerate(unavail):
+            w_start = w.get("start_minute", 0)
+            w_end = w.get("end_minute", 1440)
+            before = model.new_bool_var(f"unavail_before_{i}_{w_idx}")
+            after = model.new_bool_var(f"unavail_after_{i}_{w_idx}")
+            model.add(visit_end_vars[i] <= w_start).only_enforce_if(before)
+            model.add(visit_start_vars[i] >= w_end).only_enforce_if(after)
+            model.add(before + after >= 1).only_enforce_if(visit_present[i])
 
     # ── No-overlap ───────────────────────────────────────────────────
 

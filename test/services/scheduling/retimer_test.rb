@@ -87,6 +87,34 @@ class Scheduling::RetimerTest < ActiveSupport::TestCase
     end
   end
 
+  test "skips past a patient's unavailable window" do
+    Time.use_zone("America/New_York") do
+      @patient_a.patient_availability_windows.create!(
+        day_of_week: @date.wday, start_minute: 480, end_minute: 600, available: false
+      )
+      slots = [ { patient: @patient_a, duration: 45 } ]
+      result = build_retimer.call(slots, @date)
+
+      assert result[:feasible]
+      start_minute = (result[:slots][0][:starts_at] - result[:slots][0][:starts_at].beginning_of_day) / 60
+      assert start_minute >= 600, "Visit should start at/after the blackout window ends (600), got #{start_minute}"
+    end
+  end
+
+  test "unavailable window does not affect an unrelated patient" do
+    Time.use_zone("America/New_York") do
+      @patient_a.patient_availability_windows.create!(
+        day_of_week: @date.wday, start_minute: 480, end_minute: 600, available: false
+      )
+      slots = [ { patient: @patient_b, duration: 60 } ]
+      result = build_retimer.call(slots, @date)
+
+      assert result[:feasible]
+      start_minute = (result[:slots][0][:starts_at] - result[:slots][0][:starts_at].beginning_of_day) / 60
+      assert_equal 480, start_minute
+    end
+  end
+
   private
 
   def build_retimer(

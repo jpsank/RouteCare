@@ -1,5 +1,5 @@
 import { format as formatDate } from "date-fns";
-import type { Patient, Visit } from "../../types";
+import type { AvailabilityWindow, Patient, Visit } from "../../types";
 import { googleMapsKey, mapboxToken } from "./mapProviders";
 
 export type Point = { latitude: number; longitude: number };
@@ -35,6 +35,9 @@ export type PatientSavePayload = {
   min_days_between_visits: number;
   max_days_between_visits: number;
   priority: number;
+  // Omitted entirely => leave existing windows untouched. Present (including
+  // an empty array) => replace the patient's windows with this set.
+  availability_windows?: AvailabilityWindow[];
 };
 
 export type PatientForm = {

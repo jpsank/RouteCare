@@ -235,6 +235,42 @@ def _diagnose_unscheduled(
             ):
                 reasons.add("window_too_short")
 
+        # 3b. Unavailable (blackout) windows fully cover every availability
+        #     window (or the whole day, when no availability windows exist)
+        if inst.unavailability_windows and not reasons:
+            from solver.benders.envelope import _block_kills_window  # late import
+
+            working_wdays = {ctx.day_wdays[d] for d in range(num_days)}
+            fully_blacked_out = True
+            for wd in working_wdays:
+                wd_str = str(wd)
+                avail = (
+                    inst.availability_windows.get(wd_str, [])
+                    if inst.availability_windows
+                    else [{"start_minute": 0, "end_minute": 1440}]
+                )
+                unavail = inst.unavailability_windows.get(wd_str, [])
+                if not unavail:
+                    fully_blacked_out = False
+                    break
+                unavail_ranges = [
+                    (int(w.get("start_minute", 0)), int(w.get("end_minute", 1440)))
+                    for w in unavail
+                ]
+                if any(
+                    not _block_kills_window(
+                        int(a.get("start_minute", 0)),
+                        int(a.get("end_minute", 1440)),
+                        unavail_ranges,
+                        inst.duration,
+                    )
+                    for a in avail
+                ):
+                    fully_blacked_out = False
+                    break
+            if fully_blacked_out:
+                reasons.add("fully_blacked_out")
+
         # 4. No legal slots at all (after eligibility + availability + blocks)
         if not legal_slots.get(iid):
             reasons.add("no_legal_slot")

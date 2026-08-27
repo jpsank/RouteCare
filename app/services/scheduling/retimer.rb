@@ -81,6 +81,38 @@ module Scheduling
           end
         end
 
+        # Skip past this patient's unavailable (blackout) windows — hard constraint.
+        # Re-check repeatedly since skipping one window may land inside another
+        # (or back into a locked range) until we settle on a clear start.
+        if patient.respond_to?(:unavailable_windows_for_wday)
+          unavailable_ranges = patient.unavailable_windows_for_wday(date.wday)
+          if unavailable_ranges.present?
+            settled = false
+            attempts = 0
+            until settled || attempts > (unavailable_ranges.size + locked_ranges.size + 1)
+              attempts += 1
+              settled = true
+
+              unavailable_ranges.each do |w|
+                if earliest_start < w[:end_minute] && earliest_start + duration > w[:start_minute]
+                  earliest_start = round_up_to_interval(w[:end_minute])
+                  settled = false
+                end
+              end
+
+              locked_ranges.each do |range|
+                proposed_start = Time.zone.parse("#{date} #{minute_to_hhmm(earliest_start)}")
+                proposed_end = proposed_start + duration.minutes
+                next unless proposed_start < range.end && proposed_end > range.begin
+
+                locked_end_minute = (range.end - range.begin.beginning_of_day) / 60
+                earliest_start = round_up_to_interval(locked_end_minute.to_i + TRANSIT_BUFFER_MINUTES)
+                settled = false
+              end
+            end
+          end
+        end
+
         if earliest_start + duration > @day_end_minute
           retimed << slot
           return { slots: retimed, lunch: lunch_placement, feasible: false }

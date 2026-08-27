@@ -22,6 +22,9 @@ class PatientData(BaseModel):
     availability_windows: dict[
         str, list[dict]
     ] = {}  # "day_of_week" → [{start_minute, end_minute}]
+    unavailability_windows: dict[
+        str, list[dict]
+    ] = {}  # "day_of_week" → [{start_minute, end_minute}] — blackout ranges, never overlap
 
 
 class ClinicianData(BaseModel):
@@ -48,6 +51,7 @@ class VisitInstanceData(BaseModel):
     duration: int  # visit_duration_minutes + charting_buffer
     priority: int = 0
     availability_windows: dict[str, list[dict]] = {}
+    unavailability_windows: dict[str, list[dict]] = {}  # blackout ranges, never overlap
     eligible_clinician_indices: list[int] = []  # empty = any clinician
 
 

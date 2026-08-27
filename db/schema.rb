@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_27_143235) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_27_143242) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -122,13 +122,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_27_143235) do
   end
 
   create_table "patient_availability_windows", force: :cascade do |t|
+    t.boolean "available", default: true, null: false
     t.datetime "created_at", null: false
     t.integer "day_of_week", null: false
     t.integer "end_minute", null: false
     t.bigint "patient_id", null: false
     t.integer "start_minute", null: false
     t.datetime "updated_at", null: false
-    t.index ["patient_id", "day_of_week", "start_minute", "end_minute"], name: "idx_patient_windows_uniqueness", unique: true
+    t.index ["patient_id", "day_of_week", "start_minute", "end_minute", "available"], name: "idx_patient_windows_uniqueness", unique: true
     t.index ["patient_id"], name: "index_patient_availability_windows_on_patient_id"
     t.check_constraint "day_of_week >= 0 AND day_of_week <= 6", name: "patient_windows_valid_day"
     t.check_constraint "end_minute <= 1440", name: "patient_windows_end_within_day"

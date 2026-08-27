@@ -13,7 +13,8 @@ module Scheduling
     :id, :name, :location,
     :visit_duration_minutes, :required_visits_per_week,
     :min_days_between_visits, :max_days_between_visits,
-    :priority, :availability_windows # { day_of_week => [{ start_minute:, end_minute: }] }
+    :priority, :availability_windows, # { day_of_week => [{ start_minute:, end_minute: }] }
+    :unavailability_windows # { day_of_week => [{ start_minute:, end_minute: }] } — blackout ranges
   )
 
   ClinicianData = Data.define(
@@ -44,7 +45,8 @@ module Scheduling
   VisitInstanceData = Data.define(
     :id, :patient_id, :location,
     :duration, :priority,
-    :availability_windows # { day_of_week => [{ start_minute:, end_minute: }] }
+    :availability_windows, # { day_of_week => [{ start_minute:, end_minute: }] }
+    :unavailability_windows # { day_of_week => [{ start_minute:, end_minute: }] } — blackout ranges
   )
 
   SolverInputData = Data.define(
@@ -104,9 +106,9 @@ module Scheduling
       # Patients
       active_patients = profile.patients.active.includes(:patient_availability_windows).to_a
       patients = active_patients.map do |p|
-        windows = p.patient_availability_windows.group_by(&:day_of_week).transform_values do |wins|
-          wins.map { |w| { start_minute: w.start_minute, end_minute: w.end_minute } }
-        end
+        by_day = p.patient_availability_windows.group_by(&:day_of_week)
+        windows = grouped_minute_ranges(by_day, available: true)
+        unavailable_windows = grouped_minute_ranges(by_day, available: false)
 
         PatientData.new(
           id: p.id, name: p.full_name,
@@ -116,7 +118,8 @@ module Scheduling
           min_days_between_visits: p.min_days_between_visits,
           max_days_between_visits: p.max_days_between_visits,
           priority: p.priority,
-          availability_windows: windows
+          availability_windows: windows,
+          unavailability_windows: unavailable_windows
         )
       end
 
@@ -165,7 +168,8 @@ module Scheduling
             location: patient.location,
             duration: patient.visit_duration_minutes + clinician.charting_buffer_minutes,
             priority: patient.priority,
-            availability_windows: patient.availability_windows
+            availability_windows: patient.availability_windows,
+            unavailability_windows: patient.unavailability_windows
           )
         end
       end
@@ -185,7 +189,8 @@ module Scheduling
             location: patient.location,
             duration: patient.visit_duration_minutes + clinician.charting_buffer_minutes,
             priority: patient.priority,
-            availability_windows: patient.availability_windows
+            availability_windows: patient.availability_windows,
+            unavailability_windows: patient.unavailability_windows
           )
         end
         locked_visits = []
@@ -208,5 +213,18 @@ module Scheduling
         working_days: working_day_dates
       )
     end
+
+    # by_day: { day_of_week => [PatientAvailabilityWindow] }
+    # Returns { day_of_week => [{ start_minute:, end_minute: }] } filtered to
+    # +available+ (true) or +unavailable+ (false) windows only.
+    def self.grouped_minute_ranges(by_day, available:)
+      by_day.filter_map do |day, wins|
+        matching = wins.select { |w| w.available == available }
+        next if matching.empty?
+
+        [ day, matching.map { |w| { start_minute: w.start_minute, end_minute: w.end_minute } } ]
+      end.to_h
+    end
+    private_class_method :grouped_minute_ranges
   end
 end

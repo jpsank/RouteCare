@@ -130,7 +130,10 @@ def _enumerate_slots(
                     continue
                 wday = str(ctx.day_wdays[d_idx])
                 ds, de = day_bounds(clinician, date)
-                # Blocked ranges for this (c, d)
+                # Blocked ranges for this (c, d): calendar blocks plus the
+                # patient's own unavailable (blackout) windows on this weekday —
+                # both shrink the usable room inside an availability window the
+                # same way, regardless of whether availability windows exist at all.
                 blocks = [
                     (
                         _dt_to_min(cb.starts_at),
@@ -138,6 +141,14 @@ def _enumerate_slots(
                     )
                     for cb in ctx.calendar_blocks_by_vehicle.get((c_idx, d_idx), [])
                 ]
+                if inst.unavailability_windows:
+                    blocks.extend(
+                        (
+                            int(w.get("start_minute", 0)),
+                            int(w.get("end_minute", 1440)),
+                        )
+                        for w in inst.unavailability_windows.get(wday, [])
+                    )
 
                 # Build window list.
                 # - availability_windows empty dict → patient is always available

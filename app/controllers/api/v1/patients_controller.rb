@@ -98,7 +98,7 @@ class Api::V1::PatientsController < Api::V1::BaseController
 
   def availability_windows_params
     params.fetch(:availability_windows, []).map do |window|
-      ActionController::Parameters.new(window).permit(:day_of_week, :start_minute, :end_minute)
+      ActionController::Parameters.new(window).permit(:day_of_week, :start_minute, :end_minute, :available)
     end
   end
 
