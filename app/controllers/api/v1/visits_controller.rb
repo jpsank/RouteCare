@@ -42,12 +42,10 @@ class Api::V1::VisitsController < Api::V1::BaseController
     visit = scoped_visits.find_by(id: params[:id])
     return render_not_found("Visit not found") unless visit
 
-    attrs = visit_params
-    # Only force clinician_override true when the user isn't explicitly toggling it
-    unless attrs.key?(:clinician_override)
-      attrs = attrs.merge(clinician_override: true, source: "manual")
-    end
-    visit.update!(attrs)
+    # clinician_override must only change when the client explicitly sends it
+    # (e.g. the "Lock from optimizer" checkbox). Editing unrelated fields like
+    # status or start time must never silently flip this flag.
+    visit.update!(visit_params)
     resequence_day!(visit)
     render json: { visit: serialize_visit(visit.reload) }
   end
