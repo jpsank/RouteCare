@@ -160,39 +160,27 @@ function TimeWindowGrid({
     ? Math.max(dragViz!.anchor, dragViz!.tip) + 1
     : minToIdx(baseEnd);
 
-  useEffect(() => {
-    if (!isDragging) return;
-    const getIdx = (clientX: number) => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return 0;
-      return Math.max(0, Math.min(GRID_COLS - 1, Math.floor(((clientX - rect.left) / rect.width) * GRID_COLS)));
-    };
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragRef.current) return;
-      const idx = getIdx(e.clientX);
-      const d = { anchor: dragRef.current.anchor, tip: idx };
-      dragRef.current = d;
-      setDragViz(d);
-    };
-    const handleMouseUp = () => {
-      const d = dragRef.current;
-      if (!d) return;
-      const s = Math.min(d.anchor, d.tip);
-      const end = Math.max(d.anchor, d.tip) + 1;
-      const newStart = idxToMin(s);
-      const newEnd = idxToMin(end);
-      dragRef.current = null;
-      setOptimistic({ start: newStart, end: newEnd });
-      setDragViz(null);
-      onChangeRef.current(newStart, newEnd);
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDragging]);
+  const getIdxFromClientX = (clientX: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    return Math.max(0, Math.min(GRID_COLS - 1, Math.floor(((clientX - rect.left) / rect.width) * GRID_COLS)));
+  };
+
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setDragViz(null);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    if (!d) return;
+    const s = Math.min(d.anchor, d.tip);
+    const end = Math.max(d.anchor, d.tip) + 1;
+    const newStart = idxToMin(s);
+    const newEnd = idxToMin(end);
+    setOptimistic({ start: newStart, end: newEnd });
+    onChangeRef.current(newStart, newEnd);
+  };
 
   const leftPct = (selStart / GRID_COLS) * 100;
   const widthPct = ((selEnd - selStart) / GRID_COLS) * 100;
@@ -213,17 +201,26 @@ function TimeWindowGrid({
         !disabled ? "cursor-col-resize" : "cursor-default opacity-40",
         !bare && !disabled ? "hover:border-orange-300" : "",
       ].filter(Boolean).join(" ")}
-      style={{ userSelect: "none" }}
-      onMouseDown={(e) => {
+      style={{ userSelect: "none", touchAction: "none" }}
+      onPointerDown={(e) => {
         if (disabled) return;
         e.preventDefault();
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const idx = Math.max(0, Math.min(GRID_COLS - 1, Math.floor(((e.clientX - rect.left) / rect.width) * GRID_COLS)));
+        const idx = getIdxFromClientX(e.clientX);
         const d = { anchor: idx, tip: idx };
         dragRef.current = d;
         setDragViz(d);
+        e.currentTarget.setPointerCapture(e.pointerId);
       }}
+      onPointerMove={(e) => {
+        if (!dragRef.current) return;
+        e.preventDefault();
+        const idx = getIdxFromClientX(e.clientX);
+        const d = { anchor: dragRef.current.anchor, tip: idx };
+        dragRef.current = d;
+        setDragViz(d);
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
     >
       {/* Hour tick marks */}
       {Array.from({ length: GRID_COLS - 1 }, (_, i) => (
