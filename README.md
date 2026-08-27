@@ -19,7 +19,7 @@ It solves three core workflow gaps:
 - Prawn + prawn-table for PDF export
 - Sentry error tracking (Ruby + JS)
 - Playwright E2E tests, Vitest unit tests
-- Python CP-SAT microservice (`solver_service/`) using OR-Tools + LNS for schedule optimization
+- Python microservice (`solver_service/`) using OR-Tools CP-SAT in a Benders decomposition hybrid for schedule optimization
 - Service object architecture in `app/services`
 - JSON API under `app/controllers/api/v1`
 
@@ -30,7 +30,7 @@ It solves three core workflow gaps:
   - hard calendar block constraints
   - per-day patient availability windows
   - route/travel-time-aware ordering with precomputed travel matrix
-  - CP-SAT solver with Large Neighborhood Search (Shaw + worst-vehicle destroy operators, adaptive weights, warm-start partial repair)
+  - CP-SAT/Benders decomposition solver (per-vehicle subproblems + no-good cuts), with an optional ALNS polish pass afterward
   - automatic fallback to a Ruby greedy optimizer if the solver service is unreachable
   - optimized vs baseline drive-time metrics
 - Visit editing and quick rescheduling
