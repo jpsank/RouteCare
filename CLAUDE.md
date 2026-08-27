@@ -41,7 +41,7 @@ npm run e2e:install  # One-time: download Playwright browsers
 - `app/controllers/webhooks/` — Inbound webhooks (Telnyx SMS, Postmark email)
 - `app/jobs/` — Async jobs (message delivery, alerts generation, cleanup)
 - `config/recurring.yml` — Solid Queue scheduled tasks
-- `solver_service/` — Python CP-SAT + LNS microservice (FastAPI, OR-Tools, pytest benchmarks)
+- `solver_service/` — Python Benders-hybrid scheduler microservice (FastAPI, OR-Tools CP-SAT, pytest benchmarks)
 
 ## Patient import
 
@@ -49,7 +49,18 @@ Patient roster import accepts both CSV and Excel (`.xlsx`/`.xls`) via `POST /api
 
 ## Solver architecture
 
-The CP-SAT pipeline uses Large Neighborhood Search with Shaw and worst-vehicle destroy operators, adaptive operator weights, and warm-start partial repair seeded from the incumbent. Travel matrix is precomputed once per optimization and LNS iterations are gated by a per-iteration timing budget. On solver transport/HTTP failure, Rails automatically falls back to the greedy Ruby optimizer and records `optimization_summary.scheduler_fallback`. The solver's own tests live in `solver_service/tests/` and run as a dedicated pytest CI job (including slow benchmark suites).
+The scheduler is a **Benders decomposition hybrid** (`solver_service/solver/benders/`). The outer loop alternates:
+
+1. **Envelope (master)** — CP-SAT assigns each visit a `(clinician, day, window)` slot (`envelope.py`). Uses a home-leg cost approximation on round 0; subsequent rounds get per-`(instance, clinician, day)` detour marginals fed back from the subproblem.
+2. **Subproblems** — one per-vehicle routing solve per `(clinician, day)` (`subproblem.py`). Returns either a feasible `VehicleRoute` or a `Conflict`.
+3. **No-good cuts** — conflicts are translated into cuts (`cuts.py`) and added to the envelope's `CutStore` for the next round.
+4. Loop until all vehicles feasible, `MAX_BENDERS_ROUNDS` hits, or the time budget runs out. Warm-start from a prior `SolverOutput` is supported on round 0.
+5. **Concrete timing pass** (`cpsat_timing.py`) assigns final start/end times per route, interleaving locked visits, lunch, breaks, and calendar blocks.
+6. **`validate_plan`** is the final safety gate.
+
+After Benders converges on a feasible incumbent, an optional **ALNS polish** (`lns.py`) runs destroy/repair with four operators (`random`, `worst_cost`, `shaw`, `worst_vehicle`) and adaptive weighting (classic ALNS reaction update every 5 iterations). Hill-climbing acceptance only — never worsens the incumbent. Skipped for warm-started re-solves (continuity with the prior plan wins over a few percent of drive savings) and for small problems (< 15 placed visits). Tunables via `SOLVER_LNS_*` env vars.
+
+On solver transport/HTTP failure, Rails automatically falls back to the greedy Ruby optimizer and records `optimization_summary.scheduler_fallback`. The solver's own tests live in `solver_service/tests/` and run as a dedicated pytest CI job (including slow benchmark suites).
 
 ## Architecture decisions
 
