@@ -23,7 +23,7 @@ jobs:
     env:
       RUBOCOP_CACHE_ROOT: tmp/rubocop
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-ruby
 
       - name: Prepare RuboCop cache
@@ -69,7 +69,7 @@ jobs:
       RAILS_ENV: test
       DATABASE_URL: postgres://postgres:postgres@localhost:5432
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-ruby
 
       - name: Run unit + system tests
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node
 
       - name: Type-check
@@ -106,7 +106,7 @@ jobs:
       # with a fixed seed and would make the benchmark suites flaky.
       SOLVER_NUM_WORKERS: '1'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v6
@@ -152,7 +152,7 @@ jobs:
       SECRET_KEY_BASE: dummycisecretkeybasefortestingonly00000000000000000000000000000000000000000
       PLAYWRIGHT_SKIP_SEED: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-ruby
       - uses: ./.github/actions/setup-node
 
