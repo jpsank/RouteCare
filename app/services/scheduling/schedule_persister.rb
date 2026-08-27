@@ -48,19 +48,22 @@ module Scheduling
         locked = locked_by_date[date] || []
 
         all_day_items = []
-        locked.each { |v| all_day_items << { type: :locked, visit: v, starts_at: v.starts_at, patient: v.patient } }
-        slots.each { |s| all_day_items << { type: :new, slot: s, starts_at: s[:starts_at], patient: s[:patient] } }
+        locked.each { |v| all_day_items << { type: :locked, visit: v, starts_at: v.starts_at, ends_at: v.ends_at, patient: v.patient } }
+        slots.each { |s| all_day_items << { type: :new, slot: s, starts_at: s[:starts_at], ends_at: s[:ends_at], patient: s[:patient] } }
         all_day_items.sort_by! { |item| item[:starts_at] }
 
         current_point = start_point_for_day
         previous_patient_id = nil
+        previous_departure_minute = nil
 
         all_day_items.each_with_index do |item, index|
           drive_minutes =
             if previous_patient_id.nil?
               travel_from_start(item[:patient])
             else
-              (travel_matrix.dig(previous_patient_id, item[:patient].id) || 0)
+              # The leg departs when the previous visit ends — known exactly
+              # since we're persisting the already-timed final plan.
+              dig_travel(travel_matrix, previous_patient_id, item[:patient].id, previous_departure_minute)
             end
 
           if item[:type] == :locked
@@ -85,6 +88,7 @@ module Scheduling
           end
 
           previous_patient_id = item[:patient].id
+          previous_departure_minute = minute_of_day(item[:ends_at])
           current_point = { lat: item[:patient].latitude, lng: item[:patient].longitude }
         end
       end
@@ -125,6 +129,18 @@ module Scheduling
       return if profile.blank? || profile.home_latitude.blank?
 
       { lat: profile.home_latitude, lng: profile.home_longitude }
+    end
+
+    def minute_of_day(time)
+      time.hour * 60 + time.min
+    end
+
+    # travel_matrix is normally a Scheduling::BucketedTravelMatrix, but a
+    # plain flat Hash (id => {id => minutes}) is also accepted — used by
+    # tests and any legacy caller that doesn't have bucketed data.
+    def dig_travel(matrix, from_id, to_id, minute)
+      value = matrix.is_a?(Scheduling::BucketedTravelMatrix) ? matrix.dig(from_id, to_id, minute: minute) : matrix.dig(from_id, to_id)
+      value || 0
     end
 
     def travel_from_start(patient)

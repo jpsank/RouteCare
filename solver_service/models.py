@@ -78,7 +78,13 @@ class SolverInput(BaseModel):
     instances: list[VisitInstanceData]
     locked_visits: list[LockedVisitData] = []
     calendar_blocks: list[CalendarBlockData] = []
-    travel_matrix: dict[str, dict[str, int]]  # JSON keys are always strings
+    # bucket_name -> from_id -> to_id -> minutes. JSON keys are always strings.
+    # bucket_name is one of solver.traffic_buckets.ALL_BUCKETS (e.g.
+    # "morning_rush", "lunch", "after_work_rush", "off_peak"). A plain flat
+    # matrix (from_id -> to_id -> minutes) is also accepted for backward
+    # compatibility / hand-built test fixtures — see context.build_context,
+    # which normalizes it into a single "off_peak" bucket.
+    travel_matrix: dict[str, dict]
     start_date: str  # ISO date — first day of the scheduling horizon
     working_days: list[str]  # ISO dates
 

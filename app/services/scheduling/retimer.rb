@@ -46,7 +46,7 @@ module Scheduling
         duration = slot[:duration] || patient.visit_duration_minutes
         slot_footprint = duration + @charting_buffer_minutes
 
-        transit = compute_transit(previous_patient_id, patient)
+        transit = compute_transit(previous_patient_id, patient, current_minute)
         raw_start = current_minute + transit + (previous_patient_id.nil? ? 0 : TRANSIT_BUFFER_MINUTES)
 
         # Mandatory break: if drive + completing this visit would exceed max continuous work,
@@ -137,7 +137,11 @@ module Scheduling
 
     private
 
-    def compute_transit(previous_patient_id, patient)
+    # departure_minute is the clock time (minute-of-day) this leg actually
+    # departs at — known exactly since the Retimer assigns times
+    # sequentially, so it's the most accurate point in the pipeline to pick
+    # a traffic bucket.
+    def compute_transit(previous_patient_id, patient, departure_minute)
       if previous_patient_id.nil?
         return 0 if @start_point.blank?
 
@@ -146,8 +150,17 @@ module Scheduling
           destination: { lat: patient.latitude, lng: patient.longitude }
         )
       else
-        @travel_matrix.dig(previous_patient_id, patient.id) || 0
+        dig_travel(previous_patient_id, patient.id, departure_minute)
       end
+    end
+
+    # @travel_matrix is normally a Scheduling::BucketedTravelMatrix, but a
+    # plain flat Hash (id => {id => minutes}) is also accepted — used by
+    # tests and any legacy caller that doesn't have bucketed data.
+    def dig_travel(from_id, to_id, minute)
+      matrix = @travel_matrix
+      value = matrix.is_a?(Scheduling::BucketedTravelMatrix) ? matrix.dig(from_id, to_id, minute: minute) : matrix.dig(from_id, to_id)
+      value || 0
     end
 
     def round_up_to_interval(minute)

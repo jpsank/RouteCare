@@ -38,6 +38,45 @@ class Scheduling::RetimerTest < ActiveSupport::TestCase
     end
   end
 
+  test "picks the traffic bucket matching the leg's actual departure time" do
+    Time.use_zone("America/New_York") do
+      bucketed_matrix = Scheduling::BucketedTravelMatrix.new(
+        morning_rush: {
+          @patient_a.id => { @patient_a.id => 0, @patient_b.id => 5 },
+          @patient_b.id => { @patient_a.id => 5, @patient_b.id => 0 }
+        },
+        off_peak: {
+          @patient_a.id => { @patient_a.id => 0, @patient_b.id => 50 },
+          @patient_b.id => { @patient_a.id => 50, @patient_b.id => 0 }
+        }
+      )
+
+      # Day starts at 7:00am (420) — patient A's visit finishes well inside
+      # the morning-rush window (420-570), so the second leg should use the
+      # morning_rush bucket (5min), not off-peak (50min).
+      retimer = Scheduling::Retimer.new(
+        travel_matrix: bucketed_matrix,
+        locked_visits: [],
+        day_start_minute: 420,
+        day_end_minute: 1080,
+        start_point: nil
+      )
+
+      slots = [
+        { patient: @patient_a, duration: 45 },
+        { patient: @patient_b, duration: 60 }
+      ]
+      result = retimer.call(slots, @date)
+
+      assert result[:feasible]
+      # Gap = 5min transit + 5min transit buffer, rounded up to the next
+      # 15min slot = 15min. If the off-peak bucket (50min) had been used
+      # instead, the gap would round up to 60min.
+      gap = (result[:slots][1][:starts_at] - result[:slots][0][:ends_at]) / 60.0
+      assert_in_delta 15, gap, 0.01, "Expected the morning-rush bucket's travel time to drive the gap, got #{gap}min"
+    end
+  end
+
   test "returns feasible false when visits exceed workday" do
     Time.use_zone("America/New_York") do
       slots = Array.new(8) { { patient: @patient_a, duration: 90 } }

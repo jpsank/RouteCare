@@ -167,14 +167,21 @@ def _route_vehicle(
 
     # n+1 × n+1 travel matrix where index n == home.
     # travel_mat[i][j] = travel from stop i (or home) to stop j (or home).
+    #
+    # Bucket choice: each leg uses the DESTINATION stop's assigned window
+    # start as its time-of-day estimate — a leg is "the drive that ends by
+    # arriving at stop j", so stop j's window is the best approximation we
+    # have of when it happens (exact times aren't known until the concrete
+    # timing pass). This precompute happens once per vehicle, outside the
+    # permutation search below, so it doesn't touch the hot loop.
     travel_mat: list[list[int]] = [[0] * (n + 1) for _ in range(n + 1)]
     for i in range(n):
-        travel_mat[n][i] = travel(home_key, stop_pids[i])  # home → i
-        travel_mat[i][n] = travel(stop_pids[i], home_key)  # i → home
+        travel_mat[n][i] = travel(home_key, stop_pids[i], stop_w_start[i])  # home → i
+        travel_mat[i][n] = travel(stop_pids[i], home_key, stop_w_start[i])  # i → home
         for j in range(n):
             if i == j:
                 continue
-            travel_mat[i][j] = travel(stop_pids[i], stop_pids[j])
+            travel_mat[i][j] = travel(stop_pids[i], stop_pids[j], stop_w_start[j])
     HOME = n  # index sentinel for home
 
     def _evaluate(
@@ -386,13 +393,14 @@ def _compute_marginals(
 
     ordered_stops = [stops[i] for i in order]
     pids = [str(ctx.instances_by_id[iid].patient_id) for iid, _ in ordered_stops]
+    w_starts = [slot.window_start for _, slot in ordered_stops]
 
     marginals: dict[str, int] = {}
     for k in range(n):
         prev_key = home_key if k == 0 else pids[k - 1]
         next_key = home_key if k == n - 1 else pids[k + 1]
-        with_i = travel(prev_key, pids[k]) + travel(pids[k], next_key)
-        without_i = travel(prev_key, next_key)
+        with_i = travel(prev_key, pids[k], w_starts[k]) + travel(pids[k], next_key, w_starts[k])
+        without_i = travel(prev_key, next_key, w_starts[k])
         marginals[ordered_stops[k][0]] = max(0, with_i - without_i)
     return marginals
 
@@ -405,11 +413,12 @@ def _nearest_neighbor(
     travel = ctx.travel
     n = len(stops)
     pids = [str(ctx.instances_by_id[iid].patient_id) for iid, _ in stops]
+    w_starts = [slot.window_start for _, slot in stops]
     remaining = list(range(n))
     order: list[int] = []
     cur = home_key
     while remaining:
-        best_i = min(remaining, key=lambda i: travel(cur, pids[i]))
+        best_i = min(remaining, key=lambda i: travel(cur, pids[i], w_starts[i]))
         order.append(best_i)
         remaining.remove(best_i)
         cur = pids[best_i]
