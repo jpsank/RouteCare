@@ -27,7 +27,7 @@ jobs:
       - uses: ./.github/actions/setup-ruby
 
       - name: Prepare RuboCop cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         env:
           DEPENDENCIES_HASH: ${{ hashFiles('.ruby-version', '**/.rubocop.yml', '**/.rubocop_todo.yml', 'Gemfile.lock') }}
         with:
@@ -37,7 +37,7 @@ jobs:
             rubocop-${{ runner.os }}-${{ env.DEPENDENCIES_HASH }}-
 
       - name: Cache bundler-audit advisory DB
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.local/share/ruby-advisory-db
           key: ruby-advisory-db-${{ github.run_id }}
@@ -157,14 +157,14 @@ jobs:
       - uses: ./.github/actions/setup-node
 
       - name: Cache Vite test build
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         id: vite-cache
         with:
           path: public/vite-test
           key: vite-test-${{ runner.os }}-${{ hashFiles('app/frontend/**', 'vite.config.ts', 'package-lock.json', 'tsconfig.json', 'tailwind.config.*', 'postcss.config.*') }}
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
