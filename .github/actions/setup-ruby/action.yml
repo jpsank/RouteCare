@@ -3,6 +3,10 @@ description: Install Ruby with bundler cache and bootsnap cache.
 runs:
   using: composite
   steps:
+    - name: Install libvips (Active Storage variant processor)
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libvips
+
     - name: Set up Ruby
       uses: ruby/setup-ruby@v1
       with:

@@ -76,6 +76,7 @@ config/recurring.yml       # Solid Queue scheduled tasks
 - Ruby 3.4+
 - Node 22+
 - PostgreSQL 16+
+- libvips (Active Storage's variant processor, via the `ruby-vips` gem) — `brew install vips` on macOS, `apt-get install libvips` on Debian/Ubuntu
 - Python 3.11+ (optional, for the CP-SAT solver service)
 
 ### 2) Install dependencies
