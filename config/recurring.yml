@@ -37,4 +37,4 @@ production:
   weekly_auto_schedule:
     class: WeeklyAutoScheduleJob
     schedule: "0 18 * * 5"
-    description: "Auto-generate next week's schedule every Friday at 6pm"
+    description: "Every Friday at 6pm, extend the rolling auto-schedule horizon (see WeeklyAutoScheduleJob::HORIZON_WEEKS) by generating whichever upcoming week newly enters the window for each active clinician"
