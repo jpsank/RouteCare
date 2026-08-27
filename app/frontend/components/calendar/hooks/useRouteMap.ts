@@ -1,6 +1,6 @@
-import type mapboxgl from "mapbox-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Visit } from "../../../types";
+import { googleMapsKey, mapboxToken } from "../mapProviders";
 import {
   buildAppleMapsUrl,
   buildGoogleMapsUrl,
@@ -9,21 +9,10 @@ import {
   type Point,
   type RouteSnapshot,
 } from "../utils";
-
-const MAPBOX_FALLBACK_PUBLIC_TOKEN =
-  "pk.eyJ1IjoicHVmZnlib2EiLCJhIjoiY2sxbXNqbng1MDQ1cDNocWQ1bGVucGwxYyJ9.BsdxpULi2RpbCiaEyW3rgA";
-
-function mapboxToken(): string {
-  return (import.meta.env.VITE_MAPBOX_TOKEN as string | undefined) || MAPBOX_FALLBACK_PUBLIC_TOKEN;
-}
-
-async function loadMapbox(): Promise<typeof mapboxgl> {
-  const module = await import("mapbox-gl");
-  return module.default;
-}
-
-const ROUTE_SOURCE_ID = "daily-route";
-const ROUTE_LAYER_ID = "daily-route-line";
+import { initGoogleRenderer } from "./mapRenderers/googleRenderer";
+import { initMapboxRenderer } from "./mapRenderers/mapboxRenderer";
+import { initOsmRenderer } from "./mapRenderers/osmRenderer";
+import type { MapMarker, RouteRenderer } from "./mapRenderers/types";
 
 type Args = {
   dayVisits: Visit[];
@@ -40,52 +29,61 @@ type RouteStop = Point & {
   endsAt: string;
 };
 
-function createDotElement(color: string, label?: string): HTMLElement {
-  const el = document.createElement("div");
-  const hasLabel = Boolean(label);
-  const size = hasLabel ? "22px" : "16px";
-  el.style.width = size;
-  el.style.height = size;
-  el.style.borderRadius = "50%";
-  el.style.backgroundColor = color;
-  el.style.border = "2px solid #fff";
-  el.style.boxShadow = "0 1px 4px rgba(0,0,0,0.18)";
-  el.style.cursor = "pointer";
-  el.style.transition = "width 0.15s, height 0.15s, border 0.15s, box-shadow 0.15s";
-  if (hasLabel) {
-    el.style.display = "flex";
-    el.style.alignItems = "center";
-    el.style.justifyContent = "center";
-    el.style.fontSize = "10px";
-    el.style.fontWeight = "700";
-    el.style.color = "#fff";
-    el.style.lineHeight = "1";
-    el.textContent = label!;
+// Tries Mapbox first, then Google Maps if Mapbox is unconfigured or fails to load
+// (e.g. a suspended/invalid token), then falls back to the free/keyless OSM
+// renderer, which has no configuration prerequisite and is the guaranteed floor.
+// `signal` lets the caller abort an in-flight Mapbox load (the only tier with
+// a multi-second network-dependent load window) if the component unmounts
+// before it resolves, instead of leaving a live map instance running unseen.
+async function initRenderer(container: HTMLDivElement, signal: AbortSignal): Promise<RouteRenderer | null> {
+  const mapbox = mapboxToken();
+  if (mapbox) {
+    try {
+      return await initMapboxRenderer(container, mapbox, signal);
+    } catch (error) {
+      console.warn("Mapbox map failed to load, falling back to Google Maps:", error);
+    }
   }
-  return el;
+
+  const google = googleMapsKey();
+  if (google) {
+    try {
+      return await initGoogleRenderer(container, google);
+    } catch (error) {
+      console.warn("Google Maps failed to load, falling back to OpenStreetMap:", error);
+    }
+  }
+
+  try {
+    return await initOsmRenderer(container);
+  } catch (error) {
+    console.warn("OpenStreetMap renderer failed to load:", error);
+  }
+
+  return null;
 }
 
 export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisitId }: Args) {
   const [routeError, setRouteError] = useState<string | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeSnapshot, setRouteSnapshot] = useState<RouteSnapshot | null>(null);
+  const [mapUnavailable, setMapUnavailable] = useState(false);
 
-  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const rendererRef = useRef<RouteRenderer | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
-  const markerElementsRef = useRef<Map<number, HTMLElement>>(new Map());
+  const markerDefsRef = useRef<MapMarker[]>([]);
   const requestIdRef = useRef(0);
-
-  const clearRenderedRoute = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = [];
-
-    if (map.getLayer(ROUTE_LAYER_ID)) map.removeLayer(ROUTE_LAYER_ID);
-    if (map.getSource(ROUTE_SOURCE_ID)) map.removeSource(ROUTE_SOURCE_ID);
-  }, []);
+  // Guards against React StrictMode's dev-only double-invoke of effects:
+  // rendererInitStartedRef stops a second concurrent initRenderer call,
+  // rendererActiveRef (re-armed by the second effect run) decides whether the
+  // eventual result should be kept or destroyed — correctly distinguishing
+  // "StrictMode replayed this effect" from "the component actually unmounted
+  // before init finished" — and rendererAbortControllerRef lets a genuine
+  // unmount cancel an in-flight Mapbox load instead of leaving it running
+  // unseen until it times out.
+  const rendererInitStartedRef = useRef(false);
+  const rendererAbortControllerRef = useRef<AbortController | null>(null);
+  const rendererActiveRef = useRef(false);
 
   const routableStops = useMemo(
     () =>
@@ -125,18 +123,14 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
       setRouteSnapshot(null);
       setRouteError(null);
       setRouteLoading(false);
-      clearRenderedRoute();
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      rendererRef.current?.clearRoute();
       return;
     }
     const requestId = ++requestIdRef.current;
     setRouteLoading(true);
     setRouteError(null);
     setRouteSnapshot(null);
-    fetchRouteSnapshot(mapboxToken(), routePlan.origin, routePlan.stops)
+    fetchRouteSnapshot(routePlan.origin, routePlan.stops)
       .then((snapshot) => {
         if (requestIdRef.current !== requestId) return;
         setRouteSnapshot(snapshot);
@@ -149,126 +143,100 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
         if (requestIdRef.current !== requestId) return;
         setRouteLoading(false);
       });
-  }, [routePlan, selectedDate, clearRenderedRoute]);
+  }, [routePlan, selectedDate]);
 
-  // Initialize map once on mount, destroy on unmount
-  const mapboxRef = useRef<typeof mapboxgl | null>(null);
+  // Initialize the map renderer once on mount, destroy on unmount.
   useEffect(() => {
     const container = mapContainerRef.current;
     if (!container) return;
 
-    void loadMapbox().then((mapbox) => {
-      if (mapRef.current) return; // already initialized
-      mapboxRef.current = mapbox;
-      mapRef.current = new mapbox.Map({
-        container,
-        style: "mapbox://styles/mapbox/light-v11",
-        center: [-96, 37.8],
-        zoom: 3,
-        accessToken: mapboxToken(),
+    rendererActiveRef.current = true;
+
+    if (!rendererInitStartedRef.current) {
+      rendererInitStartedRef.current = true;
+      const controller = new AbortController();
+      rendererAbortControllerRef.current = controller;
+      void initRenderer(container, controller.signal).then((renderer) => {
+        rendererInitStartedRef.current = false;
+        if (!rendererActiveRef.current) {
+          renderer?.destroy();
+          return;
+        }
+        if (!renderer) {
+          setMapUnavailable(true);
+          return;
+        }
+        rendererRef.current = renderer;
       });
-      mapRef.current.addControl(new mapbox.NavigationControl({ showCompass: false }), "top-right");
-    });
+    }
 
     return () => {
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current = [];
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      rendererActiveRef.current = false;
+      rendererRef.current?.destroy();
+      rendererRef.current = null;
+      // Deferred a tick so React StrictMode's synchronous cleanup+re-effect
+      // replay (which re-arms rendererActiveRef before this runs) doesn't
+      // get its in-flight Mapbox load cancelled out from under it — only a
+      // genuine unmount (nothing re-arms it) still sees `false` here and
+      // actually aborts the load.
+      queueMicrotask(() => {
+        if (!rendererActiveRef.current) rendererAbortControllerRef.current?.abort();
+      });
     };
   }, []);
 
-  // Draw route + markers when snapshot or plan changes (no map recreation)
+  // Draw route + markers when snapshot or plan changes.
   useEffect(() => {
-    const map = mapRef.current;
-    const mapbox = mapboxRef.current;
-    if (!map || !mapbox) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
 
     if (!routeSnapshot || !routePlan) {
-      clearRenderedRoute();
+      renderer.clearRoute();
       return;
     }
 
-    const draw = () => {
-      const geojson: GeoJSON.FeatureCollection = {
-        type: "FeatureCollection",
-        features: [{ type: "Feature", geometry: routeSnapshot.geometry, properties: {} }],
+    renderer.drawRoute(routeSnapshot.geometry);
+
+    const allPoints = [routePlan.origin, ...routePlan.stops].filter(Boolean) as Array<Point | RouteStop>;
+    const markerDefs: MapMarker[] = allPoints.map((point, idx) => {
+      const isHome = idx === 0 && homeOrigin != null;
+      const stop = point as RouteStop;
+
+      if (isHome) {
+        return { id: "home", lat: point.latitude, lng: point.longitude, color: "#6b7280", label: "H", popupText: "Home" };
+      }
+
+      const pc = patientColor(stop.patientId);
+      const stopNumber = homeOrigin ? idx : idx + 1;
+      const popupText = `${stopNumber}. ${stop.patientName}\n${stop.patientAddress}\n${new Date(stop.startsAt).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })} – ${new Date(stop.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+
+      const visitMatch = dayVisits.find((v) => v.patient_id === stop.patientId && v.starts_at === stop.startsAt);
+
+      return {
+        id: visitMatch ? String(visitMatch.id) : `stop-${idx}`,
+        visitId: visitMatch?.id,
+        lat: point.latitude,
+        lng: point.longitude,
+        color: pc.accent,
+        label: String(stopNumber),
+        popupText,
       };
-      if (map.getSource(ROUTE_SOURCE_ID)) (map.getSource(ROUTE_SOURCE_ID) as mapboxgl.GeoJSONSource).setData(geojson);
-      else {
-        map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: geojson });
-        map.addLayer({
-          id: ROUTE_LAYER_ID,
-          type: "line",
-          source: ROUTE_SOURCE_ID,
-          paint: { "line-color": "#f97316", "line-width": 3, "line-opacity": 0.7 },
-        });
-      }
+    });
 
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current = [];
-      markerElementsRef.current.clear();
-      const allPoints = [routePlan.origin, ...routePlan.stops].filter(Boolean) as Array<Point | RouteStop>;
-      allPoints.forEach((point, idx) => {
-        const isHome = idx === 0 && homeOrigin != null;
-        const stop = point as RouteStop;
+    markerDefsRef.current = markerDefs;
+    renderer.setMarkers(markerDefs);
+    renderer.fitBounds(allPoints.map((p) => ({ lat: p.latitude, lng: p.longitude })));
+  }, [routeSnapshot, routePlan, homeOrigin, dayVisits]);
 
-        let el: HTMLElement;
-        let popupText: string;
-
-        if (isHome) {
-          el = createDotElement("#6b7280", "H");
-          popupText = "Home";
-        } else {
-          const pc = patientColor(stop.patientId);
-          const stopNumber = homeOrigin ? idx : idx + 1;
-          el = createDotElement(pc.accent, String(stopNumber));
-          popupText = `${stopNumber}. ${stop.patientName}\n${stop.patientAddress}\n${new Date(stop.startsAt).toLocaleTimeString([], {
-            hour: "numeric",
-            minute: "2-digit",
-          })} – ${new Date(stop.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-
-          const visitMatch = dayVisits.find(
-            (v) => v.patient_id === stop.patientId && v.starts_at === stop.startsAt,
-          );
-          if (visitMatch) markerElementsRef.current.set(visitMatch.id, el);
-        }
-
-        const marker = new mapbox.Marker({ element: el, anchor: "center" })
-          .setLngLat([point.longitude, point.latitude])
-          .setPopup(new mapbox.Popup({ offset: 12, closeButton: false }).setText(popupText))
-          .addTo(map);
-        markersRef.current.push(marker);
-      });
-
-      const bounds = new mapbox.LngLatBounds();
-      allPoints.forEach((point) => bounds.extend([point.longitude, point.latitude]));
-      if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 40, maxZoom: 13, duration: 500 });
-    };
-    if (map.isStyleLoaded()) draw();
-    else map.once("load", draw);
-  }, [routeSnapshot, routePlan, homeOrigin, dayVisits, clearRenderedRoute]);
-
-  // Highlight selected marker
+  // Highlight selected marker.
   useEffect(() => {
-    markerElementsRef.current.forEach((el, visitId) => {
-      if (visitId === selectedVisitId) {
-        el.style.width = "24px";
-        el.style.height = "24px";
-        el.style.fontSize = "10px";
-        el.style.border = "2.5px solid #4f46e5";
-        el.style.boxShadow = "0 0 0 2px rgba(79,70,229,0.2), 0 1px 4px rgba(0,0,0,0.18)";
-        el.style.zIndex = "10";
-      } else {
-        el.style.width = "22px";
-        el.style.height = "22px";
-        el.style.fontSize = "10px";
-        el.style.border = "2px solid #fff";
-        el.style.boxShadow = "0 1px 4px rgba(0,0,0,0.18)";
-        el.style.zIndex = "";
-      }
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    markerDefsRef.current.forEach((def) => {
+      renderer.setMarkerHighlighted(def.id, def.visitId != null && def.visitId === selectedVisitId);
     });
   }, [selectedVisitId]);
 
@@ -277,6 +245,7 @@ export function useRouteMap({ dayVisits, selectedDate, homeOrigin, selectedVisit
     routeLoading,
     routeSnapshot,
     routeError,
+    mapUnavailable,
     googleMapsUrl,
     appleMapsUrl,
   };

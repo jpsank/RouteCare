@@ -32,12 +32,20 @@ class Patient < ApplicationRecord
 
   def should_geocode?
     return false if skip_geocoding
-    return false if latitude.present? && longitude.present? && !address_changed?
+    return false if latitude.present? && longitude.present? && (coordinates_explicitly_set? || !address_changed?)
     address_changed?
   end
 
   def address_changed?
     address_line1_changed? || city_changed? || state_changed? || postal_code_changed?
+  end
+
+  # True when the caller explicitly assigned lat/lng in this save (create or
+  # update) rather than them being carried over from a prior geocode. Guards
+  # against clobbering deliberately-provided coordinates even when the
+  # address is also changing in the same write.
+  def coordinates_explicitly_set?
+    latitude_changed? || longitude_changed?
   end
 
   def geocode_address

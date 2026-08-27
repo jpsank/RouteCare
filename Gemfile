@@ -55,6 +55,10 @@ gem "image_processing", "~> 2.0"
 gem "ruby-vips", "~> 2.0"
 
 group :development, :test do
+  # Loads .env.local into ENV (loads .env.test[.local] instead when Rails.env.test?,
+  # so local dev secrets never leak into the test run)
+  gem "dotenv-rails"
+
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
 
@@ -77,4 +81,6 @@ group :test do
   # Use system testing [https://guides.rubyonrails.org/testing.html#system-testing]
   gem "capybara"
   gem "selenium-webdriver"
+  # Block real outbound HTTP in tests (e.g. Mapbox/Google geocoding & routing)
+  gem "webmock"
 end

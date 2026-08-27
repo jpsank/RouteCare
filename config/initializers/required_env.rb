@@ -7,8 +7,8 @@ OPTIONAL_ENV_KEYS = {
   "ROUTECARE_TELNYX_API_KEY" => "SMS delivery (Telnyx)",
   "ROUTECARE_TELNYX_FROM_NUMBER" => "SMS sender number (Telnyx)",
   "ROUTECARE_LLM_API_KEY" => "AI-drafted messages",
-  "GOOGLE_MAPS_API_KEY" => "Traffic-aware routing (Google Routes)",
-  "MAPBOX_ACCESS_TOKEN" => "Mapbox routing fallback",
+  "GOOGLE_MAPS_API_KEY" => "Geocoding/routing (Google, used if Mapbox is unset or fails)",
+  "MAPBOX_ACCESS_TOKEN" => "Geocoding/routing (Mapbox, tried first)",
   "GOOGLE_OAUTH_CLIENT_ID" => "Google Calendar sync",
   "GOOGLE_OAUTH_CLIENT_SECRET" => "Google Calendar sync"
 }.freeze
