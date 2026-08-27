@@ -5,12 +5,20 @@ require "tempfile"
 class PatientCsvImporter
   MAX_ROWS = 500
 
-  REQUIRED_FIELDS = %w[full_name phone address_line1 city state postal_code].freeze
+  # Name is required, but can arrive either as a single combined column
+  # (mapped to "full_name" and split via Patient#full_name=) or as separate
+  # "first_name"/"last_name" columns — see name_present?/build_header_map.
+  REQUIRED_FIELDS = %w[phone address_line1 city state postal_code].freeze
 
   # Canonical field => list of normalized aliases (lowercased, alphanumeric only).
   # Matching is normalized both ways so "Full Name", "full-name", "FULLNAME" all hit the same bucket.
+  # "full_name" is listed before "first_name"/"last_name" so that, in the rare
+  # case a sheet has both a combined column and separate columns, the more
+  # specific first/last values win (STRING_FIELDS assignment order below).
   HEADER_ALIASES = {
     "full_name" => %w[fullname name patientname patient client clientname],
+    "first_name" => %w[firstname first fname givenname],
+    "last_name" => %w[lastname last lname surname familyname],
     "phone" => %w[phone phonenumber mobile mobilenumber cell cellphone tel telephone contactnumber],
     "email" => %w[email emailaddress mail],
     "address_line1" => %w[address addressline1 address1 street streetaddress line1 addr],
@@ -61,7 +69,9 @@ class PatientCsvImporter
     raise ArgumentError, "Too many rows (max #{MAX_ROWS})" if table.size > MAX_ROWS
 
     header_map = build_header_map(table.headers)
-    missing = REQUIRED_FIELDS - header_map.values.uniq
+    mapped_fields = header_map.values.uniq
+    missing = REQUIRED_FIELDS - mapped_fields
+    missing << "full_name (or first_name + last_name)" unless name_columns_present?(mapped_fields)
     if missing.any?
       raise ArgumentError, "Missing required column(s): #{missing.join(', ')}"
     end
@@ -76,6 +86,11 @@ class PatientCsvImporter
   end
 
   private
+
+  def name_columns_present?(mapped_fields)
+    mapped_fields.include?("full_name") ||
+      (mapped_fields.include?("first_name") && mapped_fields.include?("last_name"))
+  end
 
   def parse_csv
     CSV.parse(@content, headers: true)
@@ -155,7 +170,7 @@ class PatientCsvImporter
       table.each_with_index do |row, idx|
         row_num = idx + 2  # account for header row
         attrs = extract_attrs(row, header_map)
-        next if attrs["full_name"].blank?
+        next if blank_name?(attrs)
 
         patient = @profile.patients.new(attrs.slice(*STRING_FIELDS))
         patient.skip_geocoding = true
@@ -174,6 +189,16 @@ class PatientCsvImporter
     end
 
     [ imported, errors ]
+  end
+
+  # True when neither a combined name nor both parts of a split name were
+  # present on this row (used to silently skip blank trailing rows).
+  def blank_name?(attrs)
+    if attrs.key?("first_name") || attrs.key?("last_name")
+      attrs["first_name"].blank? && attrs["last_name"].blank?
+    else
+      attrs["full_name"].blank?
+    end
   end
 
   def extract_attrs(row, header_map)

@@ -25,7 +25,8 @@ const schema = z
   .object({
     status: z.enum(STATUSES as [Visit["status"], ...Visit["status"][]]),
     selectedPatient: z.string(),
-    full_name: z.string().trim(),
+    first_name: z.string().trim(),
+    last_name: z.string().trim(),
     phone: z.string().trim(),
     visit_duration_minutes: z.number().int().min(5).max(480),
     required_visits_per_week: z.number().int().min(1).max(7),
@@ -40,7 +41,7 @@ const schema = z
       return;
     }
     if (data.selectedPatient === "new") {
-      for (const field of ["full_name", "phone", "address_line1", "city", "state", "postal_code"] as const) {
+      for (const field of ["first_name", "last_name", "phone", "address_line1", "city", "state", "postal_code"] as const) {
         if (!data[field]) {
           ctx.addIssue({ code: "custom", path: [field], message: "Required" });
         }
@@ -73,7 +74,8 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
     defaultValues: {
       status: "pending_patient_confirmation",
       selectedPatient: "",
-      full_name: "",
+      first_name: "",
+      last_name: "",
       phone: "",
       visit_duration_minutes: 60,
       required_visits_per_week: 2,
@@ -100,7 +102,8 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
     let patientId: number | null = null;
     if (data.selectedPatient === "new") {
       const created = await api.createPatient({
-        full_name: data.full_name,
+        first_name: data.first_name,
+        last_name: data.last_name,
         phone: data.phone,
         address_line1: data.address_line1,
         city: data.city,
@@ -191,9 +194,14 @@ export function AddEventPopover({ patients, position, startInput, onStartInputCh
         {selectedPatient === "new" && (
           <div className="rc-form-grid rounded-lg border border-gray-200 bg-gray-50 p-3">
             <div className="rc-field">
-              <span className="rc-label">Full Name</span>
-              <input {...register("full_name")} />
-              {errorText(errors.full_name?.message)}
+              <span className="rc-label">First Name</span>
+              <input {...register("first_name")} />
+              {errorText(errors.first_name?.message)}
+            </div>
+            <div className="rc-field">
+              <span className="rc-label">Last Name</span>
+              <input {...register("last_name")} />
+              {errorText(errors.last_name?.message)}
             </div>
             <div className="rc-field">
               <span className="rc-label">Phone</span>

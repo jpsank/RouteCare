@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_08_180001) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_27_143235) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -167,7 +167,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_08_180001) do
     t.bigint "clinician_profile_id", null: false
     t.datetime "created_at", null: false
     t.string "email"
-    t.string "full_name", null: false
+    t.string "first_name", null: false
+    t.string "last_name", null: false
     t.decimal "latitude", precision: 10, scale: 6
     t.decimal "longitude", precision: 10, scale: 6
     t.integer "max_days_between_visits", default: 7, null: false

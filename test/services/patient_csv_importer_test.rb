@@ -27,7 +27,7 @@ class PatientCsvImporterTest < ActiveSupport::TestCase
     assert_equal "visit_duration_minutes", mapped["Duration"]
     assert_equal "notes", mapped["Notes"]
 
-    patient = @profile.patients.find_by(full_name: "Alice Chen")
+    patient = @profile.patients.find_by(first_name: "Alice", last_name: "Chen")
     assert_equal "555-123-4567", patient.phone
     assert_equal "alice@example.com", patient.email
     assert_equal 3, patient.required_visits_per_week
@@ -42,6 +42,27 @@ class PatientCsvImporterTest < ActiveSupport::TestCase
     assert_match(/Missing required column/, error.message)
   end
 
+  test "accepts separate First Name / Last Name columns" do
+    csv = <<~CSV
+      First Name,Last Name,Phone,Address,City,State,Zip
+      Bob,Martinez,555-999-0000,50 Elm St,Bentonville,AR,72712
+    CSV
+
+    result = PatientCsvImporter.call(profile: @profile, content: csv)
+
+    assert_equal 1, result.imported
+    assert_empty result.errors
+
+    mapped = result.header_map
+    assert_equal "first_name", mapped["First Name"]
+    assert_equal "last_name", mapped["Last Name"]
+
+    patient = @profile.patients.find_by(first_name: "Bob", last_name: "Martinez")
+    assert patient
+    assert_equal "Bob Martinez", patient.full_name
+    assert_equal "555-999-0000", patient.phone
+  end
+
   test "applies integer defaults when columns absent" do
     csv = <<~CSV
       name,phone,address,city,state,zip
@@ -50,7 +71,7 @@ class PatientCsvImporterTest < ActiveSupport::TestCase
 
     result = PatientCsvImporter.call(profile: @profile, content: csv)
     assert_equal 1, result.imported
-    patient = @profile.patients.find_by(full_name: "Jane Doe")
+    patient = @profile.patients.find_by(first_name: "Jane", last_name: "Doe")
     assert_equal 2, patient.required_visits_per_week
     assert_equal 60, patient.visit_duration_minutes
     assert_equal 1, patient.min_days_between_visits

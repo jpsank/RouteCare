@@ -18,7 +18,8 @@ export type RouteSnapshot = {
 };
 
 export type PatientSavePayload = {
-  full_name: string;
+  first_name: string;
+  last_name: string;
   phone: string;
   email?: string;
   address_line1: string;
@@ -37,7 +38,8 @@ export type PatientSavePayload = {
 };
 
 export type PatientForm = {
-  full_name: string;
+  first_name: string;
+  last_name: string;
   phone: string;
   email: string;
   address_line1: string;
@@ -56,7 +58,8 @@ export type PatientForm = {
 };
 
 export const EMPTY_PATIENT_FORM: PatientForm = {
-  full_name: "",
+  first_name: "",
+  last_name: "",
   phone: "",
   email: "",
   address_line1: "",
@@ -92,7 +95,8 @@ export function localInputToIso(value: string): string {
 
 export function patientFormFromPatient(patient: Patient): PatientForm {
   return {
-    full_name: patient.full_name || "",
+    first_name: patient.first_name || "",
+    last_name: patient.last_name || "",
     phone: patient.phone || "",
     email: patient.email || "",
     address_line1: patient.address_line1 || "",
@@ -113,7 +117,8 @@ export function patientFormFromPatient(patient: Patient): PatientForm {
 
 export function patientPayloadFromForm(form: PatientForm): PatientSavePayload {
   return {
-    full_name: form.full_name.trim(),
+    first_name: form.first_name.trim(),
+    last_name: form.last_name.trim(),
     phone: form.phone.trim(),
     email: form.email.trim() || undefined,
     address_line1: form.address_line1.trim(),
