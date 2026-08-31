@@ -295,3 +295,78 @@ def test_validate_rejects_visit_overlapping_locked_visit():
     # Plan schedules free patient at 10:30-11:00 — overlaps the locked visit
     bad = [_mk_visit("p2_v0", 2, 0, WORKING_DAYS_WEEK[0], 630, 30)]
     _expect_rule(inp, _mk_output(bad), "locked_overlap")
+
+
+# ── Rule: lunch_overlap ──────────────────────────────────────────────
+
+
+def _mk_output_with_lunch(visits: list[PlannedVisit], lunch_placements: dict) -> SolverOutput:
+    placements = {d: {} for d in WORKING_DAYS_WEEK}
+    placements.update(lunch_placements)
+    return SolverOutput(
+        planned_visits=visits,
+        lunch_placements=placements,
+        fitness=0.0,
+        metadata={},
+    )
+
+
+def test_validate_rejects_lunch_overlapping_a_planned_visit():
+    patients = [mk_patient(1, "A", dur=60)]
+    instances = [mk_instance("p1_v0", 1, dur=60)]
+    inp = make_input(patients, instances)
+    # Visit 12:00-13:00, lunch stamped right on top of it at 12:15-12:45
+    visits = [_mk_visit("p1_v0", 1, 0, WORKING_DAYS_WEEK[0], 720, 60)]
+    out = _mk_output_with_lunch(
+        visits,
+        {WORKING_DAYS_WEEK[0]: {"start_minute": 735, "end_minute": 765}},
+    )
+    _expect_rule(inp, out, "lunch_overlap")
+
+
+def test_validate_rejects_lunch_overlapping_a_locked_visit():
+    patients = [mk_patient(1, "Fixed", dur=60)]
+    instances = []
+    locked = [LockedVisitData(
+        patient_id=1, clinician_idx=0, date=WORKING_DAYS_WEEK[0],
+        starts_at=f"{WORKING_DAYS_WEEK[0]}T09:00:00",
+        ends_at=f"{WORKING_DAYS_WEEK[0]}T10:00:00",
+        duration_minutes=60,
+    )]
+    inp = make_input(patients, instances, locked_visits=locked)
+    out = _mk_output_with_lunch(
+        [],
+        {WORKING_DAYS_WEEK[0]: {"start_minute": 540, "end_minute": 570}},
+    )
+    _expect_rule(inp, out, "lunch_overlap")
+
+
+def test_lunch_overlap_is_not_enforced_with_multiple_clinicians():
+    """lunch_placements is keyed by date only, not (clinician, date), so with
+    multiple clinicians one clinician's lunch can legitimately share a date
+    with another clinician's visit. Enforcing overlap here would false-positive
+    on that — scoped off until lunch_placements is keyed per clinician (tracked
+    as part of the separate multi-clinician support plan)."""
+    from models import ClinicianData
+
+    patients = [mk_patient(1, "A", dur=60)]
+    instances = [mk_instance("p1_v0", 1, dur=60)]
+    inp = make_input(patients, instances, clinicians=[ClinicianData(), ClinicianData()])
+    visits = [_mk_visit("p1_v0", 1, 0, WORKING_DAYS_WEEK[0], 720, 60)]
+    out = _mk_output_with_lunch(
+        visits,
+        {WORKING_DAYS_WEEK[0]: {"start_minute": 735, "end_minute": 765}},
+    )
+    validate_plan(out, inp)  # should not raise despite the literal overlap
+
+
+def test_validate_passes_when_lunch_is_clear_of_visits():
+    patients = [mk_patient(1, "A", dur=60)]
+    instances = [mk_instance("p1_v0", 1, dur=60)]
+    inp = make_input(patients, instances)
+    visits = [_mk_visit("p1_v0", 1, 0, WORKING_DAYS_WEEK[0], 540, 60)]
+    out = _mk_output_with_lunch(
+        visits,
+        {WORKING_DAYS_WEEK[0]: {"start_minute": 720, "end_minute": 750}},
+    )
+    validate_plan(out, inp)  # should not raise

@@ -101,6 +101,24 @@ class Scheduling::RetimerTest < ActiveSupport::TestCase
     end
   end
 
+  test "fallback lunch placement avoids a locked visit sitting in the preferred window" do
+    Time.use_zone("America/New_York") do
+      # Visit finishes well before the lunch window opens, so lunch is never
+      # inserted mid-loop and falls to the post-loop fallback placement.
+      locked_start = Time.zone.parse("#{@date} 12:00")
+      locked_visit = Struct.new(:starts_at, :ends_at).new(locked_start, locked_start + 30.minutes)
+
+      slots = [ { patient: @patient_a, duration: 45 } ]
+      lunch_config = { earliest_start: 720, latest_start: 780, duration: 30 }
+      result = build_retimer(lunch_config: lunch_config, locked_visits: [ locked_visit ]).call(slots, @date)
+
+      assert result[:lunch]
+      lunch_start = result[:lunch][:start_minute]
+      lunch_end = result[:lunch][:end_minute]
+      refute(lunch_start < 750 && lunch_end > 720, "lunch [#{lunch_start},#{lunch_end}) should avoid locked visit [720,750)")
+    end
+  end
+
   test "unavailable window does not affect an unrelated patient" do
     Time.use_zone("America/New_York") do
       @patient_a.patient_availability_windows.create!(
@@ -123,11 +141,12 @@ class Scheduling::RetimerTest < ActiveSupport::TestCase
     lunch_config: nil,
     max_continuous_work_minutes: nil,
     required_break_minutes: 15,
-    charting_buffer_minutes: 0
+    charting_buffer_minutes: 0,
+    locked_visits: []
   )
     Scheduling::Retimer.new(
       travel_matrix: @travel_matrix,
-      locked_visits: [],
+      locked_visits: locked_visits,
       lunch_config: lunch_config,
       day_start_minute: day_start_minute,
       day_end_minute: day_end_minute,

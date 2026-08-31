@@ -96,13 +96,44 @@ class Scheduling::FeasibilityCheckerTest < ActiveSupport::TestCase
     end
   end
 
+  test "detects lunch overlapping a scheduled visit" do
+    Time.use_zone("America/New_York") do
+      starts_at = Time.zone.parse("#{@date} 12:00")
+      day_routes = {
+        @date => [ { patient: @patient_a, starts_at: starts_at, ends_at: starts_at + 45.minutes, instance_id: @instances[0].id, drive_from_previous_minutes: 0 } ]
+      }
+      # Lunch stamped right on top of the 12:00-12:45 visit
+      lunch = { @date => { start_minute: 720, end_minute: 750 } }
+
+      result = build_checker.check(day_routes: day_routes, lunch_placements: lunch)
+      refute result.feasible
+      assert result.violations.any? { |v| v.constraint == :lunch_overlap }
+    end
+  end
+
+  test "detects lunch overlapping a fixed node (locked visit or calendar block)" do
+    Time.use_zone("America/New_York") do
+      starts_at = Time.zone.parse("#{@date} 09:00")
+      day_routes = {
+        @date => [ { patient: @patient_a, starts_at: starts_at, ends_at: starts_at + 45.minutes, instance_id: @instances[0].id, drive_from_previous_minutes: 0 } ]
+      }
+      fixed_starts_at = Time.zone.parse("#{@date} 12:00")
+      fixed_nodes = [ { id: "locked_1", date: @date, starts_at: fixed_starts_at, ends_at: fixed_starts_at + 60.minutes } ]
+      lunch = { @date => { start_minute: 720, end_minute: 750 } }
+
+      result = build_checker(fixed_nodes: fixed_nodes).check(day_routes: day_routes, lunch_placements: lunch)
+      refute result.feasible
+      assert result.violations.any? { |v| v.constraint == :lunch_overlap }
+    end
+  end
+
   private
 
-  def build_checker(instances: @instances)
+  def build_checker(instances: @instances, fixed_nodes: [])
     Scheduling::FeasibilityChecker.new(
       travel_matrix: @travel_matrix,
       clinician_profile: @profile,
-      fixed_nodes: [],
+      fixed_nodes: fixed_nodes,
       instances: instances
     )
   end

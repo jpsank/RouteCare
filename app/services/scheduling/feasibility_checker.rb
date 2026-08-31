@@ -221,7 +221,41 @@ module Scheduling
         if lunch[:start_minute] < earliest || lunch[:end_minute] > latest
           violations << Violation.new(constraint: :lunch_exists, node_id: "day_#{date}", message: "Lunch at #{lunch[:start_minute]}-#{lunch[:end_minute]} outside window #{earliest}-#{latest}")
         end
+
+        violations.concat(check_lunch_overlap(date, lunch, day_routes[date]))
       end
+      violations
+    end
+
+    # Lunch must never overlap a scheduled visit or a fixed node (locked visit / calendar block)
+    def check_lunch_overlap(date, lunch, slots)
+      violations = []
+
+      slots.each do |slot|
+        start_min = minute_of_day(slot[:starts_at])
+        end_min = minute_of_day(slot[:ends_at])
+        next unless lunch[:start_minute] < end_min && lunch[:end_minute] > start_min
+
+        node_id = slot[:instance_id] || "visit_#{slot[:patient].id}_#{date}"
+        violations << Violation.new(
+          constraint: :lunch_overlap,
+          node_id: node_id,
+          message: "Lunch [#{lunch[:start_minute]},#{lunch[:end_minute]}) overlaps visit on #{date}"
+        )
+      end
+
+      @fixed_nodes.select { |f| f[:date] == date }.each do |fixed|
+        fixed_start = minute_of_day(fixed[:starts_at])
+        fixed_end = minute_of_day(fixed[:ends_at])
+        next unless lunch[:start_minute] < fixed_end && lunch[:end_minute] > fixed_start
+
+        violations << Violation.new(
+          constraint: :lunch_overlap,
+          node_id: "day_#{date}",
+          message: "Lunch [#{lunch[:start_minute]},#{lunch[:end_minute]}) overlaps fixed node #{fixed[:id]}"
+        )
+      end
+
       violations
     end
 

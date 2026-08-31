@@ -60,6 +60,55 @@ def _minute_from_iso(iso: str) -> int:
     return dt.hour * 60 + dt.minute
 
 
+def _lunch_obstacles(locked_stops: list[dict], calendar_blocks: list) -> list[tuple[int, int]]:
+    """Fixed-time intervals lunch must not be placed on top of."""
+    obstacles = [
+        (ls["start_min"], ls["start_min"] + ls["duration"] + ls["charting"])
+        for ls in locked_stops
+    ]
+    for cb in calendar_blocks:
+        cb_start = datetime_to_minute(cb.starts_at)
+        cb_end = datetime_to_minute(cb.ends_at)
+        if cb_end > cb_start:
+            obstacles.append((cb_start, cb_end))
+    return obstacles
+
+
+def _pick_lunch_slot(
+    lunch_earliest: int,
+    lunch_latest: int,
+    lunch_dur: int,
+    day_start: int,
+    day_end: int,
+    lunch_target: int,
+    obstacles: list[tuple[int, int]],
+) -> int | None:
+    """Pick a SLOT_STEP-aligned lunch start minute that doesn't overlap any
+    obstacle (a locked visit or calendar block).  Prefers a slot inside
+    [lunch_earliest, lunch_latest] closest to lunch_target; falls back to
+    searching the full day if the preferred window is entirely blocked.
+    Returns None if no slot fits anywhere in the day — the caller should
+    skip lunch entirely rather than overlap a fixed obstacle.
+    """
+
+    def fits(start: int) -> bool:
+        end = start + lunch_dur
+        return all(end <= o_start or start >= o_end for o_start, o_end in obstacles)
+
+    def best_in_range(lo: int, hi: int) -> int | None:
+        lo = round_up(lo, SLOT_STEP)
+        feasible = [c for c in range(lo, hi + 1, SLOT_STEP) if fits(c)]
+        return min(feasible, key=lambda c: abs(c - lunch_target)) if feasible else None
+
+    if not obstacles:
+        return round_up(lunch_earliest, SLOT_STEP)
+
+    slot = best_in_range(lunch_earliest, lunch_latest)
+    if slot is not None:
+        return slot
+    return best_in_range(day_start, day_end - lunch_dur)
+
+
 def cpsat_time_vehicle_route(
     vehicle: VehicleDef,
     instances: list[VisitInstanceData],
@@ -102,14 +151,20 @@ def cpsat_time_vehicle_route(
         )
     locked_stops.sort(key=lambda s: s["start_min"])
 
-    if not instances and not locked_stops:
-        lunch_start = round_up(lunch_earliest, SLOT_STEP)
-        lunch = (
-            {"start_minute": lunch_start, "end_minute": lunch_start + lunch_dur}
-            if need_lunch
-            else None
+    calendar_blocks = ctx.calendar_blocks_by_vehicle.get(vkey, [])
+    lunch_obstacles = _lunch_obstacles(locked_stops, calendar_blocks)
+
+    def _placed_lunch() -> dict | None:
+        if not need_lunch:
+            return None
+        slot = _pick_lunch_slot(
+            lunch_earliest, lunch_latest, lunch_dur, day_start, day_end,
+            lunch_target, lunch_obstacles
         )
-        return TimedRoute(vehicle_idx=vehicle.vehicle_idx, lunch=lunch)
+        return {"start_minute": slot, "end_minute": slot + lunch_dur} if slot is not None else None
+
+    if not instances and not locked_stops:
+        return TimedRoute(vehicle_idx=vehicle.vehicle_idx, lunch=_placed_lunch())
 
     if not instances:
         drive_cost = 0
@@ -118,15 +173,9 @@ def cpsat_time_vehicle_route(
             drive_cost += travel(prev, str(ls["patient_id"]))
             prev = str(ls["patient_id"])
         drive_cost += travel(prev, home_key)
-        lunch_start = round_up(lunch_earliest, SLOT_STEP)
-        lunch = (
-            {"start_minute": lunch_start, "end_minute": lunch_start + lunch_dur}
-            if need_lunch
-            else None
-        )
         return TimedRoute(
             vehicle_idx=vehicle.vehicle_idx,
-            lunch=lunch,
+            lunch=_placed_lunch(),
             drive_cost=drive_cost,
             total_cost=drive_cost,
         )
@@ -178,13 +227,7 @@ def cpsat_time_vehicle_route(
         dropped = [
             {"instance_id": inst.id, "reason": "drive_limit"} for inst in instances
         ]
-        lunch_start = round_up(lunch_earliest, SLOT_STEP)
-        lunch = (
-            {"start_minute": lunch_start, "end_minute": lunch_start + lunch_dur}
-            if need_lunch
-            else None
-        )
-        return TimedRoute(vehicle_idx=vehicle.vehicle_idx, lunch=lunch, dropped=dropped)
+        return TimedRoute(vehicle_idx=vehicle.vehicle_idx, lunch=_placed_lunch(), dropped=dropped)
 
     # ── Availability windows ─────────────────────────────────────────
 
@@ -487,14 +530,8 @@ def cpsat_time_vehicle_route(
         dropped = [
             {"instance_id": inst.id, "reason": "cpsat_infeasible"} for inst in instances
         ]
-        lunch_start = round_up(lunch_earliest, SLOT_STEP)
-        lunch_pl = (
-            {"start_minute": lunch_start, "end_minute": lunch_start + lunch_dur}
-            if need_lunch
-            else None
-        )
         return TimedRoute(
-            vehicle_idx=vehicle.vehicle_idx, lunch=lunch_pl, dropped=dropped
+            vehicle_idx=vehicle.vehicle_idx, lunch=_placed_lunch(), dropped=dropped
         )
 
     # ── Extract solution ─────────────────────────────────────────────

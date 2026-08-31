@@ -129,13 +129,32 @@ module Scheduling
       end
 
       if @lunch_config && !lunch_taken
-        lunch_placement = { start_minute: @lunch_config[:earliest_start], end_minute: @lunch_config[:earliest_start] + @lunch_config[:duration] }
+        lunch_placement = find_lunch_slot(locked_ranges, date)
       end
 
       { slots: retimed, lunch: lunch_placement, feasible: true }
     end
 
     private
+
+    # Finds a lunch slot within the configured window that doesn't overlap a
+    # locked visit. Falls back to the preferred (earliest) slot if the whole
+    # window is blocked — this only happens when the day has no free time
+    # left at all, which other capacity checks should already have caught.
+    def find_lunch_slot(locked_ranges, date)
+      duration = @lunch_config[:duration]
+      candidates = (@lunch_config[:earliest_start]..@lunch_config[:latest_start]).step(SLOT_STEP_MINUTES).to_a
+      candidates = [ @lunch_config[:earliest_start] ] if candidates.empty?
+
+      fit = candidates.find do |start|
+        proposed_start = Time.zone.parse("#{date} #{minute_to_hhmm(start)}")
+        proposed_end = proposed_start + duration.minutes
+        locked_ranges.none? { |range| proposed_start < range.end && proposed_end > range.begin }
+      end
+      fit ||= candidates.first
+
+      { start_minute: fit, end_minute: fit + duration }
+    end
 
     def compute_transit(previous_patient_id, patient)
       if previous_patient_id.nil?
