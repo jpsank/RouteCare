@@ -218,3 +218,39 @@ def validate_plan(output: SolverOutput, input: SolverInput) -> None:
                     "locked_overlap",
                     f"planned {v.instance_id} overlaps locked patient {lv.patient_id}",
                 )
+
+    # ── 10. Lunch never overlaps a visit ─────────────────────────
+    # lunch_placements is keyed by date only, not (clinician, date) — with
+    # multiple clinicians working the same date, one clinician's correct
+    # lunch placement can get silently overwritten by another's in
+    # _build_lunch_placements, which would make this check fire on a false
+    # positive (comparing clinician A's lunch against clinician B's visits).
+    # Multi-clinician support is tracked as a separate future plan that
+    # needs to key lunch_placements per clinician; until then, only
+    # enforce this for the single-clinician case that's actually in
+    # production today.
+    for date, lunch in (output.lunch_placements.items() if n_clinicians <= 1 else []):
+        if not lunch or "start_minute" not in lunch or "end_minute" not in lunch:
+            continue
+        l_start = int(lunch["start_minute"])
+        l_end = int(lunch["end_minute"])
+        for v in output.planned_visits:
+            if v.date != date:
+                continue
+            vs = _dt_min(v.starts_at)
+            ve = _dt_min(v.ends_at)
+            if vs < l_end and ve > l_start:
+                raise ValidationError(
+                    "lunch_overlap",
+                    f"lunch [{l_start},{l_end}) on {date} overlaps planned visit {v.instance_id}",
+                )
+        for lv in input.locked_visits:
+            if lv.date != date:
+                continue
+            lv_start = _dt_min(lv.starts_at)
+            lv_end = lv_start + lv.duration_minutes
+            if lv_start < l_end and lv_end > l_start:
+                raise ValidationError(
+                    "lunch_overlap",
+                    f"lunch [{l_start},{l_end}) on {date} overlaps locked patient {lv.patient_id}",
+                )

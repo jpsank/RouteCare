@@ -58,9 +58,11 @@ def _run_concrete_timing(
     timed: dict[int, TimedRoute] = {}
     for (c_idx, d_idx), route in routes.items():
         vehicle = ctx.vehicle_by_key[(c_idx, d_idx)]
-        if not route.ordered:
-            timed[vehicle.vehicle_idx] = TimedRoute(vehicle_idx=vehicle.vehicle_idx)
-            continue
+        # Always go through cpsat_time_vehicle_route, even with zero routed
+        # instances — it still needs to place lunch around this vehicle's
+        # locked visits and calendar blocks. A bare empty TimedRoute() skips
+        # that and lets _build_lunch_placements's naive per-date default
+        # stamp lunch on top of whatever's already on the schedule.
         instances = [ctx.instances_by_id[iid] for iid in route.ordered]
         timed[vehicle.vehicle_idx] = cpsat_time_vehicle_route(
             vehicle, instances, input, ctx
