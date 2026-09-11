@@ -51,7 +51,7 @@ gem "thruster", require: false
 # image_processing 2.x no longer bundles a backend gem; Rails 8.1's new framework defaults set
 # `config.active_storage.variant_processor = :vips` (see config/application.rb's `load_defaults 8.1`),
 # so ruby-vips (backed by the native libvips library) must be added explicitly.
-gem "image_processing", "~> 2.0"
+gem "image_processing", "~> 2.1"
 gem "ruby-vips", "~> 2.0"
 
 group :development, :test do
